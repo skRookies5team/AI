@@ -1,0 +1,19 @@
+[project]
+name = "ai-module"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ruff>=0.14.3",
+    "pandas>=2.2.2",
+    "python-dateutil>=2.9.0.post0",
+    "langgraph>=0.2.20",
+    "pydantic>=2.9.2",
+    "python-docx>=1.1.2",
+    "requests>=2.32.3",
+    "beautifulsoup4>=4.12.3",
+    "langchain-openai>=0.2.7",
+    "pymilvus>=2.4.6",
+    "pypdf>=4.3.1",
+]
