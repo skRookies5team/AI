@@ -26,6 +26,11 @@ def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaInten
     t = user_text.strip()
     import re as _re
     
+    # 이메일 검색 연속 요청 체크 (이전 검색 결과가 있는 경우)
+    # "더 찾아줘", "계속 검색", "더 검색" 등의 요청은 이전 이메일 검색의 연속
+    if has_pending_email_results(session_id) and any(k in t.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘"]):
+        return QaIntent(kind="email", details=t)
+    
     # 명확한 다른 의도 키워드가 있으면 우선 처리 (이메일 검색 결과가 있어도)
     # 식단/메뉴 관련 키워드 우선 체크
     if any(k in t for k in ["식단", "메뉴", "구내식당", "점심", "저녁", "아침", "식사", "밥"]):

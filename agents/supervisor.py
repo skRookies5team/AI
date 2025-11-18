@@ -82,13 +82,19 @@ def classify(state: ConversationState) -> ConversationState:
 			state.route = "qa"
 			return state
 	
+	# 이메일 검색 연속 요청 체크 (이전 검색 결과가 있는 경우) - 우선 처리
+	# "더 찾아줘", "계속 검색", "더 검색" 등의 요청은 이전 이메일 검색의 연속
+	from .email_search_agent import has_pending_email_results
+	if has_pending_email_results(session_id) and any(k in t.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘"]):
+		state.route = "qa"
+		return state
+	
 	# 숫자로 시작 + 제목 + "에 대해 자세히" 패턴 체크 (이메일 상세 요청)
 	# 예: "355. 육아휴직 연장 안내의 건에 대해 자세히 알려줘"
 	# 단, 다른 명확한 의도 키워드가 없을 때만
 	if re.match(r"^\d+\.?\s*", t) and any(k in t for k in ["에 대해", "에대해", "자세히", "상세히"]):
 		# 다른 명확한 의도가 없을 때만 이메일로
 		if not any(k in t for k in ["점심", "저녁", "메뉴", "식단", "구내식당", "일", "월", "년"]):
-			from .email_search_agent import has_pending_email_results
 			if has_pending_email_results(session_id):
 				state.route = "qa"
 				return state
@@ -113,7 +119,6 @@ def classify(state: ConversationState) -> ConversationState:
 			except Exception:
 				pass
 			# 이메일 검색 결과가 있으면 qa로 (이메일 상세 요청)
-			from .email_search_agent import has_pending_email_results
 			if has_pending_email_results(session_id):
 				state.route = "qa"
 				return state
