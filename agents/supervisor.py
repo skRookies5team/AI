@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ class ConversationState(BaseModel):
 	route: Optional[Literal["schedule", "document", "qa", "tech", "unknown"]] = Field(default=None)
 	result: Optional[dict] = Field(default=None)
 	session_id: Optional[str] = Field(default=None)
+	context: Dict[str, Any] = Field(default_factory=dict)
 
 
 def classify(state: ConversationState) -> ConversationState:
@@ -28,6 +29,32 @@ def classify(state: ConversationState) -> ConversationState:
 	t = state.query.strip()
 	import re
 	session_id = state.session_id if hasattr(state, 'session_id') else None
+
+	if session_id:
+		memory = _CONVERSATION_MEMORY.get(session_id, {})
+		pending_field = memory.get("pending_field")
+		pending_intent = memory.get("pending_intent")
+		if pending_field and pending_intent in {"예약", "수정", "취소", "조회"}:
+			state.context.update(memory)
+			state.route = "schedule"
+			return state
+	
+	# 예약 컨텍스트가 명시적으로 제공된 경우 회의실 워크플로로 전달
+	if state.context.get("reservation"):
+		state.route = "schedule"
+		return state
+	
+	update_keywords = ["수정", "변경", "바꿔", "업데이트", "재조정", "modify", "update", "reschedule", "adjust"]
+	if any(keyword in t for keyword in update_keywords):
+		state.context["action"] = "update"
+		state.route = "schedule"
+		return state
+	
+	cancel_keywords = ["취소", "cancel", "취소해", "취소해줘", "취소해주세요"]
+	if any(keyword in t for keyword in cancel_keywords):
+		state.context["action"] = "cancel"
+		state.route = "schedule"
+		return state
 	
 	# 특허 번호 패턴 감지 (10자리 이상 숫자 또는 특허 번호 + "에 대해 자세히" 등) - 우선 체크
 	# 특허 번호는 보통 10자리 이상의 숫자입니다
@@ -183,7 +210,10 @@ def classify(state: ConversationState) -> ConversationState:
 
 
 def run_schedule(state: ConversationState) -> ConversationState:
-	state.result = schedule_master(state.query)
+	context: Dict[str, Any] = dict(getattr(state, "context", {}) or {})
+	if state.session_id:
+		context["session_id"] = state.session_id
+	state.result = schedule_master(state.query, context=context)
 	return state
 
 
@@ -268,22 +298,45 @@ def build_graph() -> StateGraph:
 	return graph
 
 
-def run_supervisor(query: str, session_id: Optional[str] = None) -> dict:
+def run_supervisor(
+	query: str,
+	session_id: Optional[str] = None,
+	context: Optional[Dict[str, Any]] = None,
+) -> dict:
 	"""Supervisor 실행: 메모리 기능을 통한 멀티턴 대화 지원.
 	
 	Args:
 		query: 사용자 질의
 		session_id: 대화 세션 ID (메모리 관리를 위해 사용)
+		context: 추가 컨텍스트 (예: 예약 정보)
 		
 	Returns:
 		에이전트 실행 결과
 	"""
 	workflow = build_graph().compile()
-	state = {"query": query, "session_id": session_id}
+	state = {
+		"query": query,
+		"session_id": session_id,
+		"context": context or {},
+	}
 	out = workflow.invoke(state)
 	# LangGraph invoke는 dict 상태를 반환할 수 있음
 	if isinstance(out, dict):
-		return out.get("result") or {}
+		result = out.get("result") or {}
+		if session_id:
+			memory_payload = {
+				"reservation_candidate": result.get("reservation_candidate"),
+				"lookup_candidate": result.get("lookup_candidate"),
+				"pending_field": result.get("pending_field"),
+				"pending_intent": result.get("pending_intent"),
+			}
+			if any(memory_payload.values()):
+				_CONVERSATION_MEMORY[session_id] = memory_payload
+			elif session_id in _CONVERSATION_MEMORY:
+				_CONVERSATION_MEMORY.pop(session_id, None)
+		for key in ("reservation_candidate", "lookup_candidate", "pending_field", "pending_intent"):
+			result.pop(key, None)
+		return result
 	# 혹시 모델 객체가 온 경우 대비
 	if hasattr(out, "result"):
 		return getattr(out, "result") or {}

@@ -16,4 +16,5 @@ dependencies = [
     "langchain-openai>=0.2.7",
     "pymilvus>=2.4.6",
     "pypdf>=4.3.1",
+    "playwright>=1.56.0",
 ]

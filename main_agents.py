@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from agents.supervisor import run_supervisor
+import argparse
+import logging
 import uuid
+from typing import Any, Dict, Optional
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from agents.supervisor import run_supervisor
 
 
 def _fmt_num(n):
@@ -151,5 +158,139 @@ def chat_loop() -> None:
 		print("에이전트>", format_result(result))
 
 
+logger = logging.getLogger(__name__)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., description="사용자 질의")
+    reservation: Dict[str, Any] | None = Field(
+        default=None,
+        description="예약 정보 (예약/취소/수정 시 사용)",
+    )
+    context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="추가 컨텍스트",
+    )
+
+
+class ChatResponse(BaseModel):
+    intent: Optional[str] = Field(default=None, description="추론된 의도")
+    response: str = Field(description="응답 메시지")
+    state: Dict[str, Any] | None = Field(default=None, description="상태 정보")
+
+
+app = FastAPI(
+    title="통합 AI 에이전트 API",
+    description="회의실 + 연차 + QA + 문서 + 특허/논문 통합 에이전트",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+async def root() -> Dict[str, Any]:
+    return {
+        "message": "통합 AI 에이전트 서버",
+        "status": "running",
+        "version": "1.0.0",
+        "agents": ["schedule", "document", "qa", "tech"],
+    }
+
+
+@app.get("/health")
+async def health() -> Dict[str, str]:
+    return {"status": "healthy"}
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    logger.info(
+        "📥 요청 수신: message=%s, reservation=%s",
+        request.message,
+        request.reservation is not None,
+    )
+
+    session_id = str(uuid.uuid4())
+
+    full_context = request.context.copy()
+    if request.reservation:
+        full_context["reservation"] = request.reservation
+        logger.info("📋 예약 정보 추가: %s", request.reservation)
+
+    result = run_supervisor(
+        request.message,
+        session_id=session_id,
+        context=full_context,
+    )
+
+    if isinstance(result, dict):
+        intent = result.get("intent")
+        message = result.get("message", str(result))
+
+        logger.info("✅ 응답 생성: intent=%s", intent)
+
+        return ChatResponse(
+            intent=intent,
+            response=message,
+            state=result,
+        )
+
+    return ChatResponse(
+        intent=None,
+        response=str(result),
+        state={"raw": result},
+    )
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+
+    parser = argparse.ArgumentParser(description="통합 AI 에이전트 실행기")
+    parser.add_argument(
+        "--mode",
+        choices=["cli", "api"],
+        default="cli",
+        help="cli: 터미널 대화 모드 / api: FastAPI 서버 모드",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="API 서버 호스트 (mode=api일 때만 사용)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="API 서버 포트 (mode=api일 때만 사용)",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="uvicorn reload 옵션 활성화 (mode=api일 때만)",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "cli":
+        chat_loop()
+        return
+
+    import uvicorn
+
+    uvicorn.run(
+        "main_agents:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )
+
+
 if __name__ == "__main__":
-    chat_loop()
+    main()
