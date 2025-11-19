@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from agents.supervisor import run_supervisor
+from agents.tech_patent_agent import set_progress_callback
 import argparse
 import logging
 import uuid
@@ -35,27 +37,36 @@ def format_result(result) -> str:
         
         if "message" in result and isinstance(result["message"], str):
             # items가 있으면 메시지와 함께 나열 (검색 결과)
-            lines = [result["message"]]
+            message_text = result["message"]
+            lines = [message_text]
             items = result.get("items", [])
             
             if isinstance(items, list) and items:
                 # 특허 검색 결과 형식
                 if items and "index" in items[0] and "application_number" in items[0]:
-                    lines.append("")  # 빈 줄 추가
-                    for it in items:
-                        idx = it.get("index", "")
-                        app_no = it.get("application_number", "")
-                        title = it.get("title", "제목 없음")
-                        abstract = it.get("abstract", "")
-                        lines.append(f"{idx}. [{app_no}] {title}")
-                        if abstract:
-                            # 초록이 너무 길면 자르기
-                            abstract_preview = abstract[:150] + "..." if len(abstract) > 150 else abstract
-                            lines.append(f"   📄 {abstract_preview}")
-                    
-                    # 특허 상세 보기 안내 (더 자연스럽게)
-                    lines.append("")
-                    lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번' 또는 '1번 상세'")
+                    # message에 이미 검색 결과가 포함되어 있는지 확인
+                    # (message에 첫 번째 특허의 application_number가 포함되어 있으면 이미 출력된 것으로 간주)
+                    first_item = items[0]
+                    first_app_no = first_item.get("application_number", "")
+                    first_title = first_item.get("title", "")
+
+                    # message에 이미 검색 결과 목록이 포함되어 있지 않은 경우에만 items 출력
+                    if first_app_no and first_app_no not in message_text and first_title and first_title not in message_text:
+                        lines.append("")  # 빈 줄 추가
+                        for it in items:
+                            idx = it.get("index", "")
+                            app_no = it.get("application_number", "")
+                            title = it.get("title", "제목 없음")
+                            abstract = it.get("abstract", "")
+                            lines.append(f"{idx}. [{app_no}] {title}")
+                            if abstract:
+                                # 초록이 너무 길면 자르기
+                                abstract_preview = abstract[:150] + "..." if len(abstract) > 150 else abstract
+                                lines.append(f"   📄 {abstract_preview}")
+
+                        # 특허 상세 보기 안내 (더 자연스럽게)
+                        lines.append("")
+                        lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,2,5' 또는 '1 2 5'")
                 
                 # 이메일 검색 결과 형식
                 elif items and ("subject" in items[0] or "title" in items[0]):
@@ -127,7 +138,7 @@ def format_result(result) -> str:
             days = _fmt_num(r.get("total_days", 0))
             lt = r.get("leave_type", "연차")
             s = r.get("status", "대기")
-            
+
             start = r.get("start_date", "?")
             end = r.get("end_date", "?")
             emp = r.get("employee_id", "?")
@@ -147,6 +158,14 @@ def format_result(result) -> str:
 def chat_loop() -> None:
 	"""대화 루프: 메모리 기능을 통해 멀티턴 대화 지원."""
 	print("Super Supervisor 대화 시작. 종료하려면 'exit' 입력.")
+
+	# 진행 상황 콜백 설정 (실시간 진행 상황 표시)
+	def progress_handler(message: str) -> None:
+		"""진행 상황 메시지를 실시간으로 표시."""
+		print(f"⏳ {message}", flush=True)
+
+	set_progress_callback(progress_handler)
+
 	# 세션 ID 생성 (대화 세션별 메모리 관리)
 	session_id = str(uuid.uuid4())
 	
