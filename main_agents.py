@@ -103,6 +103,7 @@ def format_result(result) -> str:
                 if "[참고 문서]" not in message_text and "[참고" not in message_text:
                     lines.append("")
                     lines.append("📚 참고 문서:")
+                    for i, ctx in enumerate(result["contexts"][:3], 1):
                         preview = ctx[:150] + "..." if len(ctx) > 150 else ctx
                         lines.append(f"  {i}. {preview}")
             
