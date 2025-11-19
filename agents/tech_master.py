@@ -308,6 +308,18 @@ def parse_tech_intent(user_text: str, session_id: Optional[str] = None) -> TechI
             # 특허 검색 결과가 없어도 숫자 선택 패턴이면 특허 검색으로 (기본값)
             return TechIntent(kind="patent", keyword=None, details=t)
     
+    # 단일 숫자 입력 (예: "4", "1", "10") - 특허 선택 패턴 (우선 처리)
+    if re.fullmatch(r"\d+", t):
+        # 특허 검색 결과가 있으면 특허 검색으로
+        from .tech_patent_agent import has_pending_patent_results
+        if has_pending_patent_results(session_id):
+            return TechIntent(kind="patent", keyword=None, details=t)
+        # 논문 검색 결과가 있으면 논문 검색으로
+        if has_pending_article_results(session_id):
+            return TechIntent(kind="article", keyword=None, details=t)
+        # 검색 결과가 없어도 숫자만 있으면 특허 검색으로 (기본값)
+        return TechIntent(kind="patent", keyword=None, details=t)
+    
     # 논문 상세 요청 패턴 체크 (우선 처리)
     # "1번에 대해 알려줘", "1번 상세", "1번 자세히" 같은 패턴
     if re.match(r"^\d+", t) and any(k in t for k in ["번", "에 대해", "에대해", "알려줘", "자세히", "상세"]):

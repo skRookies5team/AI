@@ -727,6 +727,16 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         try:
             target_collection = Collection(collection_name)
             target_collection.load()
+            
+            # 컬렉션에 데이터가 있는지 확인
+            from pymilvus import utility
+            if not utility.has_collection(collection_name):
+                return []
+            
+            # 컬렉션의 엔티티 수 확인 (데이터가 없으면 빈 리스트 반환)
+            num_entities = target_collection.num_entities
+            if num_entities == 0:
+                return []
         except Exception:
             return []
         
@@ -756,6 +766,10 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
             expr=expr,  # 키워드 필터링 (필드가 있을 때만)
             output_fields=output_fields
         )
+        
+        # 검색 결과가 비어있는지 확인
+        if not results or len(results) == 0 or len(results[0]) == 0:
+            return []
         
         found_patents = []
         seen_app_nos = set()
@@ -926,6 +940,7 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
     # 거리 임계값을 더 완화하여 검색 (1.5로 증가)
     results = check_vector_db(query, limit=5, max_distance=1.5, filter_keyword=filter_keyword)
     
+    # 결과가 있고 유효한 경우에만 처리
     if results and len(results) > 0:
         best_score = results[0]["score"]
         query_lower = query.lower()
@@ -945,15 +960,16 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
             if full_match or word_match:
                 relevant_results.append(patent)
         
-        # 조건 완화: best_score <= 1.5 또는 (best_score <= 2.0 and relevant_results) 또는 결과가 있으면 사용
-        if best_score <= 1.5 or (best_score <= 2.0 and relevant_results) or len(results) > 0:
+        # 조건: best_score가 합리적인 범위 내에 있고, 관련 결과가 있거나 거리가 충분히 가까운 경우만 사용
+        # max_distance가 1.5이므로 best_score가 1.5 이하인 경우만 유효한 결과로 간주
+        if best_score <= 1.5 and (relevant_results or best_score <= 1.0):
             # 관련 결과가 있으면 우선 사용, 없으면 거리 기준으로 사용
             state["vector_db_results"] = relevant_results[:5] if relevant_results else results[:5]
             state["progress_status"] = "✅ 벡터DB에서 관련 특허를 찾았습니다. 답변을 생성 중입니다..."
             _notify_progress(state["progress_status"])
             state["next_action"] = "rag_answer"
         else:
-            # 서버 기반 검색이 실패했고, 웹 검색 모드가 아니면 웹 검색으로 전환
+            # 거리가 너무 멀거나 관련 결과가 없으면 웹 검색으로 전환
             if state.get("use_server_first") and current_search_mode != "web":
                 state["progress_status"] = "⚠️ 서버 기반 검색 결과가 없습니다. 웹 검색으로 자동 전환합니다..."
                 _notify_progress(state["progress_status"])
