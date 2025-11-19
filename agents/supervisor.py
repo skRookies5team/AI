@@ -56,6 +56,40 @@ def classify(state: ConversationState) -> ConversationState:
 		state.route = "schedule"
 		return state
 	
+	# 빈 입력 처리 (최우선 체크)
+	if not t:
+		# 특허 검색 결과가 있으면 tech로, 그렇지 않으면 unknown으로
+		try:
+			from .tech_patent_agent import has_pending_patent_results
+			if has_pending_patent_results(session_id):
+				state.route = "tech"
+				return state
+		except Exception:
+			pass
+		state.route = "unknown"
+		return state
+	
+	# 검색 모드 선택 대기 중이면 tech로 라우팅 (최우선 체크)
+	try:
+		from .tech_patent_agent import is_waiting_for_search_mode, get_session_search_mode, _WAITING_FOR_WEB_SEARCH, _set_session_id
+		# 웹 검색 여부 대기 중이면 tech로 라우팅
+		if session_id:
+			sid = _set_session_id(session_id)
+			if _WAITING_FOR_WEB_SEARCH.get(sid, False):
+				state.route = "tech"
+				return state
+		
+		if is_waiting_for_search_mode(session_id):
+			state.route = "tech"
+			return state
+		# 검색 모드가 설정되어 있고, 특허 관련 후속 질문이면 tech로 라우팅
+		saved_mode = get_session_search_mode(session_id)
+		if saved_mode and any(k in t.lower() for k in ["그다음", "다음", "db", "임베딩", "벡터", "서버", "정보", "보여줘", "보여주", "찾아줘"]):
+			state.route = "tech"
+			return state
+	except Exception:
+		pass
+	
 	# 특허 번호 패턴 감지 (10자리 이상 숫자 또는 특허 번호 + "에 대해 자세히" 등) - 우선 체크
 	# 특허 번호는 보통 10자리 이상의 숫자입니다
 	patent_number_match = re.search(r'\b(\d{10,})\b', t)
@@ -87,9 +121,68 @@ def classify(state: ConversationState) -> ConversationState:
 		state.route = "tech"
 		return state
 	
+	# 쉼표로 구분된 숫자들 (예: "1,2,5", "1, 3, 5, 7, 10") - 특허 선택 패턴
+	# 이전 특허 검색 결과가 있으면 tech로 라우팅
+	if re.match(r"^[\d\s,]+$", t) and "," in t:
+		# 숫자, 쉼표, 공백만 포함된 경우
+		numbers = re.findall(r"\d+", t)
+		if len(numbers) > 1:  # 여러 숫자가 있으면
+			from .tech_patent_agent import has_pending_patent_results
+			if has_pending_patent_results(session_id):
+				state.route = "tech"
+				return state
+	
+	# 공백으로 구분된 숫자들 (예: "1 2 5", "1 2 4 8 10") - 특허 선택 패턴
+	# 이전 특허 검색 결과가 있으면 tech로 라우팅
+	if re.match(r"^[\d\s]+$", t) and re.search(r"\d+\s+\d+", t):
+		# 숫자와 공백만 포함되고, 공백으로 구분된 숫자가 있는 경우
+		numbers = re.findall(r"\d+", t)
+		if len(numbers) > 1:  # 여러 숫자가 있으면
+			from .tech_patent_agent import has_pending_patent_results
+			# 특허 검색 결과가 있으면 무조건 tech로 라우팅
+			if has_pending_patent_results(session_id):
+				state.route = "tech"
+				return state
+			# 특허 검색 결과가 없어도 숫자만 있으면 특허 선택으로 간주 (tech로 라우팅)
+			# 논문 검색 결과가 있는지 확인
+			try:
+				from .tech_master import has_pending_article_results
+				if has_pending_article_results(session_id):
+					state.route = "tech"
+					return state
+			except Exception:
+				pass
+			# 특허나 논문 검색 결과가 없어도 숫자 선택 패턴이면 tech로 라우팅 (기본값)
+			state.route = "tech"
+			return state
+	
+	# 단일 단어 입력 체크 (예, 아니오 등) - 웹 검색 여부 대기 상태 우선 확인
+	if len(t.split()) == 1:
+		try:
+			from .tech_patent_agent import _WAITING_FOR_WEB_SEARCH, _set_session_id
+			if session_id:
+				sid = _set_session_id(session_id)
+				if _WAITING_FOR_WEB_SEARCH.get(sid, False):
+					# "예", "아니오" 같은 단어는 특허 검색으로 라우팅
+					if any(k in t.lower() for k in ["네", "예", "yes", "y", "아니오", "아니", "no", "n"]):
+						state.route = "tech"
+						return state
+		except Exception:
+			pass
+	
 	# 숫자만 입력된 경우: 이전 검색 결과 확인 (특허 우선, 그 다음 이메일)
 	# 단, 명확한 다른 의도가 없을 때만
+	# 단일 숫자(1 또는 2)는 검색 모드 선택일 수 있으므로 먼저 확인
 	if re.fullmatch(r"\d+", t):
+		# 검색 모드 선택 대기 중이면 tech로 (1 또는 2 입력)
+		try:
+			from .tech_patent_agent import is_waiting_for_search_mode
+			if is_waiting_for_search_mode(session_id):
+				state.route = "tech"
+				return state
+		except Exception:
+			pass
+		
 		# 특허 검색 결과가 있으면 tech로
 		from .tech_patent_agent import has_pending_patent_results
 		if has_pending_patent_results(session_id):
