@@ -137,7 +137,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
     # "더 찾아줘", "추가 검색", "더 검색" 등 키워드 감지
     continue_search_keywords = ["더 찾아", "더찾아", "추가 검색", "추가검색", "더 검색", "더검색", "더 찾아줘", "더찾아줘"]
     has_continue_search_keyword = any(keyword in user_input_lower for keyword in continue_search_keywords)
-    
+
     # 이전 검색 키워드가 있으면 continue_search로 분류
     previous_keyword = state.get("keyword", "")
     if has_continue_search_keyword and previous_keyword:
@@ -150,7 +150,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             "query": previous_keyword,
             "download_index": -1,
         }
-    
+
     # 순번 추출 (1번째, 2번째, 첫 번째, 두 번째, 1번, 2번 등)
     number_patterns = [
         (r"(\d+)\s*번째", lambda m: int(m.group(1))),
@@ -224,14 +224,14 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
     # 규칙 5: 웹/사내 서버 선택 로직 (LLM 호출 전에 명시적 키워드 확인)
     # 이전 검색 결과가 없고 search_source가 없을 때, 명시적 키워드가 있으면 LLM 호출 생략
     search_source = state.get("search_source", "unknown")
-    
+
     if results_count == 0 and search_source == "unknown":
         web_keywords = ["웹", "인터넷", "온라인", "web", "internet"]
         internal_keywords = ["사내", "내부", "서버", "internal", "server"]
-        
+
         has_web_keyword = any(kw in user_input_lower for kw in web_keywords)
         has_internal_keyword = any(kw in user_input_lower for kw in internal_keywords)
-        
+
         if has_web_keyword:
             # 웹 검색 명시 - LLM 호출 없이 바로 검색 의도로 처리
             LOGGER.info("웹 검색 실행 (LLM 호출 생략)")
@@ -250,7 +250,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
                 "download_index": -1,
                 "search_source": "internal",
             }
-    
+
     # 규칙 6: 그 외 모든 경우 → LLM으로 분류
     # 이전 대화 이력 (현재 메시지 제외)
     prior_messages = messages[:-1] if messages else []
@@ -347,7 +347,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             "query": query_value,
             "download_index": download_idx if download_idx is not None else -1,
         }
-    
+
     LOGGER.info(
         "의도 분류 결과: intent=%s, query=%s, download_index=%s, search_source=%s",
         intent,
@@ -372,11 +372,11 @@ def search_internal_papers(state: ScienceONAgentState) -> ScienceONAgentState:
             "results": [],
             "summary": "검색어를 입력해 주세요.",
         }
-    
+
     try:
         keyword = generate_search_keyword(query)
         LOGGER.info("사내 서버에서 논문 검색 시작: keyword=%s", keyword)
-        
+
         # TODO: 실제 벡터 DB 연결 및 검색 구현
         # 현재는 플레이스홀더로 빈 결과 반환
         # 예시:
@@ -384,11 +384,11 @@ def search_internal_papers(state: ScienceONAgentState) -> ScienceONAgentState:
         # collection = Collection("papers_collection")
         # query_embedding = embedding_model.encode([query])[0]
         # results = collection.search(data=[query_embedding], ...)
-        
+
         # 사내 서버 검색 결과가 없는 경우
         results = []
         LOGGER.info("사내 서버 검색 결과: %d건", len(results))
-        
+
         return {
             "keyword": keyword,
             "results": results,
@@ -409,11 +409,11 @@ def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
     # 페이지네이션: 이미 검색 결과가 있고 displayed_count > 0이면 다음 결과 가져오기
     displayed_count = state.get("displayed_count", 0)
     results = state.get("results", [])
-    
+
     if displayed_count > 0 and results:
         # 저장된 결과에서 다음 3개 가져오기
         next_results = results[displayed_count:displayed_count + 3]
-        
+
         if not next_results:
             return {
                 "error": "더 이상 검색 결과가 없습니다.",
@@ -421,18 +421,18 @@ def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
                 "summary": "모든 검색 결과를 확인하셨습니다.",
                 "displayed_count": displayed_count,
             }
-        
+
         # 다음 결과에 대한 summary 생성
         summary = generate_summary(
             user_query=state.get("query", ""),
             keyword=state.get("keyword", ""),
             results=next_results
         )
-        
+
         new_displayed_count = displayed_count + len(next_results)
-        LOGGER.info("추가 검색 결과 표시: %d~%d번째 논문 (%d건)", 
+        LOGGER.info("추가 검색 결과 표시: %d~%d번째 논문 (%d건)",
                     displayed_count + 1, new_displayed_count, len(next_results))
-        
+
         return {
             "results": results,
             "summary": summary,
@@ -465,26 +465,26 @@ def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
             # state에 keyword 설정 후 전달
             state["keyword"] = keyword
             internal_result = search_internal_papers(state)
-            
+
             # 사내 서버 결과가 없으면 자동으로 웹 검색으로 전환
             if not internal_result.get("results"):
                 LOGGER.info("사내 서버 검색 결과가 없어 웹 검색으로 전환")
                 # search_source를 web으로 변경하고 웹 검색 수행
                 state["search_source"] = "web"
                 return search_papers(state)
-            
+
             return internal_result
-        
+
         # 웹 검색인 경우
         # 처음 검색 시 더 많은 결과를 가져오기 (기본값 limit=10)
         all_results = search_scienceon_papers(keyword, enable_downloads=False)
-        
+
         # 처음 3개만 표시하고 summary 생성
         displayed_results = all_results[:3]
         summary = generate_summary(user_query=query, keyword=keyword, results=displayed_results)
-        
+
         LOGGER.info("웹 논문 검색 완료: 전체 %d건, 표시 %d건", len(all_results), len(displayed_results))
-        
+
         return {
             "keyword": keyword,
             "results": all_results,  # 전체 결과 저장
@@ -703,19 +703,19 @@ def ask_search_source(state: ScienceONAgentState) -> ScienceONAgentState:
     """사용자에게 웹 또는 사내 서버에서 검색할지 물어본다."""
     query = state.get("query", "").strip()
     messages = state.get("messages", [])
-    
+
     # 사용자 입력에서 검색 소스 선택 확인
     # ask_source로 분류된 경우, 사용자가 이미 질문에 답했을 수도 있음
     user_input = state.get("user_input", "").lower()
     web_keywords = ["웹", "인터넷", "온라인", "web", "internet", "1", "일"]
     internal_keywords = ["사내", "내부", "서버", "internal", "server", "2", "이"]
-    
+
     has_web_keyword = any(kw in user_input for kw in web_keywords)
     has_internal_keyword = any(kw in user_input for kw in internal_keywords)
-    
+
     # 이전 메시지가 2개 이상이면 (사용자 입력 + AI 질문) 사용자가 답변한 것으로 간주
     is_user_response = len(messages) >= 2
-    
+
     if is_user_response:
         # 사용자가 답변한 경우
         if has_web_keyword and not has_internal_keyword:
@@ -859,7 +859,7 @@ def build_scienceon_agent_graph() -> Any:
             return "search_papers"
         else:
             return "generate_response"
-    
+
     workflow.add_conditional_edges(
         "ask_search_source",
         route_after_ask_source,
@@ -980,7 +980,7 @@ def run_scienceon_agent(
         "conversation_history": [],
         "displayed_count": 0,
     }
-    
+
     # 기존 state에서 새 필드가 없으면 기본값 설정
     if "search_source" not in initial_state:
         initial_state["search_source"] = "unknown"
@@ -990,7 +990,7 @@ def run_scienceon_agent(
         initial_state["conversation_history"] = []
     if "displayed_count" not in initial_state:
         initial_state["displayed_count"] = 0
-    
+
     # 사용자 입력을 메시지에 추가
     messages = initial_state.get("messages", [])
     messages.append(HumanMessage(content=user_input))

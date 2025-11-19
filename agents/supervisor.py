@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ class ConversationState(BaseModel):
 	route: Optional[Literal["schedule", "document", "qa", "tech", "email", "unknown"]] = Field(default=None)
 	result: Optional[dict] = Field(default=None)
 	session_id: Optional[str] = Field(default=None)
+	context: Dict[str, Any] = Field(default_factory=dict)
 
 
 def classify(state: ConversationState) -> ConversationState:
@@ -29,7 +30,67 @@ def classify(state: ConversationState) -> ConversationState:
 	t = state.query.strip()
 	import re
 	session_id = state.session_id if hasattr(state, 'session_id') else None
-	
+
+	if session_id:
+		memory = _CONVERSATION_MEMORY.get(session_id, {})
+		pending_field = memory.get("pending_field")
+		pending_intent = memory.get("pending_intent")
+		if pending_field and pending_intent in {"예약", "수정", "취소", "조회"}:
+			state.context.update(memory)
+			state.route = "schedule"
+			return state
+
+	# 예약 컨텍스트가 명시적으로 제공된 경우 회의실 워크플로로 전달
+	if state.context.get("reservation"):
+		state.route = "schedule"
+		return state
+
+	update_keywords = ["수정", "변경", "바꿔", "업데이트", "재조정", "modify", "update", "reschedule", "adjust"]
+	if any(keyword in t for keyword in update_keywords):
+		state.context["action"] = "update"
+		state.route = "schedule"
+		return state
+
+	cancel_keywords = ["취소", "cancel", "취소해", "취소해줘", "취소해주세요"]
+	if any(keyword in t for keyword in cancel_keywords):
+		state.context["action"] = "cancel"
+		state.route = "schedule"
+		return state
+
+	# 빈 입력 처리 (최우선 체크)
+	if not t:
+		# 특허 검색 결과가 있으면 tech로, 그렇지 않으면 unknown으로
+		try:
+			from .tech_patent_agent import has_pending_patent_results
+			if has_pending_patent_results(session_id):
+				state.route = "tech"
+				return state
+		except Exception:
+			pass
+		state.route = "unknown"
+		return state
+
+	# 검색 모드 선택 대기 중이면 tech로 라우팅 (최우선 체크)
+	try:
+		from .tech_patent_agent import is_waiting_for_search_mode, get_session_search_mode, _WAITING_FOR_WEB_SEARCH, _set_session_id
+		# 웹 검색 여부 대기 중이면 tech로 라우팅
+		if session_id:
+			sid = _set_session_id(session_id)
+			if _WAITING_FOR_WEB_SEARCH.get(sid, False):
+				state.route = "tech"
+				return state
+
+		if is_waiting_for_search_mode(session_id):
+			state.route = "tech"
+			return state
+		# 검색 모드가 설정되어 있고, 특허 관련 후속 질문이면 tech로 라우팅
+		saved_mode = get_session_search_mode(session_id)
+		if saved_mode and any(k in t.lower() for k in ["그다음", "다음", "db", "임베딩", "벡터", "서버", "정보", "보여줘", "보여주", "찾아줘"]):
+			state.route = "tech"
+			return state
+	except Exception:
+		pass
+
 	# 특허 번호 패턴 감지 (10자리 이상 숫자 또는 특허 번호 + "에 대해 자세히" 등) - 우선 체크
 	# 특허 번호는 보통 10자리 이상의 숫자입니다
 	patent_number_match = re.search(r'\b(\d{10,})\b', t)
@@ -61,9 +122,68 @@ def classify(state: ConversationState) -> ConversationState:
 		state.route = "tech"
 		return state
 	
+	# 쉼표로 구분된 숫자들 (예: "1,2,5", "1, 3, 5, 7, 10") - 특허 선택 패턴
+	# 이전 특허 검색 결과가 있으면 tech로 라우팅
+	if re.match(r"^[\d\s,]+$", t) and "," in t:
+		# 숫자, 쉼표, 공백만 포함된 경우
+		numbers = re.findall(r"\d+", t)
+		if len(numbers) > 1:  # 여러 숫자가 있으면
+			from .tech_patent_agent import has_pending_patent_results
+			if has_pending_patent_results(session_id):
+				state.route = "tech"
+				return state
+
+	# 공백으로 구분된 숫자들 (예: "1 2 5", "1 2 4 8 10") - 특허 선택 패턴
+	# 이전 특허 검색 결과가 있으면 tech로 라우팅
+	if re.match(r"^[\d\s]+$", t) and re.search(r"\d+\s+\d+", t):
+		# 숫자와 공백만 포함되고, 공백으로 구분된 숫자가 있는 경우
+		numbers = re.findall(r"\d+", t)
+		if len(numbers) > 1:  # 여러 숫자가 있으면
+			from .tech_patent_agent import has_pending_patent_results
+			# 특허 검색 결과가 있으면 무조건 tech로 라우팅
+			if has_pending_patent_results(session_id):
+				state.route = "tech"
+				return state
+			# 특허 검색 결과가 없어도 숫자만 있으면 특허 선택으로 간주 (tech로 라우팅)
+			# 논문 검색 결과가 있는지 확인
+			try:
+				from .tech_master import has_pending_article_results
+				if has_pending_article_results(session_id):
+					state.route = "tech"
+					return state
+			except Exception:
+				pass
+			# 특허나 논문 검색 결과가 없어도 숫자 선택 패턴이면 tech로 라우팅 (기본값)
+			state.route = "tech"
+			return state
+
+	# 단일 단어 입력 체크 (예, 아니오 등) - 웹 검색 여부 대기 상태 우선 확인
+	if len(t.split()) == 1:
+		try:
+			from .tech_patent_agent import _WAITING_FOR_WEB_SEARCH, _set_session_id
+			if session_id:
+				sid = _set_session_id(session_id)
+				if _WAITING_FOR_WEB_SEARCH.get(sid, False):
+					# "예", "아니오" 같은 단어는 특허 검색으로 라우팅
+					if any(k in t.lower() for k in ["네", "예", "yes", "y", "아니오", "아니", "no", "n"]):
+						state.route = "tech"
+						return state
+		except Exception:
+			pass
+
 	# 숫자만 입력된 경우: 이전 검색 결과 확인 (특허 우선, 그 다음 이메일)
 	# 단, 명확한 다른 의도가 없을 때만
+	# 단일 숫자(1 또는 2)는 검색 모드 선택일 수 있으므로 먼저 확인
 	if re.fullmatch(r"\d+", t):
+		# 검색 모드 선택 대기 중이면 tech로 (1 또는 2 입력)
+		try:
+			from .tech_patent_agent import is_waiting_for_search_mode
+			if is_waiting_for_search_mode(session_id):
+				state.route = "tech"
+				return state
+		except Exception:
+			pass
+
 		# 특허 검색 결과가 있으면 tech로
 		from .tech_patent_agent import has_pending_patent_results
 		if has_pending_patent_results(session_id):
@@ -171,7 +291,7 @@ def classify(state: ConversationState) -> ConversationState:
 	
 	# LLM 기반 라우팅 시도
 	llm_route = classify_intent_with_llm(t, route_type="supervisor", fallback_route=None, session_id=session_id)
-	
+
 	if llm_route and llm_route != "unknown":
 		# LLM이 "qa"로 분류했지만 이메일 관련이면 "email"로 변경
 		if llm_route == "qa":
@@ -209,7 +329,10 @@ def classify(state: ConversationState) -> ConversationState:
 
 
 def run_schedule(state: ConversationState) -> ConversationState:
-	state.result = schedule_master(state.query)
+	context: Dict[str, Any] = dict(getattr(state, "context", {}) or {})
+	if state.session_id:
+		context["session_id"] = state.session_id
+	state.result = schedule_master(state.query, context=context)
 	return state
 
 
@@ -244,13 +367,13 @@ def handle_unknown(state: ConversationState) -> ConversationState:
 	query = state.query.strip()
 	
 	# 회사 정보, 역사, 일반 질문은 qa로 재시도
-	if any(k in query for k in ["회사", "역사", "설립", "창립", "기업", "회사소개", "회사정보", 
+	if any(k in query for k in ["회사", "역사", "설립", "창립", "기업", "회사소개", "회사정보",
 	                             "급여", "출근", "근무", "지급", "봉급", "연봉", "월급",
 	                             "어떻게", "뭐야", "알려줘", "알려", "궁금"]):
 		# qa로 재라우팅 시도
 		state.route = "qa"
 		return run_qa(state)
-	
+
 	# 사용자 질문에 대한 더 구체적인 안내
 	suggestions = []
 	if any(k in query for k in ["휴가", "연차", "반차", "병가"]):
@@ -312,21 +435,45 @@ def build_graph() -> StateGraph:
 
 
 def run_supervisor(query: str, session_id: Optional[str] = None) -> dict:
+def run_supervisor(
+	query: str,
+	session_id: Optional[str] = None,
+	context: Optional[Dict[str, Any]] = None,
+) -> dict:
 	"""Supervisor 실행: 메모리 기능을 통한 멀티턴 대화 지원.
 	
 	Args:
 		query: 사용자 질의
 		session_id: 대화 세션 ID (메모리 관리를 위해 사용)
-		
+		context: 추가 컨텍스트 (예: 예약 정보)
+
 	Returns:
 		에이전트 실행 결과
 	"""
 	workflow = build_graph().compile()
-	state = {"query": query, "session_id": session_id}
+	state = {
+		"query": query,
+		"session_id": session_id,
+		"context": context or {},
+	}
 	out = workflow.invoke(state)
 	# LangGraph invoke는 dict 상태를 반환할 수 있음
 	if isinstance(out, dict):
-		return out.get("result") or {}
+		result = out.get("result") or {}
+		if session_id:
+			memory_payload = {
+				"reservation_candidate": result.get("reservation_candidate"),
+				"lookup_candidate": result.get("lookup_candidate"),
+				"pending_field": result.get("pending_field"),
+				"pending_intent": result.get("pending_intent"),
+			}
+			if any(memory_payload.values()):
+				_CONVERSATION_MEMORY[session_id] = memory_payload
+			elif session_id in _CONVERSATION_MEMORY:
+				_CONVERSATION_MEMORY.pop(session_id, None)
+		for key in ("reservation_candidate", "lookup_candidate", "pending_field", "pending_intent"):
+			result.pop(key, None)
+		return result
 	# 혹시 모델 객체가 온 경우 대비
 	if hasattr(out, "result"):
 		return getattr(out, "result") or {}

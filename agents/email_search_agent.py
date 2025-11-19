@@ -798,7 +798,7 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 			if re.match(r"^\d+\.?\s*", query) and any(k in query for k in ["에 대해", "에대해", "자세히", "상세히", "알려줘", "알려"]):
 				# 다른 명확한 의도 키워드가 없을 때만 (식단, 일정, 특허, 논문 등 제외)
 				# 특허/논문 관련 키워드가 있으면 이메일이 아닐 가능성이 높음
-				if not any(k in query for k in ["점심", "저녁", "메뉴", "식단", "구내식당", "일정", "스케줄", 
+				if not any(k in query for k in ["점심", "저녁", "메뉴", "식단", "구내식당", "일정", "스케줄",
 				                                 "특허", "논문", "paper", "patent", "KISTI", "ScienceON", "학술"]):
 					match_with_dot = re.match(r"^(\d+)\.\s*(.+)", query)
 					if match_with_dot:
@@ -816,7 +816,7 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 						digits = re.findall(r"\d+", query)
 						if digits:
 							selection_index = int(digits[0])
-			
+
 			# 패턴 2: "메일" 또는 "이메일" 키워드가 포함된 경우
 			has_email_keyword = "메일" in query or "이메일" in query
 			if has_email_keyword and selection_index is None:
