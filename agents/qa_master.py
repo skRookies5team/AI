@@ -41,7 +41,7 @@ def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaInten
             # 날짜 표현(예: "17일")이나 다른 명확한 의도가 아닐 때만 이메일로
             if not any(k in t for k in ["일", "월", "년", "시", "분", "점심", "저녁", "메뉴", "식단", "구내식당"]):
                 return QaIntent(kind="email", details=t)
-    
+
     # 명확한 다른 의도 키워드가 있으면 우선 처리 (이메일 검색 결과가 있어도)
     # 식단/메뉴 관련 키워드 우선 체크
     if any(k in t for k in ["식단", "메뉴", "구내식당", "점심", "저녁", "아침", "식사", "밥"]):
@@ -81,7 +81,7 @@ def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaInten
     
     # LLM 기반 라우팅 시도
     llm_intent = classify_intent_with_llm(t, route_type="qa", fallback_route=None, session_id=session_id)
-    
+
     if llm_intent:
         if llm_intent == "benefit":
             return QaIntent(kind="benefit", details=t)

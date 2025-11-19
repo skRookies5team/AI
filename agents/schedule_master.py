@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from .leave_agent import LeaveQuery, handle_leave
 from .llm_router import classify_intent_with_llm
+from .meeting_agent import meeting_room_query
 
 
 LeaveType = Literal["연차", "반차", "병가", "경조사"]
@@ -77,7 +78,7 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
             reason=reason,
         )
 
-    if any(k in t for k in ["회의실", "예약"]):
+    if any(k in t for k in ["회의실", "예약", "회의", "미팅룸", "meeting"]):
         return ScheduleIntent(kind="meeting", details=t)
 
     if any(k in t for k in ["일정", "캘린더", "스케줄"]):
@@ -87,8 +88,18 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
     return ScheduleIntent(kind="calendar", details=t)
 
 
-def schedule_master(user_text: str) -> dict:
-    intent = parse_schedule_intent(user_text)
+def schedule_master(user_text: str, context: Optional[Dict[str, Any]] = None) -> dict:
+    ctx = context or {}
+    has_reservation_context = bool(
+        ctx.get("reservation")
+        or ctx.get("reservation_candidate")
+        or ctx.get("pending_intent") in {"예약", "수정", "취소", "조회"}
+    )
+    if has_reservation_context:
+        intent = ScheduleIntent(kind="meeting", details=user_text)
+    else:
+        intent = parse_schedule_intent(user_text)
+
     if intent.kind == "leave":
         if intent.employee_id is None:
             return {"ok": False, "error": "사번(employee_id)을 제공해 주세요."}
@@ -108,12 +119,8 @@ def schedule_master(user_text: str) -> dict:
         return handle_leave(q)
 
     if intent.kind == "meeting":
-        # Stub: 실제 회의실 시스템이 없으므로 예시 응답
-        return {
-            "ok": True,
-            "message": "회의실 예약 요청이 접수되었습니다. 관리 시스템 연동 후 확정이 가능합니다.",
-            "echo": intent.details,
-        }
+        request_context: Dict[str, Any] = dict(context or {})
+        return meeting_room_query(intent.details or user_text, context=request_context)
 
     # calendar
     return {

@@ -262,6 +262,64 @@ def parse_tech_intent(user_text: str, session_id: Optional[str] = None) -> TechI
     t = user_text.strip()
     import re
     
+    # 웹 검색 여부 대기 중이면 특허 검색으로 처리 (최우선 체크)
+    try:
+        from .tech_patent_agent import _WAITING_FOR_WEB_SEARCH, _set_session_id
+        if session_id:
+            sid = _set_session_id(session_id)
+            if _WAITING_FOR_WEB_SEARCH.get(sid, False):
+                # "네", "아니오" 같은 단어는 특허 검색으로 라우팅
+                if any(k in t.lower() for k in ["네", "예", "yes", "y", "아니오", "아니", "no", "n", "좋아", "해줘", "해주세요", "안해", "필요없", "괜찮", "안해도"]):
+                    return TechIntent(kind="patent", keyword=None, details=t)
+    except Exception:
+        pass
+
+    # 검색 모드 선택 대기 중이면 특허 검색으로 처리 (최우선 체크)
+    try:
+        from .tech_patent_agent import is_waiting_for_search_mode, parse_search_mode_from_input
+        if is_waiting_for_search_mode(session_id):
+            # 검색 모드 파싱 시도
+            parsed_mode = parse_search_mode_from_input(t)
+            if parsed_mode:
+                # 검색 모드 선택이면 특허 검색으로 처리
+                return TechIntent(kind="patent", keyword=None, details=t)
+    except Exception:
+        pass
+
+    # 공백으로 구분된 숫자들 (예: "8 10", "1 2 5") - 특허 선택 패턴 (우선 처리)
+    if re.match(r"^[\d\s]+$", t) and re.search(r"\d+\s+\d+", t):
+        numbers = re.findall(r"\d+", t)
+        if len(numbers) > 1:  # 여러 숫자가 있으면
+            # 특허 검색 결과가 있으면 특허 검색으로
+            from .tech_patent_agent import has_pending_patent_results
+            if has_pending_patent_results(session_id):
+                return TechIntent(kind="patent", keyword=None, details=t)
+            # 특허 검색 결과가 없어도 숫자 선택 패턴이면 특허 검색으로 (기본값)
+            return TechIntent(kind="patent", keyword=None, details=t)
+
+    # 쉼표로 구분된 숫자들 (예: "1,2,5") - 특허 선택 패턴 (우선 처리)
+    if re.match(r"^[\d\s,]+$", t) and "," in t:
+        numbers = re.findall(r"\d+", t)
+        if len(numbers) > 1:  # 여러 숫자가 있으면
+            # 특허 검색 결과가 있으면 특허 검색으로
+            from .tech_patent_agent import has_pending_patent_results
+            if has_pending_patent_results(session_id):
+                return TechIntent(kind="patent", keyword=None, details=t)
+            # 특허 검색 결과가 없어도 숫자 선택 패턴이면 특허 검색으로 (기본값)
+            return TechIntent(kind="patent", keyword=None, details=t)
+
+    # 단일 숫자 입력 (예: "4", "1", "10") - 특허 선택 패턴 (우선 처리)
+    if re.fullmatch(r"\d+", t):
+        # 특허 검색 결과가 있으면 특허 검색으로
+        from .tech_patent_agent import has_pending_patent_results
+        if has_pending_patent_results(session_id):
+            return TechIntent(kind="patent", keyword=None, details=t)
+        # 논문 검색 결과가 있으면 논문 검색으로
+        if has_pending_article_results(session_id):
+            return TechIntent(kind="article", keyword=None, details=t)
+        # 검색 결과가 없어도 숫자만 있으면 특허 검색으로 (기본값)
+        return TechIntent(kind="patent", keyword=None, details=t)
+
     # 논문 상세 요청 패턴 체크 (우선 처리)
     # "1번에 대해 알려줘", "1번 상세", "1번 자세히" 같은 패턴
     if re.match(r"^\d+", t) and any(k in t for k in ["번", "에 대해", "에대해", "알려줘", "자세히", "상세"]):
@@ -297,6 +355,51 @@ def tech_master(user_text: str, session_id: Optional[str] = None) -> dict:
         user_text: 사용자 질의
         session_id: 세션 ID (멀티턴 대화 지원)
     """
+    # 빈 입력 처리: 특허 검색 결과가 있으면 이전 결과를 다시 보여줌
+    if not user_text.strip():
+        try:
+            from .tech_patent_agent import has_pending_patent_results, _get_search_results
+            if has_pending_patent_results(session_id):
+                # 이전 특허 검색 결과를 다시 보여줌
+                search_results = _get_search_results(session_id)
+                if search_results:
+                    items = []
+                    for idx, patent in enumerate(search_results, 1):
+                        items.append({
+                            "index": idx,
+                            "application_number": patent.get("application_number", "N/A"),
+                            "title": patent.get("title", "제목 없음"),
+                            "abstract": patent.get("abstract", "")[:200] + "..." if len(patent.get("abstract", "")) > 200 else patent.get("abstract", ""),
+                        })
+
+                    message_lines = [
+                        f"🔍 이전 검색 결과를 다시 보여드립니다. ({len(search_results)}개)",
+                        "",
+                        "다음 특허 중에서 자세히 보고 싶은 번호를 선택해주세요:"
+                    ]
+
+                    for item in items:
+                        message_lines.append(f"{item['index']}. [{item['application_number']}] {item['title']}")
+                        if item.get('abstract'):
+                            message_lines.append(f"   {item['abstract']}")
+
+                    message_lines.append("")
+                    message_lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,2,5' 또는 '1 2 5'")
+
+                    return {
+                        "ok": True,
+                        "message": "\n".join(message_lines),
+                        "items": items,
+                        "search_results": search_results,
+                    }
+        except Exception:
+            pass
+        # 특허 검색 결과가 없으면 기본 메시지 반환
+        return {
+            "ok": False,
+            "message": "검색어를 입력해 주세요.",
+        }
+
     intent = parse_tech_intent(user_text, session_id=session_id)
     if intent.kind == "patent":
         return patent_search(intent.keyword or user_text, session_id=session_id)
