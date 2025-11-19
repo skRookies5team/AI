@@ -1,0 +1,134 @@
+name: Kanban Board Automation (Projects V2)
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, closed]
+
+jobs:
+  update-project:
+    runs-on: ubuntu-latest
+    steps:
+      # -----------------------------
+      # ISSUE → To Do
+      # -----------------------------
+      - name: Set To Do when Issue is opened
+        if: github.event_name == 'issues' && github.event.action == 'opened'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const PROJECT_ID = "PVT_kwDODkqOhs4BIZ9_";
+            const STATUS_FIELD_ID = "PVTSSF_lADODkqOhs4BIZ9_zg44Aas";
+            const TODO_ID = "f75ad846";
+
+            const addResult = await github.graphql(`
+              mutation {
+                addProjectV2ItemById(input: {
+                  projectId: "${PROJECT_ID}",
+                  contentId: "${context.payload.issue.node_id}"
+                }) {
+                  item {
+                    id
+                  }
+                }
+              }
+            `);
+
+            const itemId = addResult.addProjectV2ItemById.item.id;
+
+            await github.graphql(`
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "${PROJECT_ID}",
+                  itemId: "${itemId}",
+                  fieldId: "${STATUS_FIELD_ID}",
+                  value: { singleSelectOptionId: "${TODO_ID}" }
+                }) {
+                  projectV2Item { id }
+                }
+              }
+            `);
+
+      # -----------------------------
+      # PR → In Progress
+      # -----------------------------
+      - name: Set In Progress when PR opened
+        if: github.event_name == 'pull_request' && github.event.action == 'opened'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const PROJECT_ID = "PVT_kwDODkqOhs4BIZ9_";
+            const STATUS_FIELD_ID = "PVTSSF_lADODkqOhs4BIZ9_zg44Aas";
+            const INPROGRESS_ID = "47fc9ee4";
+
+            const addResult = await github.graphql(`
+              mutation {
+                addProjectV2ItemById(input: {
+                  projectId: "${PROJECT_ID}",
+                  contentId: "${context.payload.pull_request.node_id}"
+                }) {
+                  item {
+                    id
+                  }
+                }
+              }
+            `);
+
+            const itemId = addResult.addProjectV2ItemById.item.id;
+
+            await github.graphql(`
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "${PROJECT_ID}",
+                  itemId: "${itemId}",
+                  fieldId: "${STATUS_FIELD_ID}",
+                  value: { singleSelectOptionId: "${INPROGRESS_ID}" }
+                }) {
+                  projectV2Item { id }
+                }
+              }
+            `);
+
+      # -----------------------------
+      # PR merged → Done
+      # -----------------------------
+      - name: Set Done when PR is merged
+        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const PROJECT_ID = "PVT_kwDODkqOhs4BIZ9_";
+            const STATUS_FIELD_ID = "PVTSSF_lADODkqOhs4BIZ9_zg44Aas";
+            const DONE_ID = "98236657";
+
+            const addResult = await github.graphql(`
+              mutation {
+                addProjectV2ItemById(input: {
+                  projectId: "${PROJECT_ID}",
+                  contentId: "${context.payload.pull_request.node_id}"
+                }) {
+                  item {
+                    id
+                  }
+                }
+              }
+            `);
+
+            const itemId = addResult.addProjectV2ItemById.item.id;
+
+            await github.graphql(`
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "${PROJECT_ID}",
+                  itemId: "${itemId}",
+                  fieldId: "${STATUS_FIELD_ID}",
+                  value: { singleSelectOptionId: "${DONE_ID}" }
+                }) {
+                  projectV2Item { id }
+                }
+              }
+            `);
