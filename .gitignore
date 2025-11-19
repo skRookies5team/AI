@@ -1,2 +1,5 @@
 .env
 .llm-service
+__pycache__/
+.venv/
+.pytest_cache/
