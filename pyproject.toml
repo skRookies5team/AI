@@ -26,4 +26,5 @@ dependencies = [
     "playwright>=1.56.0",
     "fastapi>=0.121.2",
     "pymysql>=1.1.2",
+    "pypdf2>=3.0.1",
 ]

@@ -434,7 +434,6 @@ def build_graph() -> StateGraph:
 	return graph
 
 
-def run_supervisor(query: str, session_id: Optional[str] = None) -> dict:
 def run_supervisor(
 	query: str,
 	session_id: Optional[str] = None,
