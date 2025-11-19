@@ -127,6 +127,7 @@ def format_result(result) -> str:
             days = _fmt_num(r.get("total_days", 0))
             lt = r.get("leave_type", "연차")
             s = r.get("status", "대기")
+            
             start = r.get("start_date", "?")
             end = r.get("end_date", "?")
             emp = r.get("employee_id", "?")
