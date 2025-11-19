@@ -1,0 +1,17 @@
+{
+  "application_number": "1020240091918",
+  "title": "전기차 배터리 소화약제 긴급 투입 장치",
+  "abstract": "본 발명의 일 실시예에 따른 전기차 배터리 소화약제 긴급 투입 장치는 하우징; 상기 하우징 내에 구비되며, 화재가 발생된 전기차 배터리의 케이스에 천공을 생성하는 배터리 케이스 천공부; 전기차 배터리의 케이스에 생성된 천공 내로 소화약제를 주입(분사)하는 소화약제 주입부; 사용자의 입력신호에 기초하여 배터리 케이스 천공부 및 소화약제 주입부의 동작을 제어하는 제어부; 및 상기 제어부의 제어동작을 위한 사용자 입력신호를 제공하는 조작부를 포함한다.",
+  "keyword": "9 10",
+  "pdf": {
+    "saved": true,
+    "path": "C:\\Final\\AI\\data\\pdf\\1020240091918.pdf",
+    "doc_name": "1020240091918.pdf",
+    "download_url": "http://plus.kipris.or.kr/kiprisplusws/fileToss.jsp?arg=11ea9f5dfe90b683899065ac5d8b8e26f307660c7d8fa832a1c16724ad7aa29775a1d8d25b1fc4268ba747d3bcdc4bcfc05389b2e60309383a3afa74193e5345ad57a49b08bc9474"
+  },
+  "text": {
+    "extraction": "completed",
+    "path": "C:\\Final\\AI\\data\\text\\1020240091918.txt",
+    "char_count": 13901
+  }
+}

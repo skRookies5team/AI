@@ -1,0 +1,17 @@
+{
+  "application_number": "1020150150841",
+  "title": "사용자들 간의 카쉐어링용 전기차 다이렉트 인수인계방법 또는 그 장치",
+  "abstract": "본 명세서에는 제1다이렉트서비스요청단계, 제2다이렉트서비스요청단계, 사용자검색단계, 사용자선정단계, 설정시간체크단계, 베터리잔량체크단계, 매칭판단단계, 정보전송단계 등으로 구성된 카쉐어링용 전기차 다이렉트 인수인계방법이 소개된다. 위와 같은 단계로 구성된 카쉐어링용 전기차 다이렉트 인수인계방법을 이용하여 차고지를 경유하지 않고 카쉐어링 사용자들 간의 다이렉트로 카쉐어링용 전기차 인수인계가 가능한바, 카쉐어링 운영자에게는 시간 및 비용이 절감되며, 카쉐어링 사용자들 간에는 편의성이 도모된다.",
+  "keyword": "1 3 5 7 10",
+  "pdf": {
+    "saved": true,
+    "path": "C:\\Final\\AI\\data\\pdf\\1020150150841.pdf",
+    "doc_name": "1020150150841.pdf",
+    "download_url": "http://plus.kipris.or.kr/kiprisplusws/fileToss.jsp?arg=d8ed8dd5b70e0b90dcfe8daca075789a97d47801dc9cca46ec1d8184bd80be03e466005d06860c93b925b6bff04d696be8e716667a962fe14de3d93e80bcd8845739733edd7d8407"
+  },
+  "text": {
+    "extraction": "completed",
+    "path": "C:\\Final\\AI\\data\\text\\1020150150841.txt",
+    "char_count": 18186
+  }
+}
