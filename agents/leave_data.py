@@ -367,3 +367,99 @@ def create_leave_request(
         )
     )
 
+
+async def _get_leave_requests_async(
+    employee_id: int,
+    leave_type: Optional[Literal["연차", "반차", "병가", "경조사"]] = None,
+    status: Optional[Literal["대기", "승인", "반려", "취소"]] = None,
+    limit: int = 50,
+) -> list[dict]:
+    """leave_request 테이블에서 연차 신청 내역을 조회한다.
+    
+    Args:
+        employee_id: 직원 ID
+        leave_type: 휴가 유형 필터 (None이면 전체)
+        status: 상태 필터 (None이면 전체)
+        limit: 최대 조회 개수
+        
+    Returns:
+        신청 내역 리스트
+    """
+    async with get_session() as session:
+        try:
+            # employee 테이블과 JOIN하여 이름 포함
+            query = f"""
+                SELECT
+                    {LEAVE_REQUEST_TABLE}.*,
+                    employee.name AS employee_name
+                FROM {LEAVE_REQUEST_TABLE}
+                LEFT JOIN employee ON {LEAVE_REQUEST_TABLE}.employee_id = employee.employee_id
+                WHERE {LEAVE_REQUEST_TABLE}.employee_id = :employee_id
+            """
+            params = {"employee_id": employee_id}
+            
+            if leave_type:
+                query += " AND leave_type = :leave_type"
+                params["leave_type"] = leave_type
+            
+            if status:
+                query += " AND status = :status"
+                params["status"] = status
+            
+            query += f" ORDER BY request_date DESC, start_date DESC LIMIT :limit"
+            params["limit"] = limit
+            
+            result = await session.execute(text(query), params)
+            rows = result.mappings().all()
+            
+            # 딕셔너리로 변환 및 정규화
+            requests = []
+            for row in rows:
+                req = dict(row)
+                # 날짜 형식 정규화
+                if "request_date" in req and req["request_date"]:
+                    if isinstance(req["request_date"], str):
+                        req["request_date"] = req["request_date"]
+                    else:
+                        req["request_date"] = str(req["request_date"])
+                if "start_date" in req and req["start_date"]:
+                    if isinstance(req["start_date"], str):
+                        req["start_date"] = req["start_date"]
+                    else:
+                        req["start_date"] = str(req["start_date"])
+                if "end_date" in req and req["end_date"]:
+                    if isinstance(req["end_date"], str):
+                        req["end_date"] = req["end_date"]
+                    else:
+                        req["end_date"] = str(req["end_date"])
+                # 숫자 형식 정규화
+                if "total_days" in req and req["total_days"] is not None:
+                    req["total_days"] = float(req["total_days"])
+                if "employee_id" in req and req["employee_id"] is not None:
+                    req["employee_id"] = int(req["employee_id"])
+                requests.append(req)
+            
+            return requests
+        except SQLAlchemyError as exc:
+            raise ScheduleDatabaseError(f"휴가 신청 내역을 조회하지 못했습니다: {exc}") from exc
+
+
+def get_leave_requests(
+    employee_id: int,
+    leave_type: Optional[Literal["연차", "반차", "병가", "경조사"]] = None,
+    status: Optional[Literal["대기", "승인", "반려", "취소"]] = None,
+    limit: int = 50,
+) -> list[dict]:
+    """leave_request 테이블에서 연차 신청 내역을 조회한다.
+    
+    Args:
+        employee_id: 직원 ID
+        leave_type: 휴가 유형 필터 (None이면 전체)
+        status: 상태 필터 (None이면 전체)
+        limit: 최대 조회 개수
+        
+    Returns:
+        신청 내역 리스트
+    """
+    return _run(_get_leave_requests_async(employee_id, leave_type, status, limit))
+
