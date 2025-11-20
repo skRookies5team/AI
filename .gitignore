@@ -9,3 +9,16 @@ __pycache__
 test_*.py
 debug_*.py
 check_*.py
+*_test.py
+*_debug.py
+*_check.py
+verify_*.py
+import_*.py
+import_*.bat
+
+# 개발용 데이터 파일
+*.csv
+*_analysis.md
+*_improvements.md
+*_qa.md
+*_explanation.md
