@@ -1,2 +1,4 @@
 .env
 .llm-service
+.uv.lock
+.__pycache__
