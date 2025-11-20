@@ -79,7 +79,7 @@ INTENT_CHAIN = INTENT_PROMPT | LLM | StrOutputParser()
 
 class ScienceONAgentState(TypedDict):
     """ScienceON 서브 에이전트의 상태.
-    
+
     통합 마스터 에이전트의 상태에 포함되거나 독립적으로 사용 가능합니다.
     """
 
@@ -124,15 +124,15 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
     messages = state.get("messages", [])
     user_input = state["user_input"]
     user_input_lower = user_input.lower()
-    
+
     # 이전 검색 결과 개수 확인
     results = state.get("results", [])
     results_count = len(results) if results else 0
-    
+
     # 규칙 기반 분류 (우선 적용)
     download_keywords = ["다운", "pdf", "받아", "저장", "다운로드", "받기", "내려받", "저장해"]
     has_download_keyword = any(keyword in user_input_lower for keyword in download_keywords)
-    
+
     # 규칙 1: "더 찾아줘" 요청 패턴 체크 (우선 처리)
     # "더 찾아줘", "추가 검색", "더 검색" 등 키워드 감지
     continue_search_keywords = ["더 찾아", "더찾아", "추가 검색", "추가검색", "더 검색", "더검색", "더 찾아줘", "더찾아줘"]
@@ -163,7 +163,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
         (r"(\d+)\s*번째\s*논문", lambda m: int(m.group(1))),
         (r"(\d+)\s*번\s*논문", lambda m: int(m.group(1))),
     ]
-    
+
     detected_index: Optional[int] = None
     for pattern, extractor in number_patterns:
         match = re.search(pattern, user_input_lower)
@@ -173,7 +173,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
                 break
             except (ValueError, IndexError, AttributeError):
                 continue
-    
+
     # 규칙 2: 상세 정보 요청 패턴 체크 (우선 처리)
     # "1번에 대해 알려줘", "1번 자세히", "1번 상세" 같은 패턴
     detail_keywords = ["에 대해", "에대해", "알려줘", "자세히", "상세", "알려"]
@@ -189,7 +189,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             "query": "",
             "download_index": detected_index - 1,
         }
-    
+
     # 규칙 3: 다운로드 키워드 + 순번 + 이전 검색 결과가 있으면 → download
     if has_download_keyword and detected_index is not None and results_count > 0:
         LOGGER.info(
@@ -203,7 +203,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             "query": "",
             "download_index": detected_index - 1,
         }
-    
+
     # 규칙 4: 다운로드 키워드가 있지만 순번이 없거나 결과가 없으면 → 검색 결과 필요 안내
     if has_download_keyword:
         if results_count == 0:
@@ -220,7 +220,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
                 "query": "",
                 "download_index": -1,
             }
-    
+
     # 규칙 5: 웹/사내 서버 선택 로직 (LLM 호출 전에 명시적 키워드 확인)
     # 이전 검색 결과가 없고 search_source가 없을 때, 명시적 키워드가 있으면 LLM 호출 생략
     search_source = state.get("search_source", "unknown")
@@ -255,7 +255,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
     # 이전 대화 이력 (현재 메시지 제외)
     prior_messages = messages[:-1] if messages else []
     history_text = _render_history(prior_messages)
-    
+
     # LLM으로 의도 분류
     raw_response = ""
     try:
@@ -265,7 +265,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             "results_count": results_count,
         })
         LOGGER.info("LLM 의도 분류 응답: %s", raw_response)
-        
+
         # JSON 추출
         json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', raw_response, re.DOTALL)
         if json_match:
@@ -274,12 +274,12 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             json_str = re.sub(r'```json\s*', '', raw_response, flags=re.IGNORECASE)
             json_str = re.sub(r'```\s*', '', json_str)
             json_str = json_str.strip()
-        
+
         data = json.loads(json_str)
     except (json.JSONDecodeError, AttributeError, Exception) as e:
         LOGGER.warning("LLM 의도 분류 JSON 파싱 실패: %s, 원본: %s", e, raw_response)
         data = {"intent": "search", "query": user_input, "download_index": None}
-    
+
     intent = str(data.get("intent", "search")).lower().strip()
     if intent not in {"search", "download", "detail"}:
         # "에 대해", "알려줘" 같은 키워드가 있고 순번이 있으면 detail로 분류
@@ -289,7 +289,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             intent = "detail"
         else:
             intent = "search"
-    
+
     # 순번 추출
     download_idx: Optional[int] = None
     llm_index = data.get("download_index")
@@ -301,7 +301,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
                 download_idx = int(llm_index) - 1
         except (ValueError, TypeError):
             pass
-    
+
     # LLM이 순번을 제공하지 않았지만 download intent인 경우 정규식으로 추출
     if intent == "download" and download_idx is None:
         user_input_lower = user_input.lower()
@@ -314,7 +314,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             (r"네\s*번째", lambda m: 4),
             (r"다섯\s*번째", lambda m: 5),
         ]
-        
+
         for pattern, extractor in number_patterns:
             match = re.search(pattern, user_input_lower)
             if match:
@@ -325,7 +325,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
                     break
                 except (ValueError, IndexError, AttributeError):
                     continue
-    
+
     # query 처리
     query_candidate = data.get("query", "")
     if intent == "download":
@@ -336,7 +336,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
             if isinstance(query_candidate, str) and query_candidate.strip()
             else user_input
         )
-    
+
     # 웹/사내 서버 선택 역질문 로직 (LLM 분류 후)
     # LLM이 search로 분류했고, 이전 검색 결과가 없으며 search_source가 없고, 명시적 키워드도 없었을 때 역질문
     if intent == "search" and results_count == 0 and search_source == "unknown":
@@ -355,7 +355,7 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
         download_idx if download_idx is not None else "None",
         search_source,
     )
-    
+
     return {
         "intent": intent,
         "query": query_value,
@@ -447,10 +447,10 @@ def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
             "results": [],
             "summary": "검색어를 입력해 주세요.",
         }
-    
+
     try:
         keyword = generate_search_keyword(query)
-        
+
         search_source = state.get("search_source", "unknown")
         if search_source == "unknown":
             return {
@@ -509,7 +509,7 @@ def show_article_detail(state: ScienceONAgentState) -> ScienceONAgentState:
             "error": "먼저 논문을 검색한 뒤에 상세 정보를 요청해 주세요.",
             "response": "먼저 논문을 검색한 뒤에 상세 정보를 요청해 주세요.",
         }
-    
+
     index = state.get("download_index", -1)
     if index < 0 or index >= len(results):
         available_indices = ", ".join([str(i + 1) for i in range(len(results))])
@@ -522,12 +522,12 @@ def show_article_detail(state: ScienceONAgentState) -> ScienceONAgentState:
             "error": error_msg,
             "response": error_msg,
         }
-    
+
     target_result = results[index]
     title = target_result.get("title", f"{index + 1}번째 논문")
     pdf_link = target_result.get("pdf_link", "")
     pdf_path = target_result.get("pdf_path")
-    
+
     # PDF가 이미 다운로드되어 있지 않으면 다운로드 시도
     if not pdf_path or not os.path.exists(pdf_path):
         if not pdf_link or pdf_link == "원문보기 링크 없음":
@@ -536,7 +536,7 @@ def show_article_detail(state: ScienceONAgentState) -> ScienceONAgentState:
                 "error": error_msg,
                 "response": error_msg,
             }
-        
+
         try:
             LOGGER.info("PDF 다운로드 시작 (상세 정보용): %s번째 논문 - %s", index + 1, title)
             updated = download_pdfs_from_results([target_result])
@@ -556,16 +556,16 @@ def show_article_detail(state: ScienceONAgentState) -> ScienceONAgentState:
                 "error": error_msg,
                 "response": error_msg,
             }
-    
+
     # PDF 원문 요약
     try:
         import warnings
         from pypdf import PdfReader
         from langchain_openai import ChatOpenAI
-        
+
         # pypdf의 인코딩 경고 메시지 필터링
         warnings.filterwarnings("ignore", message=".*Advanced encoding.*not implemented yet.*")
-        
+
         reader = PdfReader(pdf_path)
         text_chunks: List[str] = []
         for page in reader.pages:
@@ -573,26 +573,26 @@ def show_article_detail(state: ScienceONAgentState) -> ScienceONAgentState:
             content = content.strip()
             if content:
                 text_chunks.append(content)
-        
+
         if not text_chunks:
             error_msg = f"{index + 1}번째 논문('{title}')의 PDF에서 텍스트를 추출할 수 없습니다."
             return {
                 "error": error_msg,
                 "response": error_msg,
             }
-        
+
         # PDF 텍스트를 청크로 나누어 요약 (너무 길면 앞부분만 사용)
         full_text = "\n\n".join(text_chunks)
         if len(full_text) > 10000:
             full_text = full_text[:10000] + "..."
-        
+
         # LLM으로 요약 생성
         summary_llm = ChatOpenAI(
             model=OPENAI_MODEL,
             temperature=0.3,
             max_tokens=1000,
         )
-        
+
         summary_prompt = (
             f"다음은 논문 '{title}'의 원문 내용입니다. "
             "이 논문의 주요 내용을 한국어로 요약해 주세요.\n\n"
@@ -603,18 +603,18 @@ def show_article_detail(state: ScienceONAgentState) -> ScienceONAgentState:
             f"논문 원문:\n{full_text}\n\n"
             "요약:"
         )
-        
+
         summary_response = summary_llm.invoke(summary_prompt)
         summary_text = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
-        
+
         response_msg = (
             f"📄 {index + 1}번째 논문: {title}\n\n"
             f"📝 논문 요약:\n{summary_text}\n\n"
             f"💾 PDF 파일: {pdf_path}"
         )
-        
+
         LOGGER.info("논문 상세 정보 생성 완료: %s번째 논문", index + 1)
-        
+
         return {
             "results": results,
             "response": response_msg,
@@ -638,7 +638,7 @@ def download_pdf(state: ScienceONAgentState) -> ScienceONAgentState:
             "error": "먼저 논문을 검색한 뒤에 다운로드를 요청해 주세요.",
             "response": "먼저 논문을 검색한 뒤에 다운로드를 요청해 주세요.",
         }
-    
+
     index = state.get("download_index", -1)
     if index < 0 or index >= len(results):
         available_indices = ", ".join([str(i + 1) for i in range(len(results))])
@@ -651,22 +651,22 @@ def download_pdf(state: ScienceONAgentState) -> ScienceONAgentState:
             "error": error_msg,
             "response": error_msg,
         }
-    
+
     target_result = results[index]
     title = target_result.get("title", f"{index + 1}번째 논문")
     pdf_link = target_result.get("pdf_link", "")
-    
+
     if not pdf_link or pdf_link == "원문보기 링크 없음":
         error_msg = f"{index + 1}번째 논문('{title}')의 원문 링크가 없어 다운로드할 수 없습니다."
         return {
             "error": error_msg,
             "response": error_msg,
         }
-    
+
     try:
         LOGGER.info("PDF 다운로드 시작: %s번째 논문 - %s", index + 1, title)
         updated = download_pdfs_from_results([target_result])
-        
+
         if updated and len(updated) > 0:
             results[index] = updated[0]
             pdf_path = updated[0].get("pdf_path")
@@ -768,7 +768,7 @@ def generate_response(state: ScienceONAgentState) -> ScienceONAgentState:
     """사용자에게 응답 메시지를 생성한다."""
     intent = state.get("intent", "unknown")
     error = state.get("error")
-    
+
     if error:
         response = error
     elif intent == "search":
@@ -796,11 +796,11 @@ def generate_response(state: ScienceONAgentState) -> ScienceONAgentState:
             "요청을 이해하지 못했습니다. 예시: '인공지능 논문 찾아줘', "
             "'2번째 논문 pdf 다운받아줘', '1번에 대해 알려줘'."
         )
-    
+
     # 응답을 메시지에 추가
     messages = state.get("messages", [])
     messages.append(AIMessage(content=response))
-    
+
     return {
         "response": response,
         "messages": messages,
@@ -824,13 +824,13 @@ def route_intent(state: ScienceONAgentState) -> Literal["search_papers", "downlo
 
 def build_scienceon_agent_graph() -> Any:
     """ScienceON 서브 에이전트 그래프를 생성한다.
-    
+
     Returns:
         CompiledGraph: 컴파일된 LangGraph 그래프.
         통합 마스터 에이전트의 서브 그래프로 사용 가능합니다.
     """
     workflow = StateGraph(ScienceONAgentState)
-    
+
     # 노드 추가
     workflow.add_node("classify_intent", classify_intent)
     workflow.add_node("ask_search_source", ask_search_source)
@@ -838,7 +838,7 @@ def build_scienceon_agent_graph() -> Any:
     workflow.add_node("download_pdf", download_pdf)
     workflow.add_node("show_article_detail", show_article_detail)
     workflow.add_node("generate_response", generate_response)
-    
+
     # 엣지 설정
     workflow.set_entry_point("classify_intent")
     workflow.add_conditional_edges(
@@ -872,7 +872,7 @@ def build_scienceon_agent_graph() -> Any:
     workflow.add_edge("download_pdf", "generate_response")
     workflow.add_edge("show_article_detail", "generate_response")
     workflow.add_edge("generate_response", END)
-    
+
     return workflow.compile()
 
 
@@ -888,7 +888,7 @@ def run_scienceon_agent(
     state: Optional[ScienceONAgentState] = None,
 ) -> ScienceONAgentState:
     """ScienceON 서브 에이전트를 실행한다.
-    
+
     통합 마스터 에이전트의 노드에서 호출하거나 독립적으로 실행 가능합니다.
     사용자 채팅 입력을 기반으로 논문 검색 및 PDF 다운로드를 수행합니다.
 
@@ -911,12 +911,12 @@ def run_scienceon_agent(
         >>> result = run_scienceon_agent("인공지능 논문 찾아줘")
         >>> print(result["response"])
         >>> print(f"검색 결과: {len(result['results'])}건")
-        
+
         >>> # 세션 상태 유지하며 멀티턴 대화
         >>> session_state = None
         >>> session_state = run_scienceon_agent("대규모 언어모델 논문 찾아줘", session_state)
         >>> session_state = run_scienceon_agent("2", session_state)  # 두 번째 논문 다운로드
-        
+
         >>> # 통합 마스터 에이전트의 노드에서 사용
         >>> def scienceon_node(master_state):
         ...     user_input = master_state.get("user_input", "")
@@ -943,7 +943,7 @@ def run_scienceon_agent(
             "conversation_history": state.get("conversation_history", []) if state else [],
             "displayed_count": state.get("displayed_count", 0) if state else 0,
         }
-    
+
     user_input = user_input.strip()
     if not user_input:
         return {
@@ -962,7 +962,7 @@ def run_scienceon_agent(
             "conversation_history": state.get("conversation_history", []) if state else [],
             "displayed_count": state.get("displayed_count", 0) if state else 0,
         }
-    
+
     # 초기 상태 설정 (이전 상태가 있으면 복사, 없으면 새로 생성)
     initial_state: ScienceONAgentState = copy.deepcopy(state) if state else {
         "messages": [],
@@ -996,7 +996,7 @@ def run_scienceon_agent(
     messages.append(HumanMessage(content=user_input))
     initial_state["messages"] = messages
     initial_state["user_input"] = user_input
-    
+
     # 에이전트 실행 (LangGraph 기반)
     try:
         LOGGER.info("ScienceON 에이전트 실행 시작: user_input=%s", user_input[:100])
@@ -1042,17 +1042,17 @@ def run_agent(user_input: str, state: Optional[ScienceONAgentState] = None) -> S
 
 def create_scienceon_subgraph() -> Any:
     """통합 마스터 에이전트의 서브 그래프로 사용할 수 있는 그래프를 반환한다.
-    
+
     Returns:
         CompiledGraph: 서브 그래프로 사용 가능한 컴파일된 그래프.
-    
+
     Example:
         >>> from langgraph.graph import StateGraph
         >>> from agent import create_scienceon_subgraph
-        >>> 
+        >>>
         >>> # 통합 마스터 에이전트
         >>> master_graph = StateGraph(MasterState)
-        >>> 
+        >>>
         >>> # ScienceON 서브 그래프 추가
         >>> scienceon_subgraph = create_scienceon_subgraph()
         >>> master_graph.add_node("scienceon_agent", scienceon_subgraph)
@@ -1062,17 +1062,17 @@ def create_scienceon_subgraph() -> Any:
 
 def extract_scienceon_state(master_state: Dict[str, Any]) -> Optional[ScienceONAgentState]:
     """통합 마스터 에이전트의 상태에서 ScienceON 에이전트 상태를 추출한다.
-    
+
     Args:
         master_state: 통합 마스터 에이전트의 상태 딕셔너리.
-    
+
     Returns:
         Optional[ScienceONAgentState]: 추출된 ScienceON 상태, 없으면 None.
     """
     # master_state에 scienceon 필드가 있는 경우
     if "scienceon" in master_state and isinstance(master_state["scienceon"], dict):
         return master_state["scienceon"]
-    
+
     # master_state가 직접 ScienceON 상태를 포함하는 경우
     if all(key in master_state for key in ["user_input", "intent", "query"]):
         return {
@@ -1087,7 +1087,7 @@ def extract_scienceon_state(master_state: Dict[str, Any]) -> Optional[ScienceONA
             "response": master_state.get("response", ""),
             "error": master_state.get("error"),
         }
-    
+
     return None
 
 
@@ -1096,37 +1096,37 @@ def merge_scienceon_state(
     scienceon_state: ScienceONAgentState,
 ) -> Dict[str, Any]:
     """ScienceON 에이전트 상태를 통합 마스터 에이전트 상태에 병합한다.
-    
+
     Args:
         master_state: 통합 마스터 에이전트의 상태 딕셔너리.
         scienceon_state: ScienceON 에이전트의 상태.
-    
+
     Returns:
         Dict[str, Any]: 병합된 마스터 상태.
     """
     # scienceon 필드에 저장
     master_state["scienceon"] = scienceon_state
-    
+
     # 또는 직접 필드로 병합 (선택사항)
     master_state.update({
         "scienceon_response": scienceon_state.get("response", ""),
         "scienceon_results": scienceon_state.get("results", []),
         "scienceon_summary": scienceon_state.get("summary", ""),
     })
-    
+
     return master_state
 
 
 def create_scienceon_node():
     """통합 마스터 에이전트의 노드로 사용할 수 있는 함수를 반환한다.
-    
+
     Returns:
         Callable: 마스터 상태를 받아서 업데이트된 상태를 반환하는 함수.
-    
+
     Example:
         >>> from langgraph.graph import StateGraph
         >>> from agent import create_scienceon_node
-        >>> 
+        >>>
         >>> master_graph = StateGraph(MasterState)
         >>> scienceon_node = create_scienceon_node()
         >>> master_graph.add_node("scienceon", scienceon_node)
@@ -1136,13 +1136,13 @@ def create_scienceon_node():
         # 상태 추출
         scienceon_state = extract_scienceon_state(master_state)
         user_input = master_state.get("user_input", master_state.get("message", ""))
-        
+
         # 에이전트 실행
         result_state = run_scienceon_agent(user_input, scienceon_state)
-        
+
         # 결과 병합
         return merge_scienceon_state(master_state, result_state)
-    
+
     return scienceon_node
 
 
@@ -1154,20 +1154,20 @@ __all__ = [
     # 상태 타입
     "ScienceONAgentState",
     "AgentState",  # 하위 호환성
-    
+
     # 그래프 생성
     "build_scienceon_agent_graph",
     "create_scienceon_subgraph",
-    
+
     # 실행 함수
     "run_scienceon_agent",
     "run_agent",  # 하위 호환성
-    
+
     # 통합 헬퍼
     "extract_scienceon_state",
     "merge_scienceon_state",
     "create_scienceon_node",
-    
+
     # 노드 함수들 (직접 사용 가능)
     "classify_intent",
     "search_papers",
@@ -1185,14 +1185,14 @@ def _print_results(results: List[Dict[str, Any]]) -> None:
     if not results:
         print("검색 결과가 없습니다.")
         return
-    
+
     print(f"\n📄 검색 결과 ({len(results)}건):")
     print("=" * 80)
     for idx, result in enumerate(results, start=1):
         title = result.get("title", "제목 없음")
         pdf_link = result.get("pdf_link", "")
         pdf_path = result.get("pdf_path")
-        
+
         print(f"\n{idx}. {title}")
         if pdf_link:
             print(f"   🔗 PDF 링크: {pdf_link}")
@@ -1210,9 +1210,9 @@ def _print_response(state: ScienceONAgentState) -> None:
     error = state.get("error")
     keyword = state.get("keyword", "")
     query = state.get("query", "")
-    
+
     print("\n" + "=" * 80)
-    
+
     if error:
         print(f"❌ 오류: {error}")
     else:
@@ -1229,7 +1229,7 @@ def _print_response(state: ScienceONAgentState) -> None:
             # PDF 다운로드 시에는 검색 결과를 출력하지 않음
         else:
             print(f"\n{response or summary}")
-    
+
     print("=" * 80 + "\n")
 
 
@@ -1243,36 +1243,36 @@ def main() -> None:
     print("  - 다운로드: '2번째 논문 pdf 다운받아줘', '첫 번째 논문 다운로드'")
     print("  - 종료: 'quit', 'exit', '종료' 또는 Ctrl+C")
     print("=" * 80 + "\n")
-    
+
     session_state: Optional[ScienceONAgentState] = None
-    
+
     try:
         while True:
             try:
                 user_input = input("💬 질문: ").strip()
-                
+
                 if not user_input:
                     continue
-                
+
                 # 종료 명령어
                 if user_input.lower() in {"quit", "exit", "종료", "q"}:
                     print("\n👋 종료합니다.")
                     break
-                
+
                 # 에이전트 실행
                 print("\n⏳ 처리 중...")
                 session_state = run_scienceon_agent(user_input, session_state)
-                
+
                 # 결과 출력
                 _print_response(session_state)
-                
+
             except KeyboardInterrupt:
                 print("\n\n👋 종료합니다.")
                 break
             except Exception as e:
                 LOGGER.exception("오류 발생")
                 print(f"\n❌ 오류: {e}\n")
-                
+
     except KeyboardInterrupt:
         print("\n\n👋 종료합니다.")
 
@@ -1319,7 +1319,7 @@ def has_pending_article_results(session_id: Optional[str]) -> bool:
 
 def article_master(query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
     """LangGraph 기반 논문 검색/다운로드 마스터 엔트리.
-    
+
     - 세션 상태를 복원/저장한다.
     - 숫자만 입력되었고, 이전 결과가 있으면 다운로드 명령으로 해석한다.
     - 에이전트 사용 불가 시 폴백으로 검색만 수행한다.
@@ -1328,7 +1328,7 @@ def article_master(query: str, session_id: Optional[str] = None) -> Dict[str, An
     # 숫자만 입력 + 이전 결과가 있을 때: 다운로드로 변환
     if _AGENT_AVAILABLE and t.isdigit() and has_pending_article_results(session_id):
         t = f"{t}번째 논문 pdf 다운받아줘"
-    
+
     if _AGENT_AVAILABLE:
         try:
             # 세션 상태 복원
@@ -1359,7 +1359,7 @@ def article_master(query: str, session_id: Optional[str] = None) -> Dict[str, An
             fb = article_search(query)
             fb["message"] = f"{fb.get('message', '')} (agent 연동 실패로 폴백: {exc})"
             return fb
-    
+
     # 폴백만 가능한 환경: 검색만
     return article_search(query)
 
