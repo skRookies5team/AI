@@ -126,8 +126,19 @@ async def _get_engine() -> AsyncEngine:
     async with _ENGINE_LOCK:
         if _ENGINE is None:
             # SQLAlchemy 연결 종료 시 발생하는 경고/오류 억제
-            logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
-            logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
+            sqlalchemy_loggers = [
+                "sqlalchemy.pool",
+                "sqlalchemy.engine",
+                "sqlalchemy.dialects",
+                "sqlalchemy.connectors",
+                "sqlalchemy.util",
+                "sqlalchemy",
+            ]
+            for logger_name in sqlalchemy_loggers:
+                logger = logging.getLogger(logger_name)
+                logger.setLevel(logging.CRITICAL)
+                logger.handlers = []
+                logger.propagate = False
             
             _ENGINE = create_async_engine(
                 _build_async_db_url(),
@@ -151,9 +162,20 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     finally:
         try:
             await session.close()
-        except Exception:
+        except (AttributeError, RuntimeError, Exception) as e:
             # 연결 종료 시 발생하는 오류는 무시 (이벤트 루프 종료 관련)
-            pass
+            # 'NoneType' object has no attribute 'send' 등의 오류는 무시
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in [
+                "none", "attribute", "send", "proactor", "event loop", 
+                "terminate", "closed", "connection"
+            ]):
+                pass  # 예상된 오류는 무시
+            else:
+                # 예상치 못한 오류는 로깅 (선택적)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"세션 종료 중 예상치 못한 오류 (무시됨): {e}")
 
 
 async def _get_schedule_columns(session: AsyncSession) -> list[str]:

@@ -641,7 +641,13 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
     return ScheduleIntent(kind="schedule", details=t)
 
 
-def schedule_master(user_text: str) -> dict:
+def schedule_master(user_text: str, context: Optional[dict] = None) -> dict:
+    """일정 마스터 에이전트.
+    
+    Args:
+        user_text: 사용자 질의
+        context: 추가 컨텍스트 (현재는 사용하지 않음)
+    """
     intent = parse_schedule_intent(user_text)
 
     # 일정 등록 처리
