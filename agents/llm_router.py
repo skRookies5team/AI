@@ -114,12 +114,12 @@ JSON 형식으로 응답하세요: {{"intent": "email|benefit|cafeteria|manual"}
 			"schedule": """사용자 질의를 분석하여 다음 스케줄 서브 에이전트 중 하나로 분류하세요:
 - leave: 연차, 반차, 병가, 경조사, 휴가 관련
 - meeting: 회의실, 예약 관련
-- calendar: 일정, 캘린더, 스케줄 관련
+- schedule: 일정, 캘린더, 스케줄 관련
 
 질의: {query}
 
-JSON 형식으로 응답하세요: {{"intent": "leave|meeting|calendar"}}""",
-			
+JSON 형식으로 응답하세요: {{"intent": "leave|meeting|schedule"}}""",
+
 			"document": """사용자 질의를 분석하여 다음 문서 서브 에이전트 중 하나로 분류하세요:
 - email_auto_reply: 이메일, 메일, 자동응답 관련
 - doc_generate: 문서, 보고서, 작성, 템플릿 관련

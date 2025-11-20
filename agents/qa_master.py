@@ -18,19 +18,19 @@ class QaIntent:
 
 def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaIntent:
     """LLM 기반 의도 분류 (키워드 fallback 포함).
-    
+
     Args:
         user_text: 사용자 질의
         session_id: 세션 ID (멀티턴 대화 지원)
     """
     t = user_text.strip()
     import re as _re
-    
+
     # 이메일 검색 연속 요청 체크 (이전 검색 결과가 있는 경우)
     # "더 찾아줘", "계속 검색", "더 검색" 등의 요청은 이전 이메일 검색의 연속
     if has_pending_email_results(session_id) and any(k in t.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘"]):
         return QaIntent(kind="email", details=t)
-    
+
     # 이메일 상세 요청 우선 체크 (복리후생 키워드보다 우선)
     # 숫자로 시작 + 제목 형식이 있으면 이메일 상세 요청으로 간주
     # 예: "938. [고용보험]육아휴직...에 대해 알려줘"
@@ -46,14 +46,14 @@ def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaInten
     # 식단/메뉴 관련 키워드 우선 체크
     if any(k in t for k in ["식단", "메뉴", "구내식당", "점심", "저녁", "아침", "식사", "밥"]):
         return QaIntent(kind="cafeteria", details=t)
-    
+
     # 복리후생 관련 키워드 체크
     # 주의: 숫자로 시작하는 패턴은 이미 위에서 처리되었으므로 여기서는 제외
     # "에 대해 알려줘" 같은 패턴이 있으면 이메일 상세 요청일 가능성이 높음
     if not _re.match(r"^\d+", t) and not any(k in t for k in ["에 대해", "에대해", "자세히", "상세히", "알려줘"]) and \
        any(k in t for k in ["복리후생", "휴가규정", "근무제도", "급여 외 혜택", "회사 복지", "복지", "수당", "보험", "퇴직연금", "휴가", "근무"]):
         return QaIntent(kind="benefit", details=t)
-    
+
     # 상세 번호 선택: 최근 이메일 검색 결과가 있고 숫자/상세 패턴이면 이메일로 라우팅
     # 단, 명확한 다른 의도가 없는 경우에만
     if has_pending_email_results(session_id):
@@ -78,7 +78,7 @@ def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaInten
             # 날짜 표현(예: "17일")이나 다른 명확한 의도가 아닐 때만 이메일로
             if not any(k in t for k in ["일", "월", "년", "시", "분", "점심", "저녁", "메뉴", "식단", "구내식당"]):
                 return QaIntent(kind="email", details=t)
-    
+
     # LLM 기반 라우팅 시도
     llm_intent = classify_intent_with_llm(t, route_type="qa", fallback_route=None, session_id=session_id)
 
@@ -114,13 +114,13 @@ def parse_qa_intent(user_text: str, session_id: Optional[str] = None) -> QaInten
 
 def qa_master(user_text: str, session_id: Optional[str] = None) -> dict:
     """QA 마스터 에이전트: LLM 기반 라우팅으로 서브 에이전트 호출.
-    
+
     Args:
         user_text: 사용자 질의
         session_id: 세션 ID (멀티턴 대화 지원)
     """
     intent = parse_qa_intent(user_text, session_id=session_id)
-    
+
     if intent.kind == "email":
         return email_search(intent.details or user_text, session_id=session_id)
     if intent.kind == "benefit":

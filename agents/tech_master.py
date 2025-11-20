@@ -23,7 +23,7 @@ _ARTICLE_MEMORY: Dict[str, ScienceONAgentState] = {}
 # 선택: Milvus 벡터 DB 저장 지원 (환경에 따라 비활성화 가능)
 def _maybe_store_pdf_to_milvus(pdf_path: str) -> None:
     """PDF를 텍스트로 추출해 임베딩 후 Milvus에 저장 (환경변수 설정 시).
-    
+
     필요한 의존성/환경이 없으면 조용히 무시한다.
     """
     import os
@@ -106,17 +106,17 @@ def _normalize_items(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def article_master(user_text: str, session_id: Optional[str] = None) -> Dict[str, Any]:
     """LangGraph 기반 ScienceON 논문 검색/다운로드 엔트리.
-    
+
     사용자 채팅 입력을 기반으로 논문 검색 및 PDF 다운로드를 수행합니다.
     supervisor.py → tech_master.py → article_master 경로로 호출됩니다.
-    
+
     Args:
         user_text: 사용자 채팅 입력
             - 검색 예시: "인공지능 논문 찾아줘", "디스플레이 관련 논문 검색"
             - 다운로드 예시: "2번째 논문 pdf 다운받아줘", "첫 번째 논문 다운로드"
             - 숫자만 입력: "2" (이전 검색 결과가 있으면 자동으로 다운로드 명령으로 변환)
         session_id: 세션 ID (멀티턴 대화 지원)
-    
+
     Returns:
         dict: 검색/다운로드 결과
             - ok: 성공 여부
@@ -176,7 +176,7 @@ def article_master(user_text: str, session_id: Optional[str] = None) -> Dict[str
             "items": [],
             "results": [],
         }
-    
+
     # 숫자만 입력 + 이전 검색 결과 있으면 다운로드 명령으로 변환
     if _ARTICLE_AGENT_AVAILABLE and t.isdigit() and has_pending_article_results(session_id):
         t = f"{t}번째 논문 pdf 다운받아줘"
@@ -186,14 +186,14 @@ def article_master(user_text: str, session_id: Optional[str] = None) -> Dict[str
         try:
             # 세션 상태 복원
             st: Optional[ScienceONAgentState] = _ARTICLE_MEMORY.get(session_id) if session_id else None
-            
+
             # 에이전트 실행 (사용자 채팅 입력 기반)
             st = run_scienceon_agent(user_input=t, state=st)  # type: ignore[misc]
-            
+
             # 세션 상태 저장
             if session_id:
                 _ARTICLE_MEMORY[session_id] = st  # type: ignore[assignment]
-            
+
             # 결과 추출 및 정규화
             results: List[Dict[str, Any]] = st.get("results", [])
             items = _normalize_items(results)
@@ -261,7 +261,7 @@ def parse_tech_intent(user_text: str, session_id: Optional[str] = None) -> TechI
     """LLM 기반 의도 분류 (키워드 fallback 포함)."""
     t = user_text.strip()
     import re
-    
+
     # 웹 검색 여부 대기 중이면 특허 검색으로 처리 (최우선 체크)
     try:
         from .tech_patent_agent import _WAITING_FOR_WEB_SEARCH, _set_session_id
@@ -330,7 +330,7 @@ def parse_tech_intent(user_text: str, session_id: Optional[str] = None) -> TechI
         from .tech_patent_agent import has_pending_patent_results
         if has_pending_patent_results(session_id):
             return TechIntent(kind="patent", keyword=None, details=t)
-    
+
     # LLM 기반 라우팅 시도
     llm_intent = classify_intent_with_llm(t, route_type="tech", fallback_route=None)
     

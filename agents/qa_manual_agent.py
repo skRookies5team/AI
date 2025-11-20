@@ -1166,7 +1166,7 @@ def _initialize_components() -> tuple[Embedder, DocumentRetriever, AnswerGenerat
 # ============================================================================
 
 def manual_search(user_text: str) -> Dict:
-        return {
-            "ok": True,
-            "echo": user_text,
-        }
+    return {
+        "ok": True,
+        "echo": user_text,
+    }
