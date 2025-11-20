@@ -1,4 +1,6 @@
 .env
 .llm-service
-.uv.lock
-.__pycache__
+__pycache__/
+.venv/
+.pytest_cache/
+uv.lock

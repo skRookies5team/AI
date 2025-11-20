@@ -263,14 +263,58 @@ class EmailSearchState(TypedDict, total=False):
 	matched_items: List[Dict[str, Any]]
 	found_count: int
 	limit: int
+	batch_size: int  # 배치 크기 (기본 100)
+	batch_offset: int  # 현재 배치 오프셋
+	max_batches: int  # 최대 배치 수
 	selection_index: int
+	session_id: Optional[str]  # 세션 ID (멀티턴 대화 지원)
 	result: Optional[Dict[str, Any]]
+	has_more: bool  # 더 검색할 메일이 있는지 여부
 
 
 #
 # IMAP 구현
 #
-_IMAP_CACHE: Dict[str, Any] = {"ids": [], "items": [], "host": "", "port": 993, "user": ""}
+# 세션별 이메일 검색 결과 캐시 (멀티턴 대화 지원)
+# {session_id: {"ids": [], "items": [], "index_map": {}, "batch_offset": 0, "last_keyword": "", "keyword_offsets": {}}}
+# keyword_offsets: {extracted_keyword: batch_offset} - 키워드별 마지막 검색 위치 저장
+_EMAIL_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
+_EMAIL_SESSION_ID: Optional[str] = None
+
+# IMAP 연결 정보 캐시 (세션별이 아닌 전역)
+_IMAP_CONNECTION_INFO: Dict[str, Any] = {"host": "", "port": 993, "user": ""}
+
+
+def _set_email_session_id(session_id: Optional[str] = None) -> str:
+	"""이메일 검색 세션 ID 설정."""
+	global _EMAIL_SESSION_ID
+	if session_id:
+		_EMAIL_SESSION_ID = session_id
+	elif not _EMAIL_SESSION_ID:
+		import uuid
+		_EMAIL_SESSION_ID = str(uuid.uuid4())
+	return _EMAIL_SESSION_ID
+
+
+def _get_email_cache(session_id: Optional[str] = None) -> Dict[str, Any]:
+	"""세션별 이메일 검색 결과 캐시 가져오기."""
+	sid = _set_email_session_id(session_id)
+	if sid not in _EMAIL_SEARCH_CACHE:
+		_EMAIL_SEARCH_CACHE[sid] = {
+			"ids": [],
+			"items": [],
+			"index_map": {},
+			"batch_offset": 0,
+			"last_keyword": "",
+			"keyword_offsets": {}  # 키워드별 마지막 검색 위치: {extracted_keyword: batch_offset}
+		}
+	return _EMAIL_SEARCH_CACHE[sid]
+
+
+def _save_email_cache(cache_data: Dict[str, Any], session_id: Optional[str] = None) -> None:
+	"""세션별 이메일 검색 결과 캐시 저장."""
+	sid = _set_email_session_id(session_id)
+	_EMAIL_SEARCH_CACHE[sid] = cache_data
 
 def _imap_connect() -> imaplib.IMAP4_SSL:
 	"""IMAP 서버에 연결 (mail_test.py 방식 참고)."""
@@ -290,9 +334,9 @@ def _imap_connect() -> imaplib.IMAP4_SSL:
 	m = imaplib.IMAP4_SSL(host, port)
 	m.login(user, pwd)
 	m.select("INBOX")
-	_IMAP_CACHE["host"] = host
-	_IMAP_CACHE["port"] = port
-	_IMAP_CACHE["user"] = user
+	_IMAP_CONNECTION_INFO["host"] = host
+	_IMAP_CONNECTION_INFO["port"] = port
+	_IMAP_CONNECTION_INFO["user"] = user
 	return m
 
 def _imap_fetch_msg(m: imaplib.IMAP4_SSL, msg_id: bytes) -> email_pkg.message.Message:
@@ -331,22 +375,26 @@ def connect_imap_node(state: EmailSearchState) -> EmailSearchState:
 	
 	status, data = m.search(None, "ALL")
 	if status != "OK" or not data or not data[0]:
-		return {**state, "connection": m, "mail_ids": [], "result": {"ok": False, "error": "메일 목록을 가져올 수 없습니다."}}
-	
+		session_id = state.get("session_id")
+		return {**state, "connection": m, "mail_ids": [], "session_id": session_id, "result": {"ok": False, "error": "메일 목록을 가져올 수 없습니다."}}
+
 	mail_ids = data[0].split()
-	_IMAP_CACHE["host"] = host
-	_IMAP_CACHE["port"] = port
-	_IMAP_CACHE["user"] = user
-	return {**state, "connection": m, "mail_ids": mail_ids}
+	_IMAP_CONNECTION_INFO["host"] = host
+	_IMAP_CONNECTION_INFO["port"] = port
+	_IMAP_CONNECTION_INFO["user"] = user
+	session_id = state.get("session_id")
+	return {**state, "connection": m, "mail_ids": mail_ids, "session_id": session_id}
 
 
 def search_emails_node(state: EmailSearchState) -> EmailSearchState:
-	"""메일 검색 (mail_test.py의 process_batch 참고)."""
+	"""메일 검색 - 100개씩 배치로 점진적 검색."""
 	mail = state["connection"]
 	mail_ids = state["mail_ids"]
 	keyword = state["keyword"]
-	limit = state.get("limit", 1000)
-	
+	batch_size = state.get("batch_size", 100)
+	batch_offset = state.get("batch_offset", 0)
+	max_batches = state.get("max_batches", 10)  # 최대 10배치 (1000개)
+
 	# 핵심 키워드 추출
 	search_keyword = _extract_keywords(keyword)
 	if not search_keyword:
@@ -355,13 +403,60 @@ def search_emails_node(state: EmailSearchState) -> EmailSearchState:
 			"result": {"ok": True, "message": "검색 키워드를 찾을 수 없습니다.", "items": []},
 		}
 	
-	# 최근 limit개만 사용
-	ids = mail_ids[-limit:] if len(mail_ids) > limit else mail_ids
+	# 이전 배치에서 찾은 결과 가져오기 (첫 번째 배치인 경우 빈 리스트)
+	if batch_offset == 0:
+		previous_items = []
+		previous_ids = []
+		previous_found = 0
+	else:
+		# 이전 배치 결과는 캐시에서 가져오기
+		session_id = state.get("session_id")
+		cache = _get_email_cache(session_id)
+		previous_items = cache.get("items", [])
+		previous_ids = cache.get("ids", [])
+		previous_found = len(previous_items)
+
+	# 현재 배치 범위 계산 (최신 메일부터 역순)
+	total_mails = len(mail_ids)
+	start_idx = total_mails - (batch_offset + 1) * batch_size
+	end_idx = total_mails - batch_offset * batch_size
+
+	if start_idx < 0:
+		start_idx = 0
+
+	# 현재 배치의 메일 ID 추출 (최신순)
+	batch_ids = mail_ids[start_idx:end_idx] if start_idx < end_idx else []
+
+	if not batch_ids:
+		# 더 이상 검색할 메일이 없음
+		session_id = state.get("session_id")
+		if previous_found == 0:
+			result = {
+				"ok": True,
+				"message": f"📭 관련 메일을 찾지 못했습니다. (총 {total_mails}개 메일 확인)\n\n💡 다른 키워드로 검색해보시거나, 검색 범위를 넓혀보세요.",
+				"items": [],
+			}
+		else:
+			result = {
+				"ok": True,
+				"message": f"📧 관련 메일 {previous_found}개를 찾았습니다. (총 {total_mails}개 메일 확인)",
+				"items": previous_items,
+			}
+
+		try:
+			mail.logout()
+		except Exception:
+			pass
+
+		return {**state, "matched_ids": previous_ids, "matched_items": previous_items, "found_count": previous_found, "session_id": session_id, "result": result, "has_more": False}
+
+	# 현재 배치 검색
 	items: List[Dict[str, Any]] = []
 	matched_ids: List[bytes] = []
-	found = 0
-	
-	for i, msg_id in enumerate(reversed(ids), 1):
+	found_in_batch = 0
+
+	# 배치 내에서 역순으로 처리 (최신 메일부터)
+	for idx, msg_id in enumerate(reversed(batch_ids)):
 		try:
 			msg = _imap_fetch_msg(mail, msg_id)
 			subject = _decode_mime_header(msg.get("Subject"))
@@ -378,53 +473,101 @@ def search_emails_node(state: EmailSearchState) -> EmailSearchState:
 						break
 			
 			if matched:
-				s = _extract_summary_from_msg(i, msg)
+				# 전체 메일 목록에서의 순서번호 계산
+				global_index = total_mails - (batch_offset * batch_size + idx)
+				s = _extract_summary_from_msg(global_index, msg)
+				# 검색 결과에서의 실제 인덱스 (이전 결과 포함)
+				actual_index = previous_found + found_in_batch
+				display_index = global_index  # 표시되는 번호 (전체 메일 목록의 순서)
+
 				items.append(
 					{
 						"title": s.subject,
 						"from": s.from_addr,
 						"date": s.date,
 						"snippet": s.snippet,
-						"index": i,
+						"index": str(display_index),  # 표시용 번호 (문자열)
+						"actual_index": actual_index,  # 실제 인덱스 (숫자)
 					}
 				)
 				matched_ids.append(msg_id)
-				found += 1
+				found_in_batch += 1
 		except Exception as e:
 			logger.debug("메일 처리 중 오류: %s", repr(e))
 			continue
 	
-	# 캐시에 저장
-	_IMAP_CACHE["ids"] = matched_ids
-	_IMAP_CACHE["items"] = items
+	# 이전 결과와 병합
+	all_items = previous_items + items
+	all_matched_ids = previous_ids + matched_ids
+	total_found = previous_found + found_in_batch
+
+	# 다음 배치가 있는지 확인 (먼저 계산)
+	has_more = (batch_offset + 1) < max_batches and (batch_offset + 1) * batch_size < total_mails
+
+	# 세션별 캐시에 저장
+	session_id = state.get("session_id")
+	cache = _get_email_cache(session_id)
+	cache["ids"] = all_matched_ids
+	cache["items"] = all_items
+	cache["batch_offset"] = batch_offset + 1 if has_more else batch_offset
+	cache["last_keyword"] = keyword
+
+	# 키워드별 마지막 검색 위치 저장 (추출된 키워드 기준)
+	extracted_keyword = _extract_keywords(keyword)
+	if extracted_keyword:
+		if "keyword_offsets" not in cache:
+			cache["keyword_offsets"] = {}
+		cache["keyword_offsets"][extracted_keyword] = batch_offset + 1 if has_more else batch_offset
+
+	# 번호 매핑 저장: {표시번호: 실제인덱스}
+	index_map = {}
+	for item in all_items:
+		display_num = int(item.get("index", 0))
+		actual_idx = item.get("actual_index", 0)
+		index_map[display_num] = actual_idx
+	cache["index_map"] = index_map
+	_save_email_cache(cache, session_id)
+
+	# 결과가 충분히 찾았거나 (5개 이상), 더 이상 검색할 메일이 없으면 종료
+	if total_found >= 5 or not has_more:
+		# 연결 종료
+		try:
+			mail.logout()
+		except Exception:
+			pass
+
+		if total_found == 0:
+			result = {
+				"ok": True,
+				"message": f"📭 관련 메일을 찾지 못했습니다. (최근 {(batch_offset + 1) * batch_size}개 메일 확인)\n\n💡 다른 키워드로 검색해보시거나, 검색 범위를 넓혀보세요.",
+				"items": [],
+			}
+		else:
+			result = {
+				"ok": True,
+				"message": f"📧 관련 메일 {total_found}개를 찾았습니다. (최근 {(batch_offset + 1) * batch_size}개 메일 확인)",
+				"items": all_items,
+			}
+
+		return {**state, "matched_ids": all_matched_ids, "matched_items": all_items, "found_count": total_found, "session_id": session_id, "result": result, "has_more": False}
+
+	# 결과가 적지만 더 검색할 수 있는 경우
+	result = {
+		"ok": True,
+		"message": f"📧 관련 메일 {total_found}개를 찾았습니다. (최근 {(batch_offset + 1) * batch_size}개 메일 확인)\n\n💡 더 많은 메일을 검색하려면 '더 찾아줘' 또는 '계속 검색'이라고 말씀해주세요.",
+		"items": all_items,
+		"has_more": True,
+	}
 	
-	if found == 0:
-		result = {
-			"ok": True,
-			"message": f"관련 메일을 찾지 못했습니다. (최근 {len(ids)}개 검사)",
-			"items": [],
-		}
-	else:
-		result = {
-			"ok": True,
-			"message": f"다음 메일을 찾았습니다. (최근 {len(ids)}개 중 {found}개 일치)\n원하는 메일 번호를 선택해 상세를 볼 수 있습니다. 예) '메일 1번 상세'",
-			"items": items,
-		}
-	
-	# 연결 종료
-	try:
-		mail.logout()
-	except Exception:
-		pass
-	
-	return {**state, "matched_ids": matched_ids, "matched_items": items, "found_count": found, "result": result}
+	return {**state, "matched_ids": all_matched_ids, "matched_items": all_items, "found_count": total_found, "batch_offset": batch_offset + 1, "session_id": session_id, "result": result, "has_more": has_more}
 
 
 def fetch_detail_node(state: EmailSearchState) -> EmailSearchState:
 	"""선택한 메일의 상세 내용 가져오기."""
 	matched_ids = state.get("matched_ids", [])
 	selection_index = state.get("selection_index", 0)
-	
+	session_id = state.get("session_id")
+
 	if not matched_ids or selection_index <= 0 or selection_index > len(matched_ids):
 		return {
 			**state,
@@ -450,7 +593,7 @@ def fetch_detail_node(state: EmailSearchState) -> EmailSearchState:
 		except Exception:
 			pass
 	
-	return {**state, "result": result}
+	return {**state, "result": result, "session_id": session_id}
 
 
 #
@@ -484,8 +627,18 @@ _detail_graph = _build_detail_graph().compile()
 #
 # 기존 함수 인터페이스 유지 (LangGraph 사용)
 #
-def _imap_search_emails(keyword: str, limit: int = 1000) -> Dict[str, Any]:
-	"""IMAP을 통해 최근 메일에서 키워드로 검색 (LangGraph 사용)."""
+def _imap_search_emails(keyword: str, limit: int = 1000, session_id: Optional[str] = None, batch_offset: int = 0) -> Dict[str, Any]:
+	"""IMAP을 통해 최근 메일에서 키워드로 검색 (LangGraph 사용, 100개씩 배치 검색).
+
+	Args:
+		keyword: 검색 키워드
+		limit: 검색할 최대 메일 개수 (참고용, 실제로는 배치 단위로 검색)
+		session_id: 세션 ID (멀티턴 대화 지원)
+		batch_offset: 배치 오프셋 (0부터 시작)
+	"""
+	batch_size = 100
+	max_batches = (limit + batch_size - 1) // batch_size  # 올림 계산
+
 	initial_state: EmailSearchState = {
 		"connection": None,
 		"mail_ids": [],
@@ -494,7 +647,12 @@ def _imap_search_emails(keyword: str, limit: int = 1000) -> Dict[str, Any]:
 		"matched_items": [],
 		"found_count": 0,
 		"limit": limit,
+		"batch_size": batch_size,
+		"batch_offset": batch_offset,
+		"max_batches": max_batches,
+		"session_id": session_id,
 		"result": None,
+		"has_more": False,
 	}
 	final_state = _search_graph.invoke(initial_state)
 	result = final_state.get("result")
@@ -502,20 +660,47 @@ def _imap_search_emails(keyword: str, limit: int = 1000) -> Dict[str, Any]:
 		return result
 	return {"ok": False, "error": "검색 결과를 가져올 수 없습니다."}
 
-def _imap_fetch_full_by_index(sel_index: int) -> Dict[str, Any]:
-	"""선택한 메일의 상세 내용 가져오기 (LangGraph 사용)."""
-	if not _IMAP_CACHE.get("ids"):
+def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, by_display_number: bool = True) -> Dict[str, Any]:
+	"""선택한 메일의 상세 내용 가져오기 (LangGraph 사용).
+
+	Args:
+		sel_index: 선택한 번호
+		session_id: 세션 ID (멀티턴 대화 지원)
+		by_display_number: True면 표시 번호로 검색, False면 실제 인덱스로 검색
+	"""
+	cache = _get_email_cache(session_id)
+
+	if not cache.get("ids"):
 		return {"ok": False, "error": "선택 가능한 메일 목록이 없습니다. 먼저 검색을 실행해 주세요."}
 	
+	# 표시 번호로 검색하는 경우 매핑에서 실제 인덱스 찾기
+	if by_display_number:
+		index_map = cache.get("index_map", {})
+		actual_index = index_map.get(sel_index)
+		if actual_index is None:
+			# 매핑에서 찾지 못하면, 표시 번호가 있는 아이템에서 직접 찾기
+			items = cache.get("items", [])
+			for idx, item in enumerate(items):
+				if int(item.get("index", 0)) == sel_index:
+					actual_index = idx
+					break
+
+			if actual_index is None:
+				return {"ok": False, "error": f"번호 {sel_index}에 해당하는 메일을 찾을 수 없습니다."}
+
+		# 실제 인덱스는 1-based로 변환 (사용자 친화적)
+		sel_index = actual_index + 1
+
 	initial_state: EmailSearchState = {
 		"connection": None,
 		"mail_ids": [],
 		"keyword": "",
-		"matched_ids": _IMAP_CACHE["ids"],
-		"matched_items": _IMAP_CACHE.get("items", []),
+		"matched_ids": cache["ids"],
+		"matched_items": cache.get("items", []),
 		"found_count": 0,
 		"limit": 1000,
 		"selection_index": sel_index,
+		"session_id": session_id,
 		"result": None,
 	}
 	final_state = _detail_graph.invoke(initial_state)
@@ -524,13 +709,23 @@ def _imap_fetch_full_by_index(sel_index: int) -> Dict[str, Any]:
 		return result
 	return {"ok": False, "error": "메일 상세 내용을 가져올 수 없습니다."}
 
-def has_pending_email_results() -> bool:
-	"""최근 검색 결과가 캐시에 남아 있는지 여부."""
-	return bool(_IMAP_CACHE.get("ids"))
+def has_pending_email_results(session_id: Optional[str] = None) -> bool:
+	"""최근 검색 결과가 캐시에 남아 있는지 여부 (세션별).
+
+	Args:
+		session_id: 세션 ID (없으면 현재 세션 사용)
+	"""
+	cache = _get_email_cache(session_id)
+	return bool(cache.get("ids"))
 
 
-def email_search(user_text: str) -> Dict[str, Any]:
+def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+	print("사용자 질의로 메일함을 검색하여 관련 메일 요약/상세을 준비중입니다.")
 	"""사용자 질의로 IMAP 메일함을 검색하여 관련 메일 요약/상세를 반환합니다.
+
+	Args:
+		user_text: 사용자 질의 (예: "육아휴직 신청 관련 메일을 찾아줘")
+		session_id: 세션 ID (멀티턴 대화 지원)
 
 	.env 지원:
 		현재 작업 디렉터리의 .env 파일을 자동으로 읽어 환경변수에 주입하려 시도합니다(존재 시).
@@ -587,28 +782,154 @@ def email_search(user_text: str) -> Dict[str, Any]:
 			_get_env("IMAP_MAX_FETCH", "1000") or "1000",
 		)
 
-	# IMAP: 선택 요청인지 확인 (숫자만 입력 또는 숫자 + "번"/"상세"/"선택" 패턴)
+	# IMAP: 선택 요청인지 확인
+	# 1. 이전 검색 결과가 있고, 숫자로 시작 + "에 대해", "자세히", "상세히" 패턴 → 상세 요청 (메일 키워드 불필요)
+	# 2. "메일" 또는 "이메일" 키워드가 포함된 경우 상세 요청
+	# 3. 숫자로 시작 + 제목 형식 (예: "355번 메일", "355. 육아휴직 연장 안내의 건 메일")
 	selection_index: Optional[int] = None
+	selection_by_title: Optional[str] = None
+
 	try:
-		# 숫자만 입력된 경우 (예: "7")
-		if re.fullmatch(r"\d+", query):
-			selection_index = int(query)
-		# 숫자 + 키워드 패턴 (예: "7번", "7 상세", "메일 7번 선택")
-		elif any(k in query for k in ["상세", "번", "선택"]):
-			digits = re.findall(r"\d+", query)
-			if digits:
-				selection_index = int(digits[0])
+		# 이전 검색 결과가 있는 경우에만 상세 요청 처리 (세션별)
+		if has_pending_email_results(session_id):
+			# 패턴 1: 숫자로 시작 + "에 대해", "자세히", "상세히", "알려줘" 패턴 (메일 키워드 불필요)
+			# 예: "626. 육아휴직 연장 안내의 건에 대해 알려줘"
+			# 주의: 다른 agent(특허, 논문)와 충돌 방지를 위해 이전 검색 결과 확인 필수
+			if re.match(r"^\d+\.?\s*", query) and any(k in query for k in ["에 대해", "에대해", "자세히", "상세히", "알려줘", "알려"]):
+				# 다른 명확한 의도 키워드가 없을 때만 (식단, 일정, 특허, 논문 등 제외)
+				# 특허/논문 관련 키워드가 있으면 이메일이 아닐 가능성이 높음
+				if not any(k in query for k in ["점심", "저녁", "메뉴", "식단", "구내식당", "일정", "스케줄",
+				                                 "특허", "논문", "paper", "patent", "KISTI", "ScienceON", "학술"]):
+					match_with_dot = re.match(r"^(\d+)\.\s*(.+)", query)
+					if match_with_dot:
+						selection_index = int(match_with_dot.group(1))
+						# 제목에서 "에 대해", "에대해", "자세히", "상세히", "알려줘" 등 제거
+						title = match_with_dot.group(2).strip()
+						# "에 대해 알려줘", "에 대해 자세히 알려줘" 등의 패턴 제거
+						title = re.sub(r"\s*에\s*대해\s*(자세히\s*)?(알려줘|알려)?\s*$", "", title, flags=re.IGNORECASE)
+						title = re.sub(r"\s*자세히\s*(알려줘|알려)?\s*$", "", title, flags=re.IGNORECASE)
+						title = re.sub(r"\s*상세히\s*(알려줘|알려)?\s*$", "", title, flags=re.IGNORECASE)
+						title = re.sub(r"\s*알려줘\s*$", "", title, flags=re.IGNORECASE)
+						selection_by_title = title.strip()
+					else:
+						# 숫자만 있는 경우 (예: "626에 대해 알려줘")
+						digits = re.findall(r"\d+", query)
+						if digits:
+							selection_index = int(digits[0])
+
+			# 패턴 2: "메일" 또는 "이메일" 키워드가 포함된 경우
+			has_email_keyword = "메일" in query or "이메일" in query
+			if has_email_keyword and selection_index is None:
+				# 패턴 2-1: "355. 제목" 형식 (메일 키워드 포함)
+				match_with_dot = re.match(r"^(\d+)\.\s*(.+)", query)
+				if match_with_dot:
+					selection_index = int(match_with_dot.group(1))
+					selection_by_title = match_with_dot.group(2).strip()
+				# 패턴 2-2: 숫자 + "번" + "메일"/"이메일" 패턴
+				elif re.search(r"(\d+)\s*번\s*(메일|이메일)", query):
+					digits = re.findall(r"\d+", query)
+					if digits:
+						selection_index = int(digits[0])
+				# 패턴 2-3: 숫자 + "메일"/"이메일" 패턴 (예: "355 메일", "355번 메일 상세")
+				elif re.search(r"(\d+)\s*(번\s*)?(메일|이메일)", query):
+					digits = re.findall(r"\d+", query)
+					if digits:
+						selection_index = int(digits[0])
+				# 패턴 2-4: 숫자로 시작 + "메일"/"이메일" 포함 (제목 포함 가능)
+				elif re.match(r"^\d+", query) and ("메일" in query or "이메일" in query):
+					digits = re.findall(r"\d+", query)
+					if digits:
+						num_str = digits[0]
+						if len(query) > len(num_str) and query[len(num_str):].strip():
+							selection_index = int(num_str)
+							# 제목 추출 시도
+							title_part = query[len(num_str):].strip().lstrip(". ")
+							if title_part and title_part not in ["메일", "이메일", "번 메일", "번 이메일"]:
+								selection_by_title = title_part
 	except Exception:
 		selection_index = None
-	
-	# 선택 처리: 숫자가 있고 이전 검색 결과가 있으면 상세 보기
+		selection_by_title = None
+
+	# 선택 처리: 숫자가 있고 이전 검색 결과가 있으면 상세 보기 (세션별)
 	try:
-		if selection_index is not None and has_pending_email_results():
-			return _imap_fetch_full_by_index(selection_index)
-		# 검색 실행(IMAP)
+		if selection_index is not None and has_pending_email_results(session_id):
+			# 제목으로도 검색 시도 (번호가 매칭되지 않는 경우)
+			if selection_by_title:
+				cache = _get_email_cache(session_id)
+				items = cache.get("items", [])
+				# 제목으로 아이템 찾기
+				for idx, item in enumerate(items):
+					item_title = item.get("title", "").strip()
+					display_num = int(item.get("index", 0))
+					# 번호가 일치하거나 제목이 유사하면
+					if display_num == selection_index or selection_by_title.lower() in item_title.lower():
+						actual_index = item.get("actual_index", idx)
+						return _imap_fetch_full_by_index(actual_index + 1, session_id=session_id, by_display_number=False)
+
+			# 번호로만 검색
+			return _imap_fetch_full_by_index(selection_index, session_id=session_id, by_display_number=True)
+
+		# "더 찾아줘", "계속 검색" 등의 요청 처리
+		batch_offset = 0
+		search_keyword = query  # 기본값은 현재 쿼리
+		cache = _get_email_cache(session_id)
+
+		# 현재 쿼리에서 키워드 추출
+		current_extracted = _extract_keywords(query)
+
+		# 이전 검색 결과가 있고, 명시적으로 "더 찾아줘" 등의 요청인 경우
+		if has_pending_email_results(session_id):
+			last_keyword = cache.get("last_keyword", "")
+			keyword_offsets = cache.get("keyword_offsets", {})
+
+			# "더 찾아줘", "계속 검색" 등의 연속 검색 요청인 경우
+			if any(k in query.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘"]):
+				# 이전 키워드를 사용하여 계속 검색
+				if last_keyword:
+					search_keyword = last_keyword
+					# 저장된 배치 오프셋 사용
+					batch_offset = cache.get("batch_offset", 0)
+				else:
+					# 이전 키워드가 없으면 현재 쿼리 사용 (fallback)
+					search_keyword = query
+					batch_offset = 0
+			# 같은 키워드로 계속 검색하는 경우
+			elif query == last_keyword:
+				# 저장된 배치 오프셋 사용
+				batch_offset = cache.get("batch_offset", 0)
+				search_keyword = query
+			# 새로운 키워드로 검색하는 경우
+			else:
+				# 추출된 키워드가 이전에 검색한 키워드인지 확인
+				if current_extracted and current_extracted in keyword_offsets:
+					# 같은 키워드로 이전에 검색한 적이 있으면, 그 위치부터 계속 검색
+					batch_offset = keyword_offsets[current_extracted]
+					search_keyword = query
+				else:
+					# 완전히 새로운 키워드인 경우 처음부터 검색
+					batch_offset = 0
+					search_keyword = query
+
+				# 캐시 업데이트
+				cache["batch_offset"] = batch_offset
+				cache["last_keyword"] = query
+				_save_email_cache(cache, session_id)
+		else:
+			# 새로운 검색인 경우
+			batch_offset = 0
+			search_keyword = query
+			cache["batch_offset"] = 0
+			cache["last_keyword"] = query
+			if "keyword_offsets" not in cache:
+				cache["keyword_offsets"] = {}
+			_save_email_cache(cache, session_id)
+
+		# 검색 실행(IMAP) - 배치 단위로 검색 (이전 키워드 사용)
 		imap_limit = int(_get_env("IMAP_MAX_FETCH", "1000") or "1000")
-		return _imap_search_emails(keyword=query, limit=imap_limit)
+		return _imap_search_emails(keyword=search_keyword, limit=imap_limit, session_id=session_id, batch_offset=batch_offset)
 	except Exception as e:
+		import traceback
+		traceback.print_exc()
 		return {
 			"ok": False,
 			"error": f"IMAP 검색 실패: {str(e)}",

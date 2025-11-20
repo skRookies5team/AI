@@ -24,7 +24,7 @@ class LeaveQuery:
 
 def check_balance(employee_id: int, leave_type: Optional[Literal["연차", "반차", "병가", "경조사"]] = None) -> dict:
     """휴가 잔여일을 조회한다.
-    
+
     Args:
         employee_id: 직원 ID
         leave_type: 휴가 유형 (연차, 반차, 병가, 경조사). None이면 전체 연차 조회.
@@ -32,14 +32,14 @@ def check_balance(employee_id: int, leave_type: Optional[Literal["연차", "반�
     ensure_balance_row(employee_id)
     # 최신 요청 합산 반영
     bal = update_balance_from_requests(employee_id)
-    
+
     # 메시지 생성
     employee_name = bal.get("employee_name", "직원")
     total = bal.get("total_entitlement_days", 0)
     used = bal.get("used_days", 0)
     pending = bal.get("pending_days", 0)
     remaining = bal.get("remaining_days", 0)
-    
+
     # leave_type에 따라 메시지 변경
     if leave_type:
         leave_type_name = leave_type
@@ -51,7 +51,7 @@ def check_balance(employee_id: int, leave_type: Optional[Literal["연차", "반�
             leave_type_name = "경조사"
         else:
             leave_type_name = "연차"
-        
+
         message = (
             f"{employee_name}님의 {leave_type_name} 현황:\n"
             f"- 총 연차: {total}일\n"
@@ -67,7 +67,7 @@ def check_balance(employee_id: int, leave_type: Optional[Literal["연차", "반�
             f"- 대기: {pending}일\n"
             f"- 잔여: {remaining}일"
         )
-    
+
     return {"ok": True, "message": message, "balance": bal}
 
 
@@ -111,6 +111,8 @@ def handle_leave(query: LeaveQuery) -> dict:
     if query.action == "신청":
         return apply_leave(query)
     return {"ok": False, "error": "지원하지 않는 action 입니다. (조회|신청)"}
+
+
 
 
 
