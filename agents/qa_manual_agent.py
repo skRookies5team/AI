@@ -90,7 +90,7 @@ class MilvusConfig(BaseModel):
     host: str = Field(default="175.120.35.228", description="Milvus 호스트")
     port: int = Field(default=19530, description="Milvus 포트")
     collection_name: str = Field(default="test_embeddings_docling_yj", description="컬렉션 이름")
-    dimension: int = Field(default=1024, description="벡터 차원")
+    dimension: int = Field(default=1536, description="벡터 차원")
     top_k: int = Field(default=5, description="상위 k개 문서 추출")
     embedding_field: str = Field(default="embedding", description="벡터 필드명")
     document_field: str = Field(default="content", description="문서 필드명")
@@ -128,17 +128,14 @@ class ManualSearchConfig(BaseModel):
     @classmethod
     def from_env(cls) -> "ManualSearchConfig":
         """환경 변수에서 설정 로드"""
-        # 임베딩 설정
         embedding_config = EmbeddingConfig(
             openai_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
             api_key=os.getenv("OPENAI_API_KEY", ""),
         )
 
-        # Milvus 차원은 OpenAI 모델 기준으로 설정 (기본값: 1536)
         default_dimension = 1536
         milvus_dimension = int(os.getenv("MILVUS_DIMENSION", str(default_dimension)))
 
-        # 하이브리드 검색 설정
         hybrid_search_config = HybridSearchConfig(
             enabled=os.getenv("HYBRID_SEARCH_ENABLED", "false").lower() == "true",
             vector_weight=float(os.getenv("HYBRID_SEARCH_VECTOR_WEIGHT", "0.5")),
@@ -201,13 +198,11 @@ class Embedder:
 
         self.client = OpenAI(api_key=api_key)
         self.model = model
-        # OpenAI 모델별 차원 설정
         if "3-small" in model:
             self.dimension = 1536
         elif "3-large" in model:
             self.dimension = 3072
         else:
-            # 기본값 (다른 모델의 경우)
             self.dimension = 1536
 
     def embed(self, text: str) -> List[float]:
@@ -248,7 +243,6 @@ class KeywordSearcher:
         self.documents = documents
         self.document_ids = document_ids
 
-        # 한국어 및 영어 지원 토큰화
         tokenized_docs = [self._tokenize(doc) for doc in documents]
         self.bm25 = BM25Okapi(tokenized_docs)
 
@@ -264,8 +258,6 @@ class KeywordSearcher:
         if not text:
             return []
 
-        # 소문자 변환 후 단어 단위로 분리
-        # \w+는 한글, 영문, 숫자를 포함
         tokens = re.findall(r'\b\w+\b', text.lower())
         return tokens
 
@@ -280,12 +272,9 @@ class KeywordSearcher:
         Returns:
             추출된 키워드 리스트 (상위 18개)
         """
-        # 한글, 영문, 숫자만 추출
         pattern = r'[가-힣a-zA-Z0-9]+'
         keywords = re.findall(pattern, text.lower())
-        # 최소 길이 이상인 키워드만 반환
         keywords = [kw for kw in keywords if len(kw) >= min_length]
-        # 빈도수 기반으로 중요 키워드 선택 (상위 18개)
         keyword_counts = Counter(keywords)
         return [kw for kw, _ in keyword_counts.most_common(18)]
 
@@ -306,17 +295,14 @@ class KeywordSearcher:
         if not tokenized_query:
             return []
 
-        # BM25 점수 계산
         scores = self.bm25.get_scores(tokenized_query)
 
-        # 상위 k개 인덱스 선택
         top_indices = sorted(
             range(len(scores)),
             key=lambda i: scores[i],
             reverse=True
         )[:top_k]
 
-        # 결과 생성 (점수가 0보다 큰 것만 포함)
         results = []
         for idx in top_indices:
             score = scores[idx]
@@ -356,7 +342,6 @@ class AnswerGenerator:
         Returns:
             생성된 프롬프트
         """
-        # 문서 내용 추출
         document_texts = []
         for i, doc in enumerate(documents, 1):
             doc_text = doc.get("document", "").strip()
@@ -435,7 +420,10 @@ class AnswerGenerator:
                 max_tokens=self.config.max_tokens,
             )
 
-            answer = response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content
+            if answer is None:
+                raise RuntimeError("LLM이 답변을 생성하지 못했습니다.")
+            answer = answer.strip()
             return answer
 
         except Exception as e:
@@ -500,22 +488,11 @@ class DocumentRetriever:
         if self.collection is None:
             raise RuntimeError("컬렉션이 로드되지 않았습니다.")
 
-        # 검색 전에 컬렉션 로드 확인 및 재로드
-        try:
-            self.collection.load()
-        except Exception as e:
-            logger.warning(f"컬렉션 로드 중 오류: {e}, 재시도...")
-            # 컬렉션 재생성 및 로드
-            self.collection = Collection(self.config.collection_name)
-            self.collection.load()
-
         top_k = top_k or self.config.top_k
 
-        # 컬렉션 스키마에서 실제 존재하는 필드 확인
         schema = self.collection.schema
         existing_fields = [field.name for field in schema.fields]
 
-        # output_fields에 존재하는 필드만 포함
         output_fields = []
         if self.config.document_field in existing_fields:
             output_fields.append(self.config.document_field)
@@ -533,13 +510,11 @@ class DocumentRetriever:
                 f"메타데이터 없이 진행합니다."
             )
 
-        # 검색 파라미터
         search_params = {
             "metric_type": self.config.metric_type,
             "params": {"nprobe": 10},
         }
 
-        # 검색 실행
         results = self.collection.search(
             data=[query_vector],
             anns_field=self.config.embedding_field,
@@ -549,10 +524,8 @@ class DocumentRetriever:
             output_fields=output_fields if output_fields else None,
         )
 
-        # 결과 포맷팅
         documents = []
         for hit in results[0]:
-            # metadata 처리 (필드가 있으면 파싱, 없으면 빈 dict)
             if self.config.metadata_field in output_fields:
                 metadata_str = hit.entity.get(self.config.metadata_field, "{}")
                 try:
@@ -562,7 +535,6 @@ class DocumentRetriever:
             else:
                 metadata = {}
 
-            # 개선된 점수 정규화
             normalized_score = 1 / (1 + hit.distance)
             if hit.distance > 0:
                 adjusted_score = normalized_score * (1 - min(hit.distance / 3.0, 0.3))
@@ -603,29 +575,24 @@ class DocumentRetriever:
 
         top_k = top_k or self.config.top_k
 
-        # 1. 벡터 검색 (더 많이 가져와서 결합)
         vector_expansion = int(top_k * self.config.hybrid_search.vector_expansion_factor)
         vector_results = self.search(query_vector, vector_expansion, filter_expr)
 
         if not vector_results:
             return []
 
-        # 2. 키워드 검색을 위한 문서 준비
         documents = [doc["document"] for doc in vector_results]
         doc_ids = [doc["id"] for doc in vector_results]
 
-        # 3. 키워드 검색
         keyword_searcher = KeywordSearcher(documents, doc_ids)
         keyword_expansion = int(top_k * self.config.hybrid_search.keyword_expansion_factor)
         keyword_results = keyword_searcher.search(query_text, keyword_expansion)
 
-        # 3-1. 핵심 키워드 추출 및 점수 보정
         core_keywords = self._extract_core_keywords(query_text)
 
         if core_keywords:
             keyword_results = self._apply_core_keyword_boost(keyword_results, core_keywords)
 
-        # 4. 결과 결합
         if self.config.hybrid_search.use_rrf:
             combined_results = self._combine_with_rrf(vector_results, keyword_results, top_k)
         else:
@@ -648,24 +615,20 @@ class DocumentRetriever:
         """RRF(Reciprocal Rank Fusion)로 결과 결합"""
         k = self.config.hybrid_search.rrf_k if self.config.hybrid_search else 60
 
-        # ID별로 RRF 점수 계산
         rrf_scores: Dict[Any, Dict[str, Any]] = {}
 
-        # 벡터 검색 결과의 RRF 점수
         for rank, doc in enumerate(vector_results, 1):
             doc_id = doc["id"]
             if doc_id not in rrf_scores:
                 rrf_scores[doc_id] = {"doc": doc, "rrf_score": 0.0}
             rrf_scores[doc_id]["rrf_score"] += 1.0 / (k + rank)
 
-        # 키워드 검색 결과의 RRF 점수
         for rank, doc in enumerate(keyword_results, 1):
             doc_id = doc["id"]
             if doc_id not in rrf_scores:
                 rrf_scores[doc_id] = {"doc": doc, "rrf_score": 0.0}
             rrf_scores[doc_id]["rrf_score"] += 1.0 / (k + rank)
 
-        # RRF 점수로 정렬
         final_top_k = min(top_k * 1.4, 7) if top_k <= 5 else top_k
         combined = sorted(
             rrf_scores.values(),
@@ -673,11 +636,9 @@ class DocumentRetriever:
             reverse=True
         )[:int(final_top_k)]
 
-        # 낮은 점수 문서 필터링
         min_threshold = self.config.hybrid_search.min_score_threshold if self.config.hybrid_search else 0.3
         filtered = [item for item in combined if item["rrf_score"] >= min_threshold]
 
-        # 결과 포맷팅
         results = []
         for item in filtered:
             doc = item["doc"].copy()
@@ -695,10 +656,8 @@ class DocumentRetriever:
         keyword_weight: float,
     ) -> List[Dict[str, Any]]:
         """가중 점수로 결과 결합"""
-        # ID별로 점수 정규화 및 결합
         combined_scores: Dict[Any, Dict[str, Any]] = {}
 
-        # 벡터 검색 점수 정규화
         if vector_results:
             vector_scores = [doc["score"] for doc in vector_results]
             max_vector_score = max(vector_scores)
@@ -716,7 +675,6 @@ class DocumentRetriever:
                     "combined_score": normalized_score * vector_weight,
                 }
 
-        # 키워드 검색 점수 정규화 및 결합
         if keyword_results:
             keyword_scores = [doc["score"] for doc in keyword_results]
             max_keyword_score = max(keyword_scores)
@@ -740,7 +698,6 @@ class DocumentRetriever:
                         "combined_score": normalized_score * keyword_weight,
                     }
 
-        # 결합 점수로 정렬
         final_top_k = min(top_k * 1.4, 7) if top_k <= 5 else top_k
         combined = sorted(
             combined_scores.values(),
@@ -748,11 +705,9 @@ class DocumentRetriever:
             reverse=True
         )[:int(final_top_k)]
 
-        # 낮은 점수 문서 필터링
         min_threshold = self.config.hybrid_search.min_score_threshold if self.config.hybrid_search else 0.3
         filtered = [item for item in combined if item["combined_score"] >= min_threshold]
 
-        # 최종 결과 포맷팅
         results = []
         for item in filtered:
             doc = item["doc"].copy()
@@ -766,7 +721,6 @@ class DocumentRetriever:
         base_keywords = KeywordSearcher.extract_keywords(query, min_length=2)
         top_keywords = base_keywords[:5]
 
-        # 복합 키워드도 추출
         words = query.split()
         if len(words) >= 2:
             for i in range(len(words) - 1):
@@ -1132,24 +1086,19 @@ def _initialize_components() -> tuple[Embedder, DocumentRetriever, AnswerGenerat
     """
     global _embedder, _retriever, _answer_generator, _config
 
-    # 이미 초기화되어 있으면 재사용
     if _embedder is not None and _retriever is not None and _answer_generator is not None and _config is not None:
         return _embedder, _retriever, _answer_generator, _config
 
     try:
-        # 설정 로드
         _config = ManualSearchConfig.from_env()
 
-        # Embedder 초기화
         _embedder = Embedder(
             api_key=_config.embedding.api_key or _config.llm.api_key,
             model=_config.embedding.openai_model,
         )
 
-        # DocumentRetriever 초기화
         _retriever = DocumentRetriever(_config.milvus)
 
-        # AnswerGenerator 초기화
         _answer_generator = AnswerGenerator(_config.llm)
 
         logger.info("✅ 메뉴얼 검색 Agent 컴포넌트 초기화 완료")
@@ -1166,7 +1115,36 @@ def _initialize_components() -> tuple[Embedder, DocumentRetriever, AnswerGenerat
 # ============================================================================
 
 def manual_search(user_text: str) -> Dict:
-    return {
-        "ok": True,
-        "echo": user_text,
-    }
+    """메뉴얼 검색 Agent 메인 함수
+    
+    Args:
+        user_text: 사용자 질의 텍스트
+        
+    Returns:
+        검색 결과 딕셔너리
+    """
+    try:
+        embedder, retriever, answer_generator, config = _initialize_components()
+        
+        result = run_manual_search(
+            query=user_text,
+            embedder=embedder,
+            retriever=retriever,
+            answer_generator=answer_generator,
+            top_k=config.milvus.top_k,
+        )
+        
+        return {
+            "ok": True,
+            "message": result.answer.text if result.answer and result.answer.text else "답변을 생성할 수 없습니다.",
+            "retrieved_contexts": [doc.document for doc in result.sources][:3],  # 상위 3개 문서 내용만
+            "echo": user_text
+        }
+    except Exception as e:
+        logger.error(f"메뉴얼 검색 실패: {e}", exc_info=True)
+        return {
+            "ok": False,
+            "error": str(e),
+            "message": f"검색 중 오류가 발생했습니다: {str(e)}",
+            "echo": user_text
+        }
