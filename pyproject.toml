@@ -27,4 +27,5 @@ dependencies = [
     "fastapi>=0.121.2",
     "pymysql>=1.1.2",
     "pypdf2>=3.0.1",
+    "sqlalchemy>=2.0.44",
 ]
