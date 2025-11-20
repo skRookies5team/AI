@@ -14,6 +14,9 @@ from .schedule_data import ScheduleDatabaseError, get_session
 LEAVE_BALANCE_TABLE = os.getenv("LEAVE_BALANCE_TABLE", "leave_balance_v2")
 LEAVE_REQUEST_TABLE = os.getenv("LEAVE_REQUEST_TABLE", "leave_request")
 
+# v2 데이터셋 경로
+LEAVE_BALANCE_V2_PATH = os.path.join(ROOT_DIR, "leave_balance_v2.csv")
+LEAVE_REQUEST_V2_PATH = os.path.join(ROOT_DIR, "leave_request_v2.csv")
 
 def _run(coro):
     """비동기 코루틴을 동기적으로 실행한다. 이벤트 루프가 이미 실행 중이면 별도 스레드에서 실행한다."""
@@ -22,11 +25,11 @@ def _run(coro):
     import logging
     import sys
     from io import StringIO
-    
+
     # SQLAlchemy 연결 종료 시 발생하는 경고/오류 억제
     logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
-    
+
     # 현재 실행 중인 이벤트 루프 확인
     try:
         loop = asyncio.get_running_loop()
@@ -50,7 +53,7 @@ def _run(coro):
                 except Exception:
                     pass  # 연결 종료 오류 무시
                 asyncio.set_event_loop(None)
-        
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_in_thread)
             return future.result(timeout=30)  # 30초 타임아웃
@@ -93,7 +96,7 @@ def _run(coro):
                         except Exception:
                             pass  # 연결 종료 오류 무시
                         asyncio.set_event_loop(None)
-                
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(run_in_thread)
                     return future.result(timeout=30)
@@ -134,7 +137,7 @@ async def _fetch_balance_row(session, employee_id: int) -> Optional[dict]:
     result = await session.execute(
         text(
             f"""
-            SELECT 
+            SELECT
                 {LEAVE_BALANCE_TABLE}.*,
                 employee.name AS employee_name
             FROM {LEAVE_BALANCE_TABLE}
@@ -148,6 +151,8 @@ async def _fetch_balance_row(session, employee_id: int) -> Optional[dict]:
     row = result.mappings().first()
     return dict(row) if row else None
 
+    if (bal["employee_id"] == employee_id).any():
+        return bal
 
 async def _compute_used_pending(session, employee_id: int) -> Tuple[float, float]:
     query = text(
