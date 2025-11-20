@@ -266,37 +266,37 @@ def kipris_download_pdf(application_number: str, save_dir: Path) -> tuple[Option
         "download_url": "",
         "doc_name": f"{application_number}.pdf",
     }
-    
+
     try:
         meta_resp = requests.get(meta_url, params=meta_params, timeout=20)
         meta_resp.raise_for_status()
         meta_data = xmltodict.parse(meta_resp.text)
-        
+
         # xmltodict.parse가 None을 반환할 수 있으므로 체크
         if not meta_data or not isinstance(meta_data, dict):
             download_info["error"] = "XML 파싱 실패: 응답 데이터가 비어있습니다."
             return None, download_info
-        
+
     except Exception as e:
         download_info["error"] = str(e)
         return None, download_info
-    
+
     try:
         response = meta_data.get("response", {})
         if not response or not isinstance(response, dict):
             download_info["error"] = "응답 형식 오류: response 필드가 없습니다."
             return None, download_info
-        
+
         body = response.get("body", {})
         if not body or not isinstance(body, dict):
             download_info["error"] = "응답 형식 오류: body 필드가 없습니다."
             return None, download_info
-        
+
         item = body.get("item") or {}
         if not isinstance(item, dict):
             download_info["error"] = "응답 형식 오류: item 필드가 없습니다."
             return None, download_info
-        
+
         download_url = item.get("path")
         doc_name = item.get("docName") or f"{application_number}.pdf"
         download_info["doc_name"] = doc_name
@@ -308,7 +308,7 @@ def kipris_download_pdf(application_number: str, save_dir: Path) -> tuple[Option
     if not download_url:
         download_info["error"] = "PDF 다운로드 URL이 없습니다."
         return None, download_info
-    
+
     save_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^0-9A-Za-z_.-]", "_", doc_name)
     out_path = save_dir / safe_name
@@ -528,13 +528,13 @@ def extract_keyword_from_text(text: str) -> str:
 
 def _sanitize_collection_name(keyword: str) -> str:
     """키워드를 Milvus 컬렉션 이름으로 변환 (한글을 영문으로 변환).
-    
+
     Milvus 컬렉션 이름은 영문자, 숫자, 언더스코어만 허용합니다.
     한글 키워드는 영문으로 변환하거나 해시 기반으로 변환합니다.
     """
     import re
     import hashlib
-    
+
     # 1. 키워드 맵에서 직접 매핑 확인 (확장된 맵)
     keyword_map = {
         "디스플레이": "display",
@@ -589,24 +589,24 @@ def _sanitize_collection_name(keyword: str) -> str:
     
     # 키워드 맵에서 직접 매핑 확인
     normalized_keyword = keyword.strip()
-    
+
     # 정확히 일치하는 키워드가 있으면 반환
     if normalized_keyword in keyword_map:
         return keyword_map[normalized_keyword]
-    
+
     # 키워드에 포함된 단어들이 맵에 있는지 확인 (부분 일치)
     # 예: "배터리 충전" -> "battery" 추출
     for korean_key, english_value in keyword_map.items():
         if korean_key in normalized_keyword:
             return english_value
-    
+
     # 2. 키워드에 한글이 포함되어 있는지 확인
     has_korean = any('가' <= char <= '힣' for char in normalized_keyword)
-    
+
     # 3. 영문자, 숫자, 언더스코어만 추출
     english_only = re.sub(r'[^a-zA-Z0-9_]', '_', normalized_keyword)
     english_only = re.sub(r'_+', '_', english_only).strip('_')
-    
+
     # 4. 한글이 포함되어 있으면 해시 기반으로 변환 (영문 변환 실패 시)
     if has_korean:
         # 키워드의 해시값을 사용하여 고유한 컬렉션 이름 생성
@@ -631,21 +631,21 @@ def _sanitize_collection_name(keyword: str) -> str:
 
 def get_collection_name(keyword: str) -> str:
     """키워드로 컬렉션 이름 생성 (Milvus 호환).
-    
+
     Args:
         keyword: 검색 키워드 (한글 가능)
-    
+
     Returns:
         Milvus 컬렉션 이름 (영문자, 숫자, 언더스코어만 포함)
-    
+
     Raises:
         ValueError: 컬렉션 이름에 한글이나 특수문자가 포함된 경우
     """
     import re
-    
+
     collection_suffix = _sanitize_collection_name(keyword)
     collection_name = f"patents_embeddings_{collection_suffix}"
-    
+
     # 최종 검증: 컬렉션 이름이 Milvus 규칙을 준수하는지 확인
     # 영문자, 숫자, 언더스코어만 허용
     if not re.match(r'^[a-zA-Z0-9_]+$', collection_name):
@@ -653,13 +653,13 @@ def get_collection_name(keyword: str) -> str:
         import hashlib
         hash_value = hashlib.md5(keyword.encode('utf-8')).hexdigest()[:12]
         collection_name = f"patents_embeddings_kw_{hash_value}"
-    
+
     # 길이 제한 (Milvus 컬렉션 이름은 최대 255자)
     if len(collection_name) > 255:
         import hashlib
         hash_value = hashlib.md5(keyword.encode('utf-8')).hexdigest()[:12]
         collection_name = f"patents_embeddings_kw_{hash_value}"
-    
+
     return collection_name
 
 
@@ -1034,33 +1034,33 @@ def search_kipris_node(state: PatentSearchState) -> PatentSearchState:
 
     try:
         data = kipris_search(query, rows=10)
-        
+
         if not data or not isinstance(data, dict):
             state["search_results"] = []
             state["next_action"] = "end"
             return state
-        
+
         response = data.get("response", {})
         if not response or not isinstance(response, dict):
             state["search_results"] = []
             state["next_action"] = "end"
             return state
-        
+
         body = response.get("body", {})
         if not body or not isinstance(body, dict):
             state["search_results"] = []
             state["next_action"] = "end"
             return state
-        
+
         items_dict = body.get("items", {})
         if not items_dict or not isinstance(items_dict, dict):
             state["search_results"] = []
             state["next_action"] = "end"
             return state
-        
+
         items = items_dict.get("item")
         items = ensure_list(items)
-        
+
         search_results = []
         for it in items:
             if not isinstance(it, dict):
@@ -1070,14 +1070,14 @@ def search_kipris_node(state: PatentSearchState) -> PatentSearchState:
                 "title": clean_text(it.get("inventionTitle")),
                 "abstract": clean_text(it.get("astrtCont")),
             })
-        
+
         state["search_results"] = search_results
         state["next_action"] = "end"
     except Exception as e:
         print(f"⚠️ KIPRIS 검색 오류: {e}")
         state["search_results"] = []
         state["next_action"] = "end"
-    
+
     return state
 
 
@@ -1093,13 +1093,13 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
     app_no = patent.get("application_number")
     title = patent.get("title", "제목 없음")
     abstract = patent.get("abstract", "")
-    
+
     if not app_no:
         state["pdf_content"] = "특허 번호가 없습니다."
         state["pdf_link"] = ""
         state["next_action"] = "end"
         return state
-    
+
     state["progress_status"] = f"📥 특허 PDF 다운로드 중: {app_no}"
     _notify_progress(state["progress_status"])
 
@@ -1111,14 +1111,14 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
     
     try:
         pdf_path, download_info = kipris_download_pdf(app_no, pdf_dir)
-        
+
         if not pdf_path or not pdf_path.exists():
             error_msg = download_info.get("error", "알 수 없는 오류")
             state["pdf_content"] = f"PDF 다운로드 실패: {error_msg}"
             state["pdf_link"] = download_info.get("download_url", "") if isinstance(download_info, dict) else ""
             state["next_action"] = "end"
             return state
-        
+
         try:
             state["progress_status"] = "📄 PDF에서 텍스트 추출 중..."
             _notify_progress(state["progress_status"])
@@ -1128,9 +1128,9 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
                 state["pdf_link"] = download_info.get("download_url", "") if isinstance(download_info, dict) else ""
                 state["next_action"] = "end"
                 return state
-            
+
             text_path = save_text_file(text_dir, app_no, title, abstract, body)
-            
+
             try:
                 # 특허_키워드 형식으로 저장
                 keyword = state.get("keyword", extract_keyword_from_text(f"{title} {abstract}"))
@@ -1142,7 +1142,7 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
             except Exception as e:
                 print(f"⚠️ 임베딩 저장 오류 (계속 진행): {e}")
                 chunks_count = 0
-            
+
             metadata = {
                 "application_number": app_no,
                 "title": title,
@@ -1164,18 +1164,18 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
                 save_metadata(meta_dir, metadata)
             except Exception as e:
                 print(f"⚠️ 메타데이터 저장 오류 (계속 진행): {e}")
-            
+
             state["pdf_content"] = body
             state["pdf_link"] = download_info.get("download_url", "") if isinstance(download_info, dict) else ""
             state["next_action"] = "rag_answer"
-            
+
         except Exception as e:
             error_msg = str(e)
             print(f"⚠️ PDF 텍스트 추출 오류: {error_msg}")
             state["pdf_content"] = f"텍스트 추출 실패: {error_msg}"
             state["pdf_link"] = download_info.get("download_url", "") if isinstance(download_info, dict) else ""
             state["next_action"] = "end"
-    
+
     except Exception as e:
         error_msg = str(e)
         print(f"⚠️ PDF 다운로드 오류: {error_msg}")
@@ -1593,14 +1593,14 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
     if patent_number_match:
         app_no = patent_number_match.group(1)
         cached_results = _get_search_results(session_id)
-        
+
         # 캐시된 결과에서 해당 특허 번호 찾기
         selected_patent = None
         for patent in cached_results:
             if patent.get("application_number") == app_no:
                 selected_patent = patent
                 break
-        
+
         # 캐시에 없으면 해당 번호로 직접 검색 시도
         if not selected_patent:
             try:
@@ -1614,7 +1614,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                             if items_dict and isinstance(items_dict, dict):
                                 items = items_dict.get("item")
                                 items = ensure_list(items)
-                                
+
                                 if items and len(items) > 0:
                                     it = items[0]
                                     if isinstance(it, dict):
@@ -1625,7 +1625,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                                         }
             except Exception as e:
                 print(f"⚠️ 특허 번호 검색 오류: {e}")
-        
+
         # 특허를 찾았으면 상세 처리
         if selected_patent:
             if LANGCHAIN_AVAILABLE:
@@ -1651,16 +1651,16 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                         _notify_progress(initial_state["progress_status"])
 
                         result = download_pdf_node(initial_state)
-                        
+
                         # result가 dict인지 확인
                         if not isinstance(result, dict):
                             raise ValueError(f"download_pdf_node가 dict를 반환하지 않았습니다: {type(result)}")
-                        
+
                         if result.get("next_action") == "rag_answer":
                             result = rag_answer_node(result)
                             if not isinstance(result, dict):
                                 raise ValueError(f"rag_answer_node가 dict를 반환하지 않았습니다: {type(result)}")
-                        
+
                         if result.get("answer"):
                             return {
                                 "ok": True,
@@ -1700,7 +1700,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                             "ok": False,
                             "error": f"특허 상세 정보 처리 중 오류가 발생했습니다: {str(e)}",
                         }
-            
+
             # LangGraph 미사용 시 기본 정보 반환
             return {
                 "ok": True,
@@ -1712,7 +1712,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                 "ok": False,
                 "error": f"특허 번호 '{app_no}'를 찾을 수 없습니다.",
             }
-    
+
     # 키워드 추출
     extracted_keyword = _extract_keyword(keyword)
     
@@ -1860,16 +1860,16 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
 
                         # PDF 다운로드 및 RAG 답변
                         result = download_pdf_node(initial_state)
-                        
+
                         # result가 dict인지 확인
                         if not isinstance(result, dict):
                             raise ValueError(f"download_pdf_node가 dict를 반환하지 않았습니다: {type(result)}")
-                        
+
                         if result.get("next_action") == "rag_answer":
                             result = rag_answer_node(result)
                             if not isinstance(result, dict):
                                 raise ValueError(f"rag_answer_node가 dict를 반환하지 않았습니다: {type(result)}")
-                        
+
                         if result.get("answer"):
                             return {
                                 "ok": True,
@@ -1909,7 +1909,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                             "ok": False,
                             "error": f"특허 상세 정보 처리 중 오류가 발생했습니다: {str(e)}",
                         }
-            
+
             # LangGraph 미사용 시 기본 정보 반환
             return {
                 "ok": True,
@@ -2030,10 +2030,10 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                 "ok": False,
                 "error": f"KIPRIS API 응답 오류: 검색 결과를 가져올 수 없습니다.",
             }
-        
+
         items_data = data.get("response", {}).get("body", {}).get("items", {}).get("item")
         items_data = ensure_list(items_data)
-        
+
         search_results = []
         items = []
         for idx, it in enumerate(items_data, 1):
@@ -2042,29 +2042,29 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
             app_no = clean_text(it.get("applicationNumber"))
             title = clean_text(it.get("inventionTitle"))
             abstract = clean_text(it.get("astrtCont"))
-            
+
             patent_info = {
                 "application_number": app_no,
                 "title": title,
                 "abstract": abstract,
             }
             search_results.append(patent_info)
-            
+
             items.append({
                 "index": idx,
                 "application_number": app_no,
                 "title": title,
                 "abstract": abstract[:200] + "..." if len(abstract) > 200 else abstract,
             })
-        
+
         if not search_results:
             return {
                 "ok": False,
                 "error": f"'{extracted_keyword}' 관련 특허를 찾을 수 없습니다.",
             }
-        
+
         _save_search_results(search_results, session_id)
-        
+
         return {
             "ok": True,
             "message": f"🔍 '{extracted_keyword}' 관련 특허 {len(search_results)}개를 찾았습니다.",

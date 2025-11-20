@@ -1,4 +1,4 @@
-"""통합 AI 에이전트 FastAPI 서버"""
+"""통합 AI 에이전트 FastAPI 서버이다."""
 from __future__ import annotations
 
 import uuid

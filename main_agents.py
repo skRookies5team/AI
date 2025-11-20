@@ -34,13 +34,13 @@ def format_result(result) -> str:
             if "IMAP" in error_msg or "메일" in error_msg:
                 return f"❌ 이메일 검색 중 문제가 발생했습니다.\n\n{error_msg}\n\n💡 이메일 설정을 확인해주세요."
             return f"❌ {error_msg}"
-        
+
         if "message" in result and isinstance(result["message"], str):
             # items가 있으면 메시지와 함께 나열 (검색 결과)
             message_text = result["message"]
             lines = [message_text]
             items = result.get("items", [])
-            
+
             if isinstance(items, list) and items:
                 # 특허 검색 결과 형식
                 if items and "index" in items[0] and "application_number" in items[0]:
@@ -55,11 +55,11 @@ def format_result(result) -> str:
                             # 초록이 너무 길면 자르기
                             abstract_preview = abstract[:150] + "..." if len(abstract) > 150 else abstract
                             lines.append(f"   📄 {abstract_preview}")
-                    
+
                     # 특허 상세 보기 안내 (더 자연스럽게)
                     lines.append("")
                     lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번' 또는 '1번 상세'")
-                
+
                 # 이메일 검색 결과 형식
                 elif items and ("subject" in items[0] or "title" in items[0]):
                     lines.append("")  # 빈 줄 추가
@@ -68,17 +68,17 @@ def format_result(result) -> str:
                         title = it.get("title") or it.get("subject") or "제목 없음"
                         from_addr = it.get("from_addr") or it.get("from") or ""
                         date = it.get("date") or ""
-                        
+
                         lines.append(f"{idx}. {title}")
                         if from_addr:
                             lines.append(f"   📧 {from_addr}")
                         if date:
                             lines.append(f"   📅 {date}")
-                    
+
                     # 이메일 상세 보기 안내 (더 자연스럽게)
                     lines.append("")
                     lines.append("💡 자세히 보려면 번호나 제목을 말씀해주세요. 예: '1번' 또는 '1번에 대해 알려줘'")
-                
+
                 # 기타 형식 (title, link 등)
                 else:
                     for it in items:
@@ -89,12 +89,12 @@ def format_result(result) -> str:
                             lines.append(f"{idx}. {title} - {link}" if idx else f"- {title} - {link}")
                         else:
                             lines.append(f"{idx}. {title}" if idx else f"- {title}")
-            
+
             # 참고 링크 추가
             if isinstance(result.get("link"), str) and result["link"]:
                 lines.append("")
                 lines.append(f"🔗 참고 링크: {result['link']}")
-            
+
             # benefit_rag 결과 처리 (contexts가 있는 경우)
             # GPT 답변에 이미 "[참고 문서]"가 포함되어 있지 않은 경우에만 추가
             message_text = result["message"]
@@ -106,7 +106,7 @@ def format_result(result) -> str:
                     for i, ctx in enumerate(result["contexts"][:3], 1):
                         preview = ctx[:150] + "..." if len(ctx) > 150 else ctx
                         lines.append(f"  {i}. {preview}")
-            
+
             return "\n".join(lines)
         if "balance" in result and isinstance(result["balance"], dict):
             b = result["balance"]
