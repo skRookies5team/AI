@@ -1,0 +1,17 @@
+{
+  "application_number": "1020230041277",
+  "title": "인공지능을 이용한 전기차 CAN 데이터 기반 배터리 수명예측 시스템",
+  "abstract": "본 발명에 따른 인공지능을 이용한 전기차 CAN 데이터 기반 배터리 수명예측 시스템은 배터리 관리 시스템에서 출력되는 데이터를 수집하고, 무선 네트워크를 이용하여 상기 데이터를 전송하도록 구성된 차량정보수집장치(OBD); 상기 OBD로부터 수집된 데이터를 저장하고 관리하도록 구성된 CAN 데이터 저장 서버; 및 상기 CAN 데이터 저장 서버에서 수집된 데이터를 기반으로 인공지능을 이용한 모델링된 결과를 이용하여 배터리 수명을 예측하는 인공지능 예측 서버를 포함한다.",
+  "keyword": "8 10",
+  "pdf": {
+    "saved": true,
+    "path": "C:\\Users\\user\\Desktop\\최종 프로젝트\\AI-smc\\AI-smc\\data\\pdf\\1020230041277.pdf",
+    "doc_name": "1020230041277.pdf",
+    "download_url": "http://plus.kipris.or.kr/kiprisplusws/fileToss.jsp?arg=11ea9f5dfe90b683899065ac5d8b8e2629c6136118273fde34442119396be1f8c1e162afbfcce744e7d19b3cf3194e51dc79948f8d4509b57bec5feb932d93739b17c8af3810b089"
+  },
+  "text": {
+    "extraction": "completed",
+    "path": "C:\\Users\\user\\Desktop\\최종 프로젝트\\AI-smc\\AI-smc\\data\\text\\1020230041277.txt",
+    "char_count": 24147
+  }
+}

@@ -14,10 +14,6 @@ from .schedule_data import ScheduleDatabaseError, get_session
 LEAVE_BALANCE_TABLE = os.getenv("LEAVE_BALANCE_TABLE", "leave_balance_v2")
 LEAVE_REQUEST_TABLE = os.getenv("LEAVE_REQUEST_TABLE", "leave_request")
 
-# v2 데이터셋 경로
-LEAVE_BALANCE_V2_PATH = os.path.join(ROOT_DIR, "leave_balance_v2.csv")
-LEAVE_REQUEST_V2_PATH = os.path.join(ROOT_DIR, "leave_request_v2.csv")
-
 def _run(coro):
     """비동기 코루틴을 동기적으로 실행한다. 이벤트 루프가 이미 실행 중이면 별도 스레드에서 실행한다."""
     import concurrent.futures
@@ -150,9 +146,6 @@ async def _fetch_balance_row(session, employee_id: int) -> Optional[dict]:
     )
     row = result.mappings().first()
     return dict(row) if row else None
-
-    if (bal["employee_id"] == employee_id).any():
-        return bal
 
 async def _compute_used_pending(session, employee_id: int) -> Tuple[float, float]:
     query = text(

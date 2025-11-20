@@ -532,7 +532,27 @@ def run_schedule_agent(query: str) -> dict[str, Any]:
     import logging
     
     # SQLAlchemy 연결 종료 시 발생하는 경고/오류 억제
-    logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
+    # CRITICAL 레벨로 설정하여 모든 로그 억제
+    sqlalchemy_loggers = [
+        "sqlalchemy.pool",
+        "sqlalchemy.engine",
+        "sqlalchemy.dialects",
+        "sqlalchemy.connectors",
+        "sqlalchemy.util",
+        "sqlalchemy",
+    ]
+    for logger_name in sqlalchemy_loggers:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.CRITICAL)
+        # 핸들러 제거하여 로그 출력 방지
+        logger.handlers = []
+        logger.propagate = False
+    
+    # asyncmy 관련 로거도 억제
+    asyncmy_logger = logging.getLogger("asyncmy")
+    asyncmy_logger.setLevel(logging.CRITICAL)
+    asyncmy_logger.handlers = []
+    asyncmy_logger.propagate = False
     
     # 이벤트 루프 실행 헬퍼 함수
     def run_in_thread():
@@ -540,16 +560,43 @@ def run_schedule_agent(query: str) -> dict[str, Any]:
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         old_stderr = sys.stderr
+        old_stdout = sys.stdout
+        old_excepthook = sys.excepthook
+        
+        # 예외 핸들러를 오버라이드하여 SQLAlchemy 연결 종료 오류 무시
+        def custom_excepthook(exc_type, exc_value, exc_traceback):
+            """SQLAlchemy 연결 종료 관련 오류는 무시."""
+            if exc_type is AttributeError and "'NoneType' object has no attribute 'send'" in str(exc_value):
+                return  # 무시
+            if exc_type is RuntimeError and "no running event loop" in str(exc_value):
+                return  # 무시
+            # 다른 예외는 기본 핸들러 사용
+            if old_excepthook:
+                old_excepthook(exc_type, exc_value, exc_traceback)
+        
         try:
+            sys.excepthook = custom_excepthook
+            # stderr와 stdout 모두 리다이렉트하여 오류 메시지 억제
             sys.stderr = StringIO()
+            sys.stdout = StringIO()
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*event loop.*")
-                warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*proactor.*")
-                warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*AttributeError.*")
+                warnings.filterwarnings("ignore")
                 result = new_loop.run_until_complete(_run_workflow(query))
                 return result
         finally:
+            sys.excepthook = old_excepthook
             sys.stderr = old_stderr
+            sys.stdout = old_stdout
+            try:
+                # 모든 pending tasks 취소
+                pending = asyncio.all_tasks(new_loop)
+                for task in pending:
+                    task.cancel()
+                # 루프 종료 전에 잠시 대기
+                if pending:
+                    new_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
             try:
                 new_loop.close()
             except Exception:
@@ -569,15 +616,31 @@ def run_schedule_agent(query: str) -> dict[str, Any]:
             try:
                 # SQLAlchemy 연결 종료 시 발생하는 경고 억제
                 old_stderr = sys.stderr
+                old_stdout = sys.stdout
+                old_excepthook = sys.excepthook
+                
+                # 예외 핸들러를 오버라이드하여 SQLAlchemy 연결 종료 오류 무시
+                def custom_excepthook(exc_type, exc_value, exc_traceback):
+                    """SQLAlchemy 연결 종료 관련 오류는 무시."""
+                    if exc_type is AttributeError and "'NoneType' object has no attribute 'send'" in str(exc_value):
+                        return  # 무시
+                    if exc_type is RuntimeError and "no running event loop" in str(exc_value):
+                        return  # 무시
+                    # 다른 예외는 기본 핸들러 사용
+                    if old_excepthook:
+                        old_excepthook(exc_type, exc_value, exc_traceback)
+                
                 try:
+                    sys.excepthook = custom_excepthook
                     sys.stderr = StringIO()
+                    sys.stdout = StringIO()
                     with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*event loop.*")
-                        warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*proactor.*")
-                        warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*AttributeError.*")
+                        warnings.filterwarnings("ignore")
                         result = asyncio.run(_run_workflow(query))
                 finally:
+                    sys.excepthook = old_excepthook
                     sys.stderr = old_stderr
+                    sys.stdout = old_stdout
             except RuntimeError as exc:
                 # asyncio.run도 실패하면 별도 스레드에서 실행
                 if "event loop" in str(exc).lower() or "Cannot run" in str(exc):
