@@ -8,7 +8,7 @@ from .leave_agent import LeaveQuery, handle_leave
 from .llm_router import classify_intent_with_llm
 from .schedule_api import cancel_schedule, create_schedule
 from .schedule_langgraph import run_schedule_agent, _extract_employee_names
-from .schedule_data import ScheduleFilters, _resolve_employee_ids_by_names, fetch_schedule_rows, get_session
+from .schedule_data import ScheduleFilters, _resolve_employee_ids_by_names, fetch_schedule_rows, fetch_business_trip_rows, get_session
 
 
 LeaveType = Literal["연차", "반차", "병가", "경조사", "휴가"]
@@ -471,6 +471,7 @@ class ScheduleIntent:
     end_time: Optional[str] = None
     schedule_type: Optional[str] = None
     location: Optional[str] = None
+    employee_name_keywords: Optional[list[str]] = None
     # stubs
     details: Optional[str] = None
 
@@ -600,6 +601,18 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
                 location=location,
             )
         elif action == "조회":
+            # 출장 조회는 business_trip 테이블로 처리
+            if schedule_type == "출장":
+                return ScheduleIntent(
+                    kind="schedule",
+                    schedule_action="조회",
+                    employee_id=employee_id,
+                    employee_name_keywords=[employee_name] if employee_name else None,
+                    schedule_type=schedule_type,
+                    title=title,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
             # 일정 조회는 run_schedule_agent로 처리
             # 단, leave 관련 질의는 제외 (이미 위에서 처리됨)
             if llm_intent != "leave":
@@ -623,6 +636,146 @@ def schedule_master(user_text: str, context: Optional[dict] = None) -> dict:
     intent = parse_schedule_intent(user_text)
 
     # 일정 등록 처리
+    # 출장 조회 처리 (business_trip 테이블)
+    if intent.kind == "schedule" and intent.schedule_action == "조회" and intent.schedule_type == "출장":
+        from .leave_data import _run
+        from datetime import datetime
+        
+        # 날짜 파싱
+        start_at = None
+        end_at = None
+        if intent.start_time:
+            try:
+                start_time_str = intent.start_time.strip()
+                if len(start_time_str) == 10:
+                    start_at = datetime.strptime(start_time_str, "%Y-%m-%d")
+                elif " " in start_time_str:
+                    start_at = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M")
+                else:
+                    start_at = datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M")
+            except Exception:
+                pass
+        
+        if intent.end_time:
+            try:
+                end_time_str = intent.end_time.strip()
+                if len(end_time_str) == 10:
+                    end_at = datetime.strptime(end_time_str, "%Y-%m-%d")
+                elif " " in end_time_str:
+                    end_at = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M")
+                else:
+                    end_at = datetime.strptime(end_time_str, "%Y-%m-%dT%H:%M")
+            except Exception:
+                pass
+        
+        # employee_id 해결
+        employee_id = intent.employee_id
+        employee_name_keywords = intent.employee_name_keywords
+        
+        if employee_id is None and not employee_name_keywords:
+            # user_text에서 이름 추출
+            employee_names = _extract_employee_names(intent.details or user_text)
+            if employee_names:
+                employee_name_keywords = employee_names
+        
+        # employee_name_keywords가 있으면 employee_id로 변환 시도
+        # 하지만 변환 실패 시에도 employee_name_keywords로 조회 가능하도록 유지
+        if employee_id is None and employee_name_keywords:
+            from .leave_data import _run
+            async def resolve_employee_ids():
+                async with get_session() as session:
+                    return await _resolve_employee_ids_by_names(session, employee_name_keywords)
+            try:
+                resolved_ids = _run(resolve_employee_ids())
+                if resolved_ids and len(resolved_ids) > 0:
+                    employee_id = resolved_ids[0]
+                    # employee_id를 찾았으면 employee_id로 조회 (더 정확함)
+                    # employee_name_keywords는 유지하지 않음
+            except Exception as e:
+                import os
+                if os.getenv("DEBUG_SCHEDULE") == "true":
+                    print(f"[DEBUG] employee_id 변환 실패: {e}, employee_name_keywords로 계속 진행")
+                pass  # 변환 실패 시 employee_name_keywords로 계속 진행
+        
+        async def query_business_trip():
+            return await fetch_business_trip_rows(
+                employee_id=employee_id,
+                employee_ids=None,
+                employee_name_keywords=employee_name_keywords,
+                start_at=start_at,
+                end_at=end_at,
+                keyword=intent.title,  # 제목으로 검색
+                destination=None,
+                limit=50
+            )
+        
+        try:
+            trips = _run(query_business_trip())
+            
+            if not trips:
+                employee_name = employee_name_keywords[0] if employee_name_keywords else f"사번 {employee_id}" if employee_id else "직원"
+                return {
+                    "ok": True,
+                    "message": f"{employee_name}님의 출장 일정이 없습니다.",
+                    "rows": [],
+                }
+            
+            # 출장 목록 생성
+            employee_name = trips[0].get("employee_name", "직원") if trips else "직원"
+            count = len(trips)
+            
+            trip_list = []
+            for trip in trips:
+                trip_title = trip.get("trip_title", "제목 없음")
+                trip_purpose = trip.get("trip_purpose", "")
+                destination = trip.get("destination", "")
+                start_time = trip.get("start_time", "")
+                end_time = trip.get("end_time", "")
+                
+                # 날짜 형식 정규화
+                if start_time:
+                    start_str = str(start_time)[:16] if len(str(start_time)) > 16 else str(start_time)
+                else:
+                    start_str = "날짜 없음"
+                
+                if end_time:
+                    end_str = str(end_time)[:16] if len(str(end_time)) > 16 else str(end_time)
+                else:
+                    end_str = "날짜 없음"
+                
+                trip_info = f"  - {trip_title}"
+                if destination:
+                    trip_info += f" (목적지: {destination})"
+                if trip_purpose:
+                    trip_info += f" - {trip_purpose}"
+                trip_info += f" ({start_str} ~ {end_str})"
+                trip_list.append(trip_info)
+            
+            message = (
+                f"{employee_name}님의 출장 일정 ({count}건):\n" +
+                "\n".join(trip_list[:10])  # 최대 10개만 표시
+            )
+            
+            if count > 10:
+                message += f"\n... 외 {count - 10}건 더 있습니다."
+            
+            return {
+                "ok": True,
+                "message": message,
+                "rows": trips,
+            }
+        except Exception as e:
+            import os
+            if os.getenv("DEBUG_SCHEDULE") == "true":
+                import traceback
+                print(f"[DEBUG] business_trip 테이블 조회 오류: {e}")
+                traceback.print_exc()
+            return {
+                "ok": False,
+                "message": f"출장 조회 중 오류가 발생했습니다: {e}",
+                "error": str(e),
+            }
+    
     if intent.kind == "schedule" and intent.schedule_action == "등록":
         if intent.employee_id is None:
             return {

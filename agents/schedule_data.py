@@ -36,8 +36,10 @@ _ENGINE_LOCK = asyncio.Lock()
 _COLUMNS_LOCK = asyncio.Lock()
 _SCHEDULE_COLUMNS: Optional[list[str]] = None
 
-_DEFAULT_DB_NAME = os.getenv("SCHEDULE_DB_NAME")
-_EMPLOYEE_TABLE_NAME = os.getenv("EMPLOYEE_TABLE_NAME")
+
+_DEFAULT_DB_NAME = os.getenv("SCHEDULE_DB_NAME", "ai_agent")
+_EMPLOYEE_TABLE_NAME = os.getenv("EMPLOYEE_TABLE_NAME", "employee")
+_BUSINESS_TRIP_TABLE_NAME = os.getenv("BUSINESS_TRIP_TABLE_NAME", "business_trip")
 _EMPLOYEE_COLUMNS_CACHE: Optional[list[str]] = None
 _EMPLOYEE_COLUMNS_LOCK = asyncio.Lock()
 
@@ -418,6 +420,128 @@ def _build_query(
                     query += f" AND ({' OR '.join(conditions)})"
 
     return query, params, start_column, table_prefix
+
+
+async def fetch_business_trip_rows(
+    employee_id: Optional[int] = None,
+    employee_ids: Optional[list[int]] = None,
+    employee_name_keywords: Optional[list[str]] = None,
+    start_at: Optional[datetime] = None,
+    end_at: Optional[datetime] = None,
+    keyword: Optional[str] = None,
+    destination: Optional[str] = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """business_trip 테이블에서 출장 데이터를 조회한다.
+    
+    Args:
+        employee_id: 직원 ID (단일)
+        employee_ids: 직원 ID 목록
+        employee_name_keywords: 직원 이름 키워드 목록
+        start_at: 시작 날짜/시간 필터
+        end_at: 종료 날짜/시간 필터
+        keyword: 제목/목적 검색 키워드
+        destination: 목적지 필터
+        limit: 최대 조회 개수
+        
+    Returns:
+        출장 데이터 리스트
+    """
+    async with get_session() as session:
+        try:
+            # employee 테이블과 JOIN하여 이름 포함
+            employee_columns = await _get_employee_columns(session)
+            employee_id_col = _match_column(employee_columns, _EMPLOYEE_ID_CANDIDATES)
+            employee_name_col = _match_column(employee_columns, _EMPLOYEE_NAME_CANDIDATES)
+            
+            if employee_id_col and employee_name_col:
+                query = (
+                    f"SELECT bt.*, employee.{employee_name_col} AS employee_name "
+                    f"FROM {_BUSINESS_TRIP_TABLE_NAME} bt "
+                    f"LEFT JOIN {_EMPLOYEE_TABLE_NAME} employee "
+                    f"ON bt.employee_id = employee.{employee_id_col} "
+                    f"WHERE 1=1"
+                )
+                table_prefix = "bt."
+            else:
+                query = f"SELECT * FROM {_BUSINESS_TRIP_TABLE_NAME} bt WHERE 1=1"
+                table_prefix = "bt."
+            
+            params: dict[str, Any] = {}
+            
+            # employee_id 필터
+            if employee_ids:
+                placeholders: list[str] = []
+                unique_ids = [int(v) for v in employee_ids if v is not None]
+                for idx, value in enumerate(unique_ids):
+                    key = f"employee_id_{idx}"
+                    placeholders.append(f":{key}")
+                    params[key] = value
+                if placeholders:
+                    in_clause = ", ".join(placeholders)
+                    query += f" AND {table_prefix}employee_id IN ({in_clause})"
+            elif employee_id is not None:
+                query += f" AND {table_prefix}employee_id = :employee_id"
+                params["employee_id"] = employee_id
+            
+            # employee_name_keywords 필터 (JOIN이 가능한 경우)
+            # employee_id가 없고 employee_name_keywords가 있을 때만 이름으로 필터링
+            if employee_name_keywords and employee_name_col and employee_id is None:
+                name_clauses: list[str] = []
+                for idx, keyword in enumerate(employee_name_keywords):
+                    key = f"name_{idx}"
+                    params[key] = f"%{keyword}%"
+                    name_clauses.append(f"employee.{employee_name_col} LIKE :{key}")
+                if name_clauses:
+                    query += f" AND ({' OR '.join(name_clauses)})"
+            
+            # 날짜 필터
+            if start_at is not None:
+                query += f" AND {table_prefix}start_time >= :start_at"
+                params["start_at"] = start_at
+            
+            if end_at is not None:
+                query += f" AND {table_prefix}end_time <= :end_at"
+                params["end_at"] = end_at
+            
+            # 키워드 검색 (제목, 목적)
+            if keyword:
+                query += f" AND ({table_prefix}trip_title LIKE :keyword OR {table_prefix}trip_purpose LIKE :keyword)"
+                params["keyword"] = f"%{keyword}%"
+            
+            # 목적지 필터
+            if destination:
+                query += f" AND {table_prefix}destination LIKE :destination"
+                params["destination"] = f"%{destination}%"
+            
+            # 정렬 및 제한
+            query += f" ORDER BY {table_prefix}start_time DESC LIMIT :limit"
+            params["limit"] = limit
+            
+            result = await session.execute(text(query), params)
+            rows = result.mappings().all()
+            
+            # 딕셔너리로 변환
+            trips = []
+            for row in rows:
+                trip = dict(row)
+                # 날짜 형식 정규화
+                for date_col in ["start_time", "end_time", "created_at", "alert_time"]:
+                    if date_col in trip and trip[date_col] is not None:
+                        if isinstance(trip[date_col], str):
+                            trip[date_col] = trip[date_col]
+                        else:
+                            trip[date_col] = str(trip[date_col])
+                # 숫자 형식 정규화
+                if "trip_id" in trip and trip["trip_id"] is not None:
+                    trip["trip_id"] = int(trip["trip_id"])
+                if "employee_id" in trip and trip["employee_id"] is not None:
+                    trip["employee_id"] = int(trip["employee_id"])
+                trips.append(trip)
+            
+            return trips
+        except SQLAlchemyError as exc:
+            raise ScheduleDatabaseError(f"출장 데이터를 조회하지 못했습니다: {exc}") from exc
 
 
 async def fetch_schedule_rows(filters: ScheduleFilters) -> list[dict[str, Any]]:
