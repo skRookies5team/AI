@@ -100,28 +100,28 @@ def classify(state: ConversationState) -> ConversationState:
 		if has_pending_patent_results(session_id) or patent_number_match:
 			state.route = "tech"
 			return state
-	
+
 	# 명확한 다른 의도 키워드가 있으면 우선 처리 (이메일/특허 검색 결과가 있어도)
 	# 식단/메뉴 관련 키워드 우선 체크
 	if any(k in t for k in ["식단", "메뉴", "구내식당", "점심", "저녁", "아침", "식사", "밥"]):
 		state.route = "qa"  # cafeteria는 qa 마스터에서 처리
 		return state
-	
+
 	# 일정 관련 키워드 우선 체크
 	if any(k in t for k in ["일정", "스케줄", "회의", "약속", "일정표"]):
 		state.route = "schedule"
 		return state
-	
+
 	# 문서 관련 키워드 우선 체크
 	if any(k in t for k in ["문서", "서류", "자료", "파일", "생성", "작성"]):
 		state.route = "document"
 		return state
-	
+
 	# 특허 관련 키워드 우선 체크
 	if any(k in t for k in ["특허", "특허권", "특허번호", "KIPRIS", "특허검색"]):
 		state.route = "tech"
 		return state
-	
+
 	# 쉼표로 구분된 숫자들 (예: "1,2,5", "1, 3, 5, 7, 10") - 특허 선택 패턴
 	# 이전 특허 검색 결과가 있으면 tech로 라우팅
 	if re.match(r"^[\d\s,]+$", t) and "," in t:
@@ -209,7 +209,7 @@ def classify(state: ConversationState) -> ConversationState:
 	if has_pending_email_results(session_id) and any(k in t.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘"]):
 		state.route = "email"
 		return state
-	
+
 	# 숫자로 시작 + 제목 + "에 대해 자세히" 패턴 체크 (이메일 상세 요청)
 	# 예: "355. 육아휴직 연장 안내의 건에 대해 자세히 알려줘"
 	# 단, 다른 명확한 의도 키워드가 없을 때만
@@ -222,7 +222,7 @@ def classify(state: ConversationState) -> ConversationState:
 			if has_pending_email_results(session_id):
 				state.route = "email"
 				return state
-	
+
 	# 숫자 + "번", "상세", "선택", "자세히", "에 대해" 등이 포함된 경우도 확인 (특허 우선, 그 다음 이메일)
 	# 패턴: "355. 제목에 대해 자세히 알려줘", "355번 상세", "355번에 대해" 등
 	# 단, 다른 명확한 의도가 없을 때만
@@ -365,7 +365,7 @@ def run_tech(state: ConversationState) -> ConversationState:
 def handle_unknown(state: ConversationState) -> ConversationState:
 	"""알 수 없는 요청에 대한 친절한 안내."""
 	query = state.query.strip()
-	
+
 	# 회사 정보, 역사, 일반 질문은 qa로 재시도
 	if any(k in query for k in ["회사", "역사", "설립", "창립", "기업", "회사소개", "회사정보",
 	                             "급여", "출근", "근무", "지급", "봉급", "연봉", "월급",
@@ -386,7 +386,7 @@ def handle_unknown(state: ConversationState) -> ConversationState:
 		suggestions.append("• 식단표: '오늘 점심 메뉴 뭐야?'")
 	if any(k in query for k in ["특허", "논문", "기술"]):
 		suggestions.append("• 기술 검색: '디스플레이 관련 특허 찾아줘'")
-	
+
 	message = "🤔 요청을 명확히 이해하지 못했습니다."
 	if suggestions:
 		message += "\n\n다음과 같이 질문해보세요:\n" + "\n".join(suggestions)
@@ -397,7 +397,7 @@ def handle_unknown(state: ConversationState) -> ConversationState:
 		message += "\n• 복리후생: '휴가규정 알려줘'"
 		message += "\n• 식단표: '오늘 점심 메뉴 뭐야?'"
 		message += "\n• 기술 검색: '디스플레이 관련 특허 찾아줘'"
-	
+
 	state.result = {
 		"ok": False,
 		"message": message,
@@ -440,7 +440,7 @@ def run_supervisor(
 	context: Optional[Dict[str, Any]] = None,
 ) -> dict:
 	"""Supervisor 실행: 메모리 기능을 통한 멀티턴 대화 지원.
-	
+
 	Args:
 		query: 사용자 질의
 		session_id: 대화 세션 ID (메모리 관리를 위해 사용)
