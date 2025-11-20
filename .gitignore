@@ -4,6 +4,9 @@ __pycache__/
 .venv/
 .pytest_cache/
 __pycache__
+volumes/
+env.example.txt
+docker-compose.yml
 
 # 개발/디버깅용 테스트 스크립트
 test_*.py
