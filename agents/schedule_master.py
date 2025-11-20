@@ -191,9 +191,10 @@ def _extract_schedule_cancel_info_with_llm(user_text: str) -> Optional[dict[str,
 다음 정보를 추출하세요:
 1. is_cancel: 일정 취소 요청인지 여부 (true/false)
 2. schedule_id: 일정 ID (숫자, 없으면 null)
-3. employee_name: 직원 이름 (한글 이름, 없으면 null)
-4. schedule_type: 일정 유형 ("출장", "업무", "회의", "휴가", "연차" 등, 없으면 null)
-5. reason: 취소 사유 (없으면 null)
+3. employee_id: 사번 (숫자, 없으면 null)
+4. employee_name: 직원 이름 (한글 이름, 없으면 null)
+5. schedule_type: 일정 유형 ("출장", "업무", "회의", "휴가", "연차" 등, 없으면 null)
+6. reason: 취소 사유 (없으면 null)
 
 예시:
 - "강하은 출장 업무 취소해줘" -> {{"is_cancel": true, "schedule_id": null, "employee_name": "강하은", "schedule_type": "출장", "reason": null}}
@@ -203,7 +204,7 @@ def _extract_schedule_cancel_info_with_llm(user_text: str) -> Optional[dict[str,
 - "강하은 일정 취소" -> {{"is_cancel": true, "schedule_id": null, "employee_name": "강하은", "schedule_type": null, "reason": null}}
 - "일정 조회해줘" -> {{"is_cancel": false, "schedule_id": null, "employee_name": null, "schedule_type": null, "reason": null}}
 
-JSON 형식으로 응답하세요: {{"is_cancel": true/false, "schedule_id": 숫자 또는 null, "employee_name": "이름" 또는 null, "schedule_type": "유형" 또는 null, "reason": "사유" 또는 null}}"""
+JSON 형식으로 응답하세요: {{"is_cancel": true/false, "schedule_id": 숫자 또는 null, "employee_id": 숫자 또는 null, "employee_name": "이름" 또는 null, "schedule_type": "유형" 또는 null, "reason": "사유" 또는 null}}"""
 
         llm = ChatOpenAI(
             model="gpt-4o-mini",
@@ -234,6 +235,13 @@ JSON 형식으로 응답하세요: {{"is_cancel": true/false, "schedule_id": 숫
                     except (TypeError, ValueError):
                         schedule_id = None
 
+                employee_id = result.get("employee_id")
+                if employee_id is not None:
+                    try:
+                        employee_id = int(employee_id)
+                    except (TypeError, ValueError):
+                        employee_id = None
+
                 employee_name = result.get("employee_name")
                 if employee_name:
                     employee_name = str(employee_name).strip()
@@ -255,6 +263,7 @@ JSON 형식으로 응답하세요: {{"is_cancel": true/false, "schedule_id": 숫
                 return {
                     "is_cancel": True,
                     "schedule_id": schedule_id,
+                    "employee_id": employee_id,
                     "employee_name": employee_name,
                     "schedule_type": schedule_type,
                     "reason": reason,
@@ -262,48 +271,8 @@ JSON 형식으로 응답하세요: {{"is_cancel": true/false, "schedule_id": 숫
             except json.JSONDecodeError:
                 pass
 
-        # JSON 파싱 실패 시 텍스트에서 직접 추출 시도
-        cancel_keywords = ["취소", "삭제", "취소해", "삭제해", "취소할", "삭제할", "취소해줘", "삭제해줘"]
-        is_cancel = any(k in user_text for k in cancel_keywords)
-        if not is_cancel:
-            return None
-
-        # schedule_id 추출
-        schedule_id = None
-        m_id = re.search(r"(일정\s*ID|schedule\s*id|일정\s*번호|일정)\s*[:= ]?\s*(\d{3,})", user_text, re.IGNORECASE)
-        if m_id:
-            schedule_id = int(m_id.group(2))
-        else:
-            m_id2 = re.search(r"\b(\d{3,})\b", user_text)
-            if m_id2:
-                schedule_id = int(m_id2.group(1))
-
-        # employee_name 추출
-        employee_name = None
-        employee_names = _extract_employee_names(user_text)
-        if employee_names:
-            employee_name = employee_names[0]
-
-        # schedule_type 추출
-        schedule_type = None
-        for stype in ["출장", "업무", "회의", "휴가", "연차"]:
-            if stype in user_text:
-                schedule_type = stype
-                break
-
-        # reason 추출
-        reason = None
-        m_reason = re.search(r"(사유|reason)\s*[:=]\s*['\"]?([^'\"]+)['\"]?", user_text, re.IGNORECASE)
-        if m_reason:
-            reason = m_reason.group(2).strip()
-
-        return {
-            "is_cancel": True,
-            "schedule_id": schedule_id,
-            "employee_name": employee_name,
-            "schedule_type": schedule_type,
-            "reason": reason,
-        }
+        # JSON 파싱 실패 시 None 반환 (키워드 기반 fallback 제거)
+        return None
     except Exception:
         return None
 
@@ -315,7 +284,7 @@ def _extract_leave_info_with_llm(user_text: str) -> Optional[dict[str, Any]]:
         user_text: 사용자 입력 텍스트
 
     Returns:
-        추출된 정보 딕셔너리 (leave_type, action, is_balance) 또는 None
+        추출된 정보 딕셔너리 (leave_type, action, is_balance, employee_id, employee_name, start_date, end_date, total_days, reason) 또는 None
     """
     import os
     from langchain_openai import ChatOpenAI
@@ -330,25 +299,39 @@ def _extract_leave_info_with_llm(user_text: str) -> Optional[dict[str, Any]]:
 질의: {user_text}
 
 다음 정보를 추출하세요:
-1. leave_type: "연차", "반차", "병가", "경조사", "휴가" 중 하나 (없으면 "연차")
-2. action: "조회" 또는 "신청" (없으면 "조회")
+1. leave_type: "연차", "반차", "병가", "경조사", "휴가" 중 하나 또는 여러 개 (배열, 없으면 ["연차"])
+   - 여러 휴가 유형을 언급한 경우 모두 포함 (예: "병가, 연차, 경조사" -> ["병가", "연차", "경조사"])
+   - "휴가"는 모든 휴가 유형을 의미하므로 ["연차", "반차", "병가", "경조사"]로 변환
+2. action: "조회", "신청", "내역", "추천" 중 하나
+   - 잔여 연차나 현황을 물어보는 경우 "조회"
+   - 새로운 휴가를 신청하는 경우 "신청"
+   - 과거에 신청했거나 사용한 내역을 물어보는 경우 "내역"
+   - 연차를 언제 쓰면 좋을지 추천을 요청하는 경우 "추천"
 3. is_balance: 잔여 연차 조회인지 여부 (true/false)
-   - "잔여", "남았", "남은", "얼마", "몇 개", "몇 일", "현황" 등의 키워드가 있으면 true
-   - "신청", "사용", "쓴", "내역", "목록" 등의 키워드가 있으면 false
+   - 잔여 연차나 남은 일수를 물어보는 경우 true
+   - 신청 내역이나 사용 내역을 물어보는 경우 false
+4. employee_id: 사번 (숫자, 없으면 null)
+5. employee_name: 직원 이름 (한글 이름, 없으면 null)
+6. start_date: 시작 날짜 (YYYY-MM-DD 형식, 없으면 null)
+7. end_date: 종료 날짜 (YYYY-MM-DD 형식, 없으면 null)
+8. total_days: 사용 일수 (숫자, 없으면 null, 반차는 0.5)
+9. reason: 사유 (없으면 null)
+10. include_all: 전체 신청 내역도 포함할지 여부 (true/false)
+   - 여러 휴가 유형을 언급한 경우 true (각 타입별 조회 + 전체 조회)
+   - 단일 휴가 유형만 언급한 경우 false
 
 예시:
-- "반차 신청했어?" -> {{"leave_type": "반차", "action": "조회", "is_balance": false}}
-- "병가 사용했나?" -> {{"leave_type": "병가", "action": "조회", "is_balance": false}}
-- "연차 잔여 얼마나 남았어?" -> {{"leave_type": "연차", "action": "조회", "is_balance": true}}
-- "잔여 연차 조회" -> {{"leave_type": "연차", "action": "조회", "is_balance": true}}
-- "연차 잔여" -> {{"leave_type": "연차", "action": "조회", "is_balance": true}}
-- "연차 현황" -> {{"leave_type": "연차", "action": "조회", "is_balance": true}}
-- "연차 몇 개 남았어?" -> {{"leave_type": "연차", "action": "조회", "is_balance": true}}
-- "반차 현황 알려줘" -> {{"leave_type": "반차", "action": "조회", "is_balance": false}}
-- "병가 신청 내역 보여줘" -> {{"leave_type": "병가", "action": "조회", "is_balance": false}}
-- "휴가 쓴 적 있어?" -> {{"leave_type": "휴가", "action": "조회", "is_balance": false}}
+- "반차 신청했어?" -> {{"leave_type": ["반차"], "action": "내역", "is_balance": false, "include_all": false, ...}}
+- "병가 사용했나?" -> {{"leave_type": ["병가"], "action": "내역", "is_balance": false, "include_all": false, ...}}
+- "연차 잔여 얼마나 남았어?" -> {{"leave_type": ["연차"], "action": "조회", "is_balance": true, "include_all": false, ...}}
+- "연차 언제 쓰면 좋을까?" -> {{"leave_type": ["연차"], "action": "추천", "is_balance": false, "include_all": false, ...}}
+- "연차 추천해줘" -> {{"leave_type": ["연차"], "action": "추천", "is_balance": false, "include_all": false, ...}}
+- "병가, 연차, 경조사 신청 내역 조회" -> {{"leave_type": ["병가", "연차", "경조사"], "action": "내역", "is_balance": false, "include_all": true, ...}}
+- "사번 4001 연차 신청 시작: 2025-12-05 종료: 2025-12-07" -> {{"leave_type": ["연차"], "action": "신청", "employee_id": 4001, "start_date": "2025-12-05", "end_date": "2025-12-07", "include_all": false, ...}}
+- "강하은 연차 조회" -> {{"leave_type": ["연차"], "action": "조회", "employee_name": "강하은", "include_all": false, ...}}
+- "반차 신청 3일" -> {{"leave_type": ["반차"], "action": "신청", "total_days": 0.5, "include_all": false, ...}}
 
-JSON 형식으로 응답하세요: {{"leave_type": "...", "action": "...", "is_balance": true/false}}"""
+JSON 형식으로 응답하세요: {{"leave_type": ["연차", ...] 또는 "연차", "action": "...", "is_balance": true/false, "employee_id": 숫자 또는 null, "employee_name": "..." 또는 null, "start_date": "..." 또는 null, "end_date": "..." 또는 null, "total_days": 숫자 또는 null, "reason": "..." 또는 null, "include_all": true/false}}"""
 
         llm = ChatOpenAI(
             model="gpt-4o-mini",
@@ -367,50 +350,101 @@ JSON 형식으로 응답하세요: {{"leave_type": "...", "action": "...", "is_b
         if json_match:
             try:
                 result = json.loads(json_match.group())
-                leave_type = result.get("leave_type", "연차")
+                leave_type_raw = result.get("leave_type", "연차")
                 action = result.get("action", "조회")
                 is_balance = result.get("is_balance", False)
+                include_all = result.get("include_all", False)
 
-                # 유효성 검사
-                if leave_type not in ["연차", "반차", "병가", "경조사", "휴가"]:
-                    leave_type = "연차"
-                if action not in ["조회", "신청"]:
+                # leave_type을 리스트로 변환
+                if isinstance(leave_type_raw, list):
+                    leave_types = leave_type_raw
+                elif isinstance(leave_type_raw, str):
+                    leave_types = [leave_type_raw]
+                else:
+                    leave_types = ["연차"]
+
+                # 유효성 검사 및 "휴가" 처리
+                valid_types = ["연차", "반차", "병가", "경조사", "휴가"]
+                processed_types = []
+                for lt in leave_types:
+                    if lt in valid_types:
+                        if lt == "휴가":
+                            # "휴가"는 모든 휴가 유형으로 변환
+                            processed_types.extend(["연차", "반차", "병가", "경조사"])
+                        else:
+                            processed_types.append(lt)
+                
+                # 중복 제거
+                leave_types = list(dict.fromkeys(processed_types))  # 순서 유지하면서 중복 제거
+                if not leave_types:
+                    leave_types = ["연차"]
+
+                # 여러 타입이 있으면 include_all을 true로 설정
+                if len(leave_types) > 1:
+                    include_all = True
+
+                if action not in ["조회", "신청", "내역", "추천"]:
                     action = "조회"
 
+                # 추가 정보 추출
+                employee_id = result.get("employee_id")
+                if employee_id is not None:
+                    try:
+                        employee_id = int(employee_id)
+                    except (TypeError, ValueError):
+                        employee_id = None
+
+                employee_name = result.get("employee_name")
+                if employee_name:
+                    employee_name = str(employee_name).strip()
+                    if not employee_name or employee_name.lower() == "null":
+                        employee_name = None
+
+                start_date = result.get("start_date")
+                if start_date:
+                    start_date = str(start_date).strip()
+                    if not start_date or start_date.lower() == "null":
+                        start_date = None
+
+                end_date = result.get("end_date")
+                if end_date:
+                    end_date = str(end_date).strip()
+                    if not end_date or end_date.lower() == "null":
+                        end_date = None
+
+                total_days = result.get("total_days")
+                if total_days is not None:
+                    try:
+                        total_days = float(total_days)
+                    except (TypeError, ValueError):
+                        total_days = None
+                elif len(leave_types) > 0 and leave_types[0] == "반차":
+                    total_days = 0.5
+
+                reason = result.get("reason")
+                if reason:
+                    reason = str(reason).strip()
+                    if not reason or reason.lower() == "null":
+                        reason = None
+
                 return {
-                    "leave_type": leave_type,
+                    "leave_type": leave_types[0] if len(leave_types) == 1 else None,  # 단일 타입만 첫 번째 사용
+                    "leave_types": leave_types,  # 여러 타입 저장
                     "action": action,
                     "is_balance": bool(is_balance),
+                    "employee_id": employee_id,
+                    "employee_name": employee_name,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "total_days": total_days,
+                    "reason": reason,
+                    "include_all": bool(include_all),
                 }
             except json.JSONDecodeError:
                 pass
 
-        # JSON 파싱 실패 시 텍스트에서 직접 추출 시도
-        leave_type = "연차"
-        for lt in ["반차", "병가", "경조사", "휴가", "연차"]:
-            if lt in content or lt in user_text:
-                leave_type = lt
-                break
-
-        action = "조회"
-        if any(k in user_text for k in ["신청", "신청해", "신청할", "신청하고", "신청하려"]):
-            action = "신청"
-
-        # 잔여 연차 조회 키워드 확인 (더 정확한 판단)
-        balance_keywords = ["잔여", "남았", "남은", "얼마", "몇 개", "몇 일"]
-        non_balance_keywords = ["신청", "사용", "쓴", "내역", "목록", "보여줘", "알려줘"]
-
-        has_balance_keyword = any(k in user_text for k in balance_keywords)
-        has_non_balance_keyword = any(k in user_text for k in non_balance_keywords)
-
-        # "잔여" 또는 "남았" 등의 키워드가 있고, "내역"이나 "목록" 같은 키워드가 없으면 잔여 조회
-        is_balance = has_balance_keyword and not has_non_balance_keyword
-
-        return {
-            "leave_type": leave_type,
-            "action": action,
-            "is_balance": is_balance,
-        }
+        # JSON 파싱 실패 시 None 반환 (키워드 기반 fallback 제거)
+        return None
     except Exception:
         return None
 
@@ -419,9 +453,11 @@ JSON 형식으로 응답하세요: {{"leave_type": "...", "action": "...", "is_b
 class ScheduleIntent:
     kind: Literal["leave", "schedule", "meeting"]
     # leave
-    action: Optional[Literal["조회", "신청"]] = None
+    action: Optional[Literal["조회", "신청", "내역", "추천"]] = None
     employee_id: Optional[int] = None
     leave_type: Optional[LeaveType] = None
+    leave_types: Optional[list[LeaveType]] = None
+    include_all: bool = False
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     total_days: Optional[float] = None
@@ -443,26 +479,28 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
     """LLM 기반 의도 분류."""
     t = user_text.strip()
     
-    # 잔여 연차 조회 키워드 우선 체크 (leave로 분류)
-    balance_keywords = ["잔여", "남았", "남은", "얼마", "몇 개", "몇 일"]
-    leave_keywords = ["연차", "반차", "병가", "경조사", "휴가"]
-    has_balance = any(k in t for k in balance_keywords)
-    has_leave = any(k in t for k in leave_keywords)
-
-    if has_balance and has_leave:
-        # 잔여 연차 조회로 분류
+    # LLM 기반 라우팅 시도
+    llm_intent = classify_intent_with_llm(t, route_type="schedule", fallback_route=None)
+    
+    # leave 관련 질의는 우선 처리 (연차, 반차, 병가, 경조사, 휴가)
+    if llm_intent == "leave":
+        # LLM이 leave로 분류한 경우, LLM으로 상세 정보 추출 시도
         leave_info = _extract_leave_info_with_llm(t)
         if leave_info:
-            leave_type = leave_info.get("leave_type", "연차")
+            leave_types_list = leave_info.get("leave_types", [])
+            leave_type = leave_types_list[0] if len(leave_types_list) > 0 else "연차"
             action = leave_info.get("action", "조회")
-            is_balance = leave_info.get("is_balance", True)  # 잔여 키워드가 있으면 기본값 True
+            is_balance = leave_info.get("is_balance", False)
+            employee_id = leave_info.get("employee_id")
+            employee_name = leave_info.get("employee_name")
+            start_date = leave_info.get("start_date")
+            end_date = leave_info.get("end_date")
+            total_days = leave_info.get("total_days")
+            reason = leave_info.get("reason")
+            include_all_flag = leave_info.get("include_all", False)
 
-            # employee_id 추출 (이름 또는 사번)
-            emp = None
-            m_emp = re.search(r"(사번|직원번호|employee_id)\s*[:= ]\s*(\d+)", t)
-            if m_emp:
-                emp = int(m_emp.group(2))
-            else:
+            # LLM이 employee_id를 추출하지 못했고 employee_name이 있는 경우 이름으로 조회
+            if employee_id is None and employee_name:
                 employee_names = _extract_employee_names(t)
                 if employee_names:
                     from .leave_data import _run
@@ -472,20 +510,23 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
                     try:
                         resolved_ids = _run(find_employee_id())
                         if resolved_ids and len(resolved_ids) > 0:
-                            emp = resolved_ids[0]
+                            employee_id = resolved_ids[0]
                     except Exception:
                         pass
-
+            
             return ScheduleIntent(
                 kind="leave",
                 action=action,  # type: ignore[arg-type]
-                employee_id=emp,
-                leave_type=leave_type,  # type: ignore[arg-type]
+                employee_id=employee_id,
+                leave_type=leave_type if len(leave_types_list) == 1 else None,  # type: ignore[arg-type]
+                leave_types=leave_types_list if len(leave_types_list) > 1 else None,  # type: ignore[arg-type]
+                include_all=include_all_flag,
+                start_date=start_date,
+                end_date=end_date,
+                total_days=total_days,
+                reason=reason,
                 details="잔여" if is_balance else None,
             )
-
-    # LLM 기반 라우팅 시도
-    llm_intent = classify_intent_with_llm(t, route_type="schedule", fallback_route=None)
     
     # 일정 취소 정보 추출 (LLM 기반, 우선순위 높음)
     cancel_info = _extract_schedule_cancel_info_with_llm(t)
@@ -493,28 +534,22 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
         schedule_action = "취소"
         schedule_id = cancel_info.get("schedule_id")
         reason = cancel_info.get("reason")
-        employee_id = None
+        employee_id = cancel_info.get("employee_id")
+        employee_name = cancel_info.get("employee_name")
         schedule_type = cancel_info.get("schedule_type")
 
-        # 사번 추출 (우선순위)
-        m_emp = re.search(r"(사번|직원번호|employee_id)\s*[:= ]\s*(\d+)", t)
-        if m_emp:
-            employee_id = int(m_emp.group(2))
-
-        # 이름으로 employee_id 추출 (schedule_id가 없고 사번도 없는 경우)
-        if schedule_id is None and employee_id is None:
-            employee_name = cancel_info.get("employee_name")
-            if employee_name:
-                from .leave_data import _run
-                async def find_employee_id():
-                    async with get_session() as session:
-                        return await _resolve_employee_ids_by_names(session, [employee_name])
-                try:
-                    resolved_ids = _run(find_employee_id())
-                    if resolved_ids and len(resolved_ids) > 0:
-                        employee_id = resolved_ids[0]
-                except Exception:
-                    pass
+        # LLM이 employee_id를 추출하지 못했고 employee_name이 있는 경우 이름으로 조회
+        if employee_id is None and employee_name:
+            from .leave_data import _run
+            async def find_employee_id():
+                async with get_session() as session:
+                    return await _resolve_employee_ids_by_names(session, [employee_name])
+            try:
+                resolved_ids = _run(find_employee_id())
+                if resolved_ids and len(resolved_ids) > 0:
+                    employee_id = resolved_ids[0]
+            except Exception:
+                pass
 
         return ScheduleIntent(
             kind="schedule",
@@ -539,7 +574,7 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
         description = schedule_info.get("description")
         schedule_id = schedule_info.get("schedule_id")
 
-        # 이름으로 employee_id 추출 (employee_id가 없는 경우)
+        # LLM이 employee_id를 추출하지 못했고 employee_name이 있는 경우 이름으로 조회
         if employee_id is None and employee_name:
             from .leave_data import _run
             async def find_employee_id():
@@ -551,19 +586,6 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
                     employee_id = resolved_ids[0]
             except Exception:
                 pass
-
-        # 사번 추출 (우선순위)
-        m_emp = re.search(r"(사번|직원번호|employee_id)\s*[:= ]\s*(\d+)", t)
-        if m_emp:
-            employee_id = int(m_emp.group(2))
-
-        # 날짜 추출 (LLM이 추출하지 못한 경우 정규식으로 시도)
-        if not start_time:
-            dates = re.findall(r"\d{4}-\d{2}-\d{2}", t)
-            if dates:
-                start_time = dates[0]
-                if len(dates) >= 2:
-                    end_time = dates[1]
 
         if action == "등록":
             return ScheduleIntent(
@@ -579,59 +601,9 @@ def parse_schedule_intent(user_text: str) -> ScheduleIntent:
             )
         elif action == "조회":
             # 일정 조회는 run_schedule_agent로 처리
-            return ScheduleIntent(kind="schedule", details=t)
-
-    if llm_intent == "leave":
-        # LLM이 leave로 분류한 경우, LLM으로 상세 정보 추출 시도
-        leave_info = _extract_leave_info_with_llm(t)
-        if leave_info:
-            leave_type = leave_info.get("leave_type", "연차")
-            action = leave_info.get("action", "조회")
-            is_balance = leave_info.get("is_balance", False)
-
-            # employee_id 추출 (이름 또는 사번)
-            emp = None
-            m_emp = re.search(r"(사번|직원번호|employee_id)\s*[:= ]\s*(\d+)", t)
-            if m_emp:
-                emp = int(m_emp.group(2))
-            else:
-                employee_names = _extract_employee_names(t)
-                if employee_names:
-                    from .leave_data import _run
-                    async def find_employee_id():
-                        async with get_session() as session:
-                            return await _resolve_employee_ids_by_names(session, employee_names)
-                    try:
-                        resolved_ids = _run(find_employee_id())
-                        if resolved_ids and len(resolved_ids) > 0:
-                            emp = resolved_ids[0]
-                    except Exception:
-                        pass
-
-            # 날짜 추출
-            m_start = re.search(r"시작[:= ]?(\d{4}-\d{2}-\d{2})", t)
-            m_end = re.search(r"종료[:= ]?(\d{4}-\d{2}-\d{2})", t)
-            m_reason = re.search(r"(사유|reason)[:= ](.+)$", t)
-
-            # 일수 추출
-            total_days = None
-            if "반차" in leave_type or "반차" in t:
-                total_days = 0.5
-            m_days = re.search(r"(\d+(\.\d+)?)\s*일", t)
-            if m_days:
-                total_days = float(m_days.group(1))
-
-            return ScheduleIntent(
-                kind="leave",
-                action=action,  # type: ignore[arg-type]
-                employee_id=emp,
-                leave_type=leave_type,  # type: ignore[arg-type]
-                start_date=m_start.group(1) if m_start else None,
-                end_date=m_end.group(1) if m_end else None,
-                total_days=total_days,
-                reason=m_reason.group(2).strip() if m_reason else None,
-                details="잔여" if is_balance else None,
-            )
+            # 단, leave 관련 질의는 제외 (이미 위에서 처리됨)
+            if llm_intent != "leave":
+                return ScheduleIntent(kind="schedule", details=t)
     elif llm_intent == "meeting":
         return ScheduleIntent(kind="meeting", details=t)
     elif llm_intent == "calendar" or llm_intent == "schedule":
@@ -808,11 +780,30 @@ def schedule_master(user_text: str, context: Optional[dict] = None) -> dict:
             return {"ok": False, "message": message, "error": message}
 
         # 잔여 연차 조회 (leave_balance_v2 테이블 사용)
-        # details가 "잔여"이거나, "잔여", "남았", "얼마" 등의 키워드가 있으면 잔여 조회
-        is_balance_query = (
-            intent.details == "잔여" or
-            any(k in user_text for k in ["잔여", "남았", "남은", "얼마", "몇 개", "몇 일"])
-        )
+        # LLM이 추출한 details 정보 사용
+        is_balance_query = intent.details == "잔여"
+
+        if intent.action == "내역":
+            # leave_request 테이블에서 연차 신청 내역 조회
+            q = LeaveQuery(
+                employee_id=intent.employee_id,
+                action="내역",
+                leave_type=intent.leave_type or None  # None이면 전체 조회
+            )
+            return handle_leave(
+                q,
+                leave_types=intent.leave_types,  # type: ignore[arg-type]
+                include_all=intent.include_all
+            )
+        
+        if intent.action == "추천":
+            # 연차 사용 추천
+            q = LeaveQuery(
+                employee_id=intent.employee_id,
+                action="추천",
+                leave_type="연차"
+            )
+            return handle_leave(q)
 
         if intent.action == "조회" and is_balance_query:
             # leave_balance_v2 테이블에서 잔여 연차 조회
@@ -828,7 +819,7 @@ def schedule_master(user_text: str, context: Optional[dict] = None) -> dict:
             leave_type = intent.leave_type or "연차"
 
             # 휴가 조회의 경우 모든 휴가 유형 포함 (연차, 반차, 병가, 경조사)
-            if leave_type == "휴가" or (not intent.leave_type and "휴가" in user_text):
+            if leave_type == "휴가":
                 schedule_types = [
                     "연차", "반차", "병가", "경조사",
                     "반차(오전)", "반차(오후)", "반차 오전", "반차 오후"
