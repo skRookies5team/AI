@@ -26,13 +26,33 @@
 #### * 30개 이상도 동일한 방식으로 관리
 ## 사용 방법
 ## 새 워크플로우 추가
-### 워크플로우 파일 생성:
-### agents/workflows/vacation_request.pyfrom agents.workflows import workflow@workflow(    name="vacation_request_flow",    category="travel",    description="휴가 신청",    priority=5,    examples=["휴가 신청"])def get_vacation_request_graph():    # 로직 구현    return workflow.compile()
-YAML에 메타데이터 추가 (선택):
-### agents/workflows/workflows.yamlworkflows:  vacation_request_flow:    priority: 8  # 오버라이드    enabled: true
-자동 등록: 파일만 저장하면 자동으로 등록됩니다.
-런타임 메타데이터 변경
-### YAML 파일 수정 후 재로드 (서버 재시작 불필요)from agents.workflows import yaml_registryyaml_registry.reload_yaml()
+### 1. 워크플로우 파일 생성:
+#agents/workflows/vacation_request.py
+from agents.workflows import workflow
+
+@workflow(
+    name="vacation_request_flow",
+    category="travel",
+    description="휴가 신청",
+    priority=5,
+    examples=["휴가 신청"]
+)
+def get_vacation_request_graph():
+    # 로직 구현
+    return workflow.compile()
+    
+### 2. YAML에 메타데이터 추가 (선택):
+#agents/workflows/workflows.yaml
+workflows:
+  vacation_request_flow:
+    priority: 8  # 오버라이드
+    enabled: true
+
+### 3. 자동 등록: 파일만 저장하면 자동으로 등록됩니다.
+## 런타임 메타데이터 변경
+#YAML 파일 수정 후 재로드 (서버 재시작 불필요)
+from agents.workflows import yaml_registry
+yaml_registry.reload_yaml()
 ## 장점
 ### 1. 확장성: 30개 이상 워크플로우 관리 가능
 ### 2. 유연성: 런타임 변경 가능
