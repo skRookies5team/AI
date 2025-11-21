@@ -64,8 +64,8 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 # ───────────────────────────────────────────────────────────
 # Milvus 연결 설정
 # ───────────────────────────────────────────────────────────
-MILVUS_HOST = _get_env("MILVUS_HOST") or "175.120.35.228"
-MILVUS_PORT = _get_env("MILVUS_PORT") or "19530"
+MILVUS_HOST = _get_env("HOST")
+MILVUS_PORT = _get_env("MILVUS_PORT")
 COLLECTION_NAME = _get_env("MILVUS_COLLECTION_NAME") or "Employee_Benefits_embeddings"
 
 # 전역 변수 (지연 초기화)

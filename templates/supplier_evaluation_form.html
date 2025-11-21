@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>공급업체 평가표</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #f5576c;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .company-info-section {
+            margin-bottom: 30px;
+        }
+
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .info-table td {
+            padding: 15px;
+            border: 1px solid #dee2e6;
+        }
+
+        .info-table .label-cell {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            font-weight: 600;
+            width: 180px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .info-table .input-cell {
+            background: white;
+        }
+
+        .info-table .input-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        .info-table .input-group > div {
+            flex: 1;
+        }
+
+        .info-table input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .info-table input:focus {
+            outline: none;
+            border-color: #f5576c;
+            box-shadow: 0 0 0 3px rgba(245, 87, 108, 0.1);
+        }
+
+        .evaluation-section {
+            margin-top: 30px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            white-space: nowrap;
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        .category-col {
+            width: 80px;
+        }
+
+        .item-col {
+            width: 300px;
+            text-align: left;
+        }
+
+        .score-col {
+            width: 60px;
+        }
+
+        .remarks-col {
+            width: 200px;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 8px;
+            text-align: center;
+            font-size: 13px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+            vertical-align: middle;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .item-cell {
+            text-align: left;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .score-group {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .score-radio {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #f5576c;
+        }
+
+        .remarks-input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 40px;
+            transition: all 0.3s;
+        }
+
+        .remarks-input:focus {
+            outline: none;
+            border-color: #f5576c;
+            box-shadow: 0 0 0 3px rgba(245, 87, 108, 0.1);
+        }
+
+        .summary-section {
+            margin-top: 30px;
+            padding: 25px;
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            border-radius: 10px;
+            border-left: 5px solid #f5576c;
+        }
+
+        .summary-title {
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #f5576c;
+        }
+
+        .actions {
+            margin-top: 40px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(245, 87, 108, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+
+            .score-radio {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 11px;
+                padding: 10px 5px;
+            }
+
+            .item-cell {
+                font-size: 11px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>공급업체 평가표</h1>
+        </div>
+
+        <div class="company-info-section">
+            <h2 class="section-title">업체정보</h2>
+            <table class="info-table">
+                <tr>
+                    <td rowspan="6" class="label-cell">업체정보</td>
+                    <td class="input-cell">
+                        <div class="input-group">
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">업체명</label>
+                                <input type="text" id="companyName" placeholder="업체명을 입력하세요">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">대표자</label>
+                                <input type="text" id="representative" placeholder="대표자명을 입력하세요">
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="input-cell">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">사업자등록번호</label>
+                        <input type="text" id="businessNumber" placeholder="사업자등록번호를 입력하세요">
+                    </td>
+                </tr>
+                <tr>
+                    <td class="input-cell">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">소재지</label>
+                        <input type="text" id="location" placeholder="소재지를 입력하세요">
+                    </td>
+                </tr>
+                <tr>
+                    <td class="input-cell">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">전화번호</label>
+                        <input type="text" id="phoneNumber" placeholder="전화번호를 입력하세요">
+                    </td>
+                </tr>
+                <tr>
+                    <td class="input-cell">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">주거래품목</label>
+                        <input type="text" id="mainItems" placeholder="주거래품목을 입력하세요">
+                    </td>
+                </tr>
+                <tr>
+                    <td class="input-cell">
+                        <div class="input-group">
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">자본금</label>
+                                <input type="text" id="capital" placeholder="자본금을 입력하세요">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #495057;">연간매출액</label>
+                                <input type="text" id="annualSales" placeholder="연간매출액을 입력하세요">
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="evaluation-section">
+            <h2 class="section-title">평가 기준</h2>
+            <div class="table-container">
+                <table id="evaluationTable">
+                    <thead>
+                        <tr>
+                            <th class="category-col">항</th>
+                            <th class="item-col">목</th>
+                            <th colspan="5" style="border-right: 1px solid rgba(255, 255, 255, 0.2);">평점</th>
+                            <th class="remarks-col">비고</th>
+                        </tr>
+                        <tr>
+                            <th></th>
+                            <th></th>
+                            <th class="score-col">5</th>
+                            <th class="score-col">4</th>
+                            <th class="score-col">3</th>
+                            <th class="score-col">2</th>
+                            <th class="score-col">1</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="evaluationBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="summary-section">
+            <div class="summary-title">평가 요약</div>
+            <div class="summary-stats">
+                <div class="stat-item">
+                    <div class="stat-label">총점</div>
+                    <div class="stat-value" id="totalScore">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">평균 점수</div>
+                    <div class="stat-value" id="avgScore">0.0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">최고 점수</div>
+                    <div class="stat-value" id="maxScore">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">최저 점수</div>
+                    <div class="stat-value" id="minScore">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-success" onclick="calculateSummary()">평가 계산</button>
+            <button class="btn btn-primary" onclick="printForm()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        const evaluationItems = [
+            "최고경영자의 경영방침",
+            "생산계획의 수립 및 활용성",
+            "당사 요청에 적합한 기술 보유 여부",
+            "공장관리의 효율성 수준",
+            "제품 검사 기준서의 제작 및 활용성",
+            "제조공정도의 보유 및 활용성",
+            "작업지도서의 보유 및 활용성",
+            "생산설비의 점검 및 관리 상태",
+            "공정 관리의 적합성",
+            "제품의 불량율 비율",
+            "불량품 발생시 관리 적절성",
+            "제품 품질 관련 교육 실시 여부 및 근거"
+        ];
+
+        // 초기 평가 항목 생성
+        function initializeEvaluationTable() {
+            const tbody = document.getElementById('evaluationBody');
+            evaluationItems.forEach((item, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td></td>
+                    <td class="item-cell">${item}</td>
+                    <td><input type="radio" name="score_${index}" value="5" class="score-radio" data-item="${index}"></td>
+                    <td><input type="radio" name="score_${index}" value="4" class="score-radio" data-item="${index}"></td>
+                    <td><input type="radio" name="score_${index}" value="3" class="score-radio" data-item="${index}"></td>
+                    <td><input type="radio" name="score_${index}" value="2" class="score-radio" data-item="${index}"></td>
+                    <td><input type="radio" name="score_${index}" value="1" class="score-radio" data-item="${index}"></td>
+                    <td><textarea class="remarks-input" placeholder="비고" data-item="${index}"></textarea></td>
+                `;
+                tbody.appendChild(row);
+                
+                // 점수 변경 시 자동 계산
+                const radios = row.querySelectorAll('.score-radio');
+                radios.forEach(radio => {
+                    radio.addEventListener('change', calculateSummary);
+                });
+            });
+        }
+
+        // 평가 요약 계산
+        function calculateSummary() {
+            const scores = [];
+            
+            evaluationItems.forEach((item, index) => {
+                const selectedRadio = document.querySelector(`input[name="score_${index}"]:checked`);
+                if (selectedRadio) {
+                    scores.push(parseInt(selectedRadio.value));
+                }
+            });
+
+            if (scores.length === 0) {
+                document.getElementById('totalScore').textContent = '0';
+                document.getElementById('avgScore').textContent = '0.0';
+                document.getElementById('maxScore').textContent = '0';
+                document.getElementById('minScore').textContent = '0';
+                return;
+            }
+
+            const total = scores.reduce((a, b) => a + b, 0);
+            const avg = (total / scores.length).toFixed(1);
+            const max = Math.max(...scores);
+            const min = Math.min(...scores);
+
+            document.getElementById('totalScore').textContent = total;
+            document.getElementById('avgScore').textContent = avg;
+            document.getElementById('maxScore').textContent = max;
+            document.getElementById('minScore').textContent = min;
+        }
+
+        // 인쇄
+        function printForm() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            let csv = '공급업체 평가표\n\n';
+            
+            csv += '업체정보\n';
+            csv += `업체명,${document.getElementById('companyName').value}\n`;
+            csv += `대표자,${document.getElementById('representative').value}\n`;
+            csv += `사업자등록번호,${document.getElementById('businessNumber').value}\n`;
+            csv += `소재지,${document.getElementById('location').value}\n`;
+            csv += `전화번호,${document.getElementById('phoneNumber').value}\n`;
+            csv += `주거래품목,${document.getElementById('mainItems').value}\n`;
+            csv += `자본금,${document.getElementById('capital').value}\n`;
+            csv += `연간매출액,${document.getElementById('annualSales').value}\n\n`;
+            
+            csv += '평가 기준\n';
+            csv += '항,목,평점,비고\n';
+            
+            evaluationItems.forEach((item, index) => {
+                const selectedRadio = document.querySelector(`input[name="score_${index}"]:checked`);
+                const score = selectedRadio ? selectedRadio.value : '';
+                const remarks = document.querySelector(`textarea[data-item="${index}"]`)?.value || '';
+                csv += `,"${item}","${score}","${remarks}"\n`;
+            });
+
+            csv += `\n평가 요약\n`;
+            csv += `총점,${document.getElementById('totalScore').textContent}\n`;
+            csv += `평균 점수,${document.getElementById('avgScore').textContent}\n`;
+            csv += `최고 점수,${document.getElementById('maxScore').textContent}\n`;
+            csv += `최저 점수,${document.getElementById('minScore').textContent}\n`;
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const companyName = document.getElementById('companyName').value || '공급업체';
+            link.setAttribute('download', `${companyName}_평가표.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeEvaluationTable();
+            calculateSummary();
+        });
+    </script>
+</body>
+</html>
+

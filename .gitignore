@@ -25,3 +25,7 @@ import_*.bat
 *_improvements.md
 *_qa.md
 *_explanation.md
+
+#프론트
+.templates
+.fastapi_app.py

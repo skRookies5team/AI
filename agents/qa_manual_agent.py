@@ -151,7 +151,7 @@ class ManualSearchConfig(BaseModel):
 
         return cls(
             milvus=MilvusConfig(
-                host=os.getenv("MILVUS_HOST", "175.120.35.228"),
+                host=os.getenv("HOST"),
                 port=int(os.getenv("MILVUS_PORT", "19530")),
                 collection_name=os.getenv("MILVUS_COLLECTION_NAME_MANUAL", "test_embeddings_docling_yj"),
                 dimension=milvus_dimension,
@@ -164,7 +164,7 @@ class ManualSearchConfig(BaseModel):
             ),
             llm=LLMConfig(
                 api_key=os.getenv("OPENAI_API_KEY", ""),
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                model=os.getenv("OPENAI_MODEL"),
                 temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
                 max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "1000")),
             ),

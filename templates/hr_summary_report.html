@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>인사정보 요약 리포트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 8px;
+        }
+
+        .report-date {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .date-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .date-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #667eea;
+            padding: 8px 20px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 18px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        /* 이름 컬럼 스타일 (하위 헤더 포함) */
+        .name-header {
+            background: linear-gradient(135deg, #5a67d8 0%, #6b5b95 100%);
+        }
+
+        .sub-header-row {
+            background: rgba(102, 126, 234, 0.9);
+        }
+
+        .sub-header-row th {
+            padding: 12px 8px;
+            font-size: 13px;
+            font-weight: 500;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+            transform: scale(1.01);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 16px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        /* 이름 컬럼 (국문/영문) */
+        .name-cell {
+            display: flex;
+            gap: 10px;
+            padding: 0;
+        }
+
+        .name-input-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .name-input-group input {
+            width: 100%;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            transform: translateY(-1px);
+        }
+
+        select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23667eea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 35px;
+        }
+
+        .actions {
+            margin-top: 35px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            flex: 1;
+            min-width: 200px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            color: white;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions,
+            .stats {
+                display: none;
+            }
+
+            tbody tr:hover {
+                transform: none;
+                box-shadow: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .info-section {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+
+            .name-cell {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>인사정보 요약 리포트</h1>
+        </div>
+
+        <div class="info-section">
+            <div class="report-date">
+                <span class="date-label">리포트 작성일</span>
+                <span class="date-value" id="reportDate"></span>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">총 직원 수</div>
+                <div class="stat-value" id="totalEmployees">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">재직 중</div>
+                <div class="stat-value" id="activeEmployees">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">정규직</div>
+                <div class="stat-value" id="regularEmployees">0</div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="name-header">이름</th>
+                        <th rowspan="2">직원별 상태<br>(재직)</th>
+                        <th rowspan="2">직급</th>
+                        <th rowspan="2">계약형태<br>(정규, 비정규, 인턴)</th>
+                    </tr>
+                    <tr class="sub-header-row">
+                        <!-- 하위 헤더는 이름 컬럼에만 있음 -->
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- 행이 동적으로 추가됩니다 -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" onclick="addRow()">행 추가</button>
+            <button class="btn btn-secondary" onclick="removeRow()">행 삭제</button>
+            <button class="btn btn-success" onclick="calculateStats()">통계 업데이트</button>
+            <button class="btn btn-primary" onclick="printReport()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        const ROW_COUNT = 15;
+
+        // 날짜 설정
+        function setReportDate() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            document.getElementById('reportDate').textContent = `${year}.${month}.${day}`;
+        }
+
+        // 초기 행 생성
+        function initializeTable() {
+            const tbody = document.getElementById('tableBody');
+            for (let i = 0; i < ROW_COUNT; i++) {
+                addRow();
+            }
+        }
+
+        // 행 추가
+        function addRow() {
+            const tbody = document.getElementById('tableBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="name-cell">
+                    <div class="name-input-group">
+                        <input type="text" placeholder="국문 이름" class="korean-name">
+                        <input type="text" placeholder="English Name" class="english-name">
+                    </div>
+                </td>
+                <td>
+                    <select class="status-select">
+                        <option value="">선택</option>
+                        <option value="재직">재직</option>
+                        <option value="휴직">휴직</option>
+                        <option value="퇴직">퇴직</option>
+                        <option value="퇴사예정">퇴사예정</option>
+                    </select>
+                </td>
+                <td>
+                    <input type="text" placeholder="예: 대리, 과장, 차장" class="position-input">
+                </td>
+                <td>
+                    <select class="contract-select">
+                        <option value="">선택</option>
+                        <option value="정규">정규</option>
+                        <option value="비정규">비정규</option>
+                        <option value="인턴">인턴</option>
+                        <option value="계약직">계약직</option>
+                    </select>
+                </td>
+            `;
+            tbody.appendChild(row);
+            
+            // 통계 업데이트 이벤트 리스너 추가
+            const statusSelect = row.querySelector('.status-select');
+            const contractSelect = row.querySelector('.contract-select');
+            statusSelect.addEventListener('change', calculateStats);
+            contractSelect.addEventListener('change', calculateStats);
+        }
+
+        // 마지막 행 삭제
+        function removeRow() {
+            const tbody = document.getElementById('tableBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastChild);
+                calculateStats();
+            }
+        }
+
+        // 통계 계산
+        function calculateStats() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            let total = rows.length;
+            let active = 0;
+            let regular = 0;
+
+            rows.forEach(row => {
+                const status = row.querySelector('.status-select')?.value || '';
+                const contract = row.querySelector('.contract-select')?.value || '';
+                
+                if (status === '재직') {
+                    active++;
+                }
+                if (contract === '정규') {
+                    regular++;
+                }
+            });
+
+            document.getElementById('totalEmployees').textContent = total;
+            document.getElementById('activeEmployees').textContent = active;
+            document.getElementById('regularEmployees').textContent = regular;
+        }
+
+        // 인쇄
+        function printReport() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            let csv = '국문이름,영문이름,직원상태,직급,계약형태\n';
+            
+            rows.forEach(row => {
+                const koreanName = row.querySelector('.korean-name')?.value || '';
+                const englishName = row.querySelector('.english-name')?.value || '';
+                const status = row.querySelector('.status-select')?.value || '';
+                const position = row.querySelector('.position-input')?.value || '';
+                const contract = row.querySelector('.contract-select')?.value || '';
+                
+                csv += `"${koreanName}","${englishName}","${status}","${position}","${contract}"\n`;
+            });
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `인사정보_요약_리포트_${new Date().getFullYear()}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setReportDate();
+            initializeTable();
+            calculateStats();
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>계약 갱신 보고서</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #4a90e2;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 2px;
+        }
+
+        .top-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .year-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .year-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .year-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #4a90e2;
+            padding: 8px 20px;
+            background: white;
+            border: 2px solid #4a90e2;
+            border-radius: 6px;
+        }
+
+        .author-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .author-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .author-input {
+            padding: 8px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 16px;
+            min-width: 150px;
+            transition: border-color 0.3s;
+        }
+
+        .author-input:focus {
+            outline: none;
+            border-color: #4a90e2;
+        }
+
+        .manager-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .manager-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 5px;
+        }
+
+        .manager-boxes {
+            display: flex;
+            gap: 8px;
+        }
+
+        .manager-box {
+            width: 80px;
+            height: 40px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #6c757d;
+            transition: all 0.3s;
+        }
+
+        .manager-box:hover {
+            border-color: #4a90e2;
+            background: #f0f7ff;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: background-color 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        input[type="tel"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+        }
+
+        input[type="text"]:focus,
+        input[type="date"]:focus,
+        input[type="tel"]:focus {
+            outline: none;
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+        }
+
+        .actions {
+            margin-top: 30px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .empty-row {
+            height: 50px;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+
+            .manager-box {
+                border: 1px solid #000;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .top-section {
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>계약 갱신 보고서</h1>
+        </div>
+
+        <div class="top-section">
+            <div class="year-section">
+                <span class="year-label">연간</span>
+                <span class="year-value">2025</span>
+            </div>
+            <div class="author-section">
+                <span class="author-label">작성자</span>
+                <input type="text" class="author-input" placeholder="작성자명을 입력하세요">
+            </div>
+            <div class="manager-section">
+                <div class="manager-label">담당</div>
+                <div class="manager-boxes">
+                    <div class="manager-box">결재1</div>
+                    <div class="manager-box">결재2</div>
+                    <div class="manager-box">결재3</div>
+                    <div class="manager-box">결재4</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>채용일자</th>
+                        <th>성명</th>
+                        <th>생년월일</th>
+                        <th>전화번호</th>
+                        <th>채용기간</th>
+                        <th>소속</th>
+                        <th>담당업무</th>
+                        <th>급여</th>
+                        <th>비고</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- 행이 동적으로 추가됩니다 -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" onclick="addRow()">행 추가</button>
+            <button class="btn btn-secondary" onclick="removeRow()">행 삭제</button>
+            <button class="btn btn-primary" onclick="printReport()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        const ROW_COUNT = 15;
+
+        // 초기 행 생성
+        function initializeTable() {
+            const tbody = document.getElementById('tableBody');
+            for (let i = 0; i < ROW_COUNT; i++) {
+                addRow();
+            }
+        }
+
+        // 행 추가
+        function addRow() {
+            const tbody = document.getElementById('tableBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="date"></td>
+                <td><input type="text" placeholder="성명"></td>
+                <td><input type="date"></td>
+                <td><input type="tel" placeholder="010-0000-0000"></td>
+                <td><input type="text" placeholder="예: 2025.01.01 ~ 2025.12.31"></td>
+                <td><input type="text" placeholder="소속 부서"></td>
+                <td><input type="text" placeholder="담당 업무"></td>
+                <td><input type="text" placeholder="급여액"></td>
+                <td><input type="text" placeholder="비고"></td>
+            `;
+            tbody.appendChild(row);
+        }
+
+        // 마지막 행 삭제
+        function removeRow() {
+            const tbody = document.getElementById('tableBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastChild);
+            }
+        }
+
+        // 인쇄
+        function printReport() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            let csv = '채용일자,성명,생년월일,전화번호,채용기간,소속,담당업무,급여,비고\n';
+            
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('input');
+                const rowData = Array.from(cells).map(cell => {
+                    const value = cell.value || '';
+                    return `"${value}"`;
+                });
+                csv += rowData.join(',') + '\n';
+            });
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `계약_갱신_보고서_${new Date().getFullYear()}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', initializeTable);
+    </script>
+</body>
+</html>
+

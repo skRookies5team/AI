@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>근무 평가서</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #f5576c;
+            position: relative;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header-left {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            color: #495057;
+        }
+
+        .header-left input {
+            padding: 6px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 150px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #495057;
+        }
+
+        .header-right input {
+            padding: 6px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 100px;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .info-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #f5576c;
+        }
+
+        .info-row {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .info-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .info-input {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .info-input:focus {
+            outline: none;
+            border-color: #f5576c;
+            box-shadow: 0 0 0 3px rgba(245, 87, 108, 0.1);
+        }
+
+        .textarea-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #f5576c;
+        }
+
+        .textarea-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .textarea-input {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: all 0.3s;
+        }
+
+        .textarea-input:focus {
+            outline: none;
+            border-color: #f5576c;
+            box-shadow: 0 0 0 3px rgba(245, 87, 108, 0.1);
+        }
+
+        .subject-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:first-child {
+            font-weight: 600;
+            color: #f5576c;
+            background: #fff5f6;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #f5576c;
+            box-shadow: 0 0 0 3px rgba(245, 87, 108, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .actions {
+            margin-top: 35px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(245, 87, 108, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        .summary-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            border-radius: 8px;
+            border-left: 4px solid #f5576c;
+        }
+
+        .summary-title {
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #f5576c;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+
+            .main-content {
+                grid-template-columns: 1fr 1.5fr;
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .table-container {
+                overflow-x: scroll;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-top {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .info-row {
+                grid-template-columns: 1fr;
+            }
+
+            .subject-row {
+                grid-template-columns: 1fr;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <div class="header-left">
+                    <div>
+                        <span>(부서명 :</span>
+                        <input type="text" id="departmentName" placeholder="부서명 입력">
+                    </div>
+                    <div>
+                        <span>코드번호 :</span>
+                        <input type="text" id="codeNumber" placeholder="코드번호 입력">
+                        <span>)</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <input type="number" id="year" placeholder="년도" min="2000" max="2100">
+                    <span>년</span>
+                    <input type="number" id="startMonth" placeholder="월" min="1" max="12">
+                    <input type="number" id="startDay" placeholder="일" min="1" max="31">
+                    <span>~</span>
+                    <input type="number" id="endMonth" placeholder="월" min="1" max="12">
+                    <input type="number" id="endDay" placeholder="일" min="1" max="31">
+                </div>
+            </div>
+            <h1>근무 평가서</h1>
+        </div>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="info-section">
+                    <div class="info-row">
+                        <span class="info-label">업무명</span>
+                        <input type="text" class="info-input" placeholder="업무명을 입력하세요">
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">작성자명</span>
+                        <input type="text" class="info-input" placeholder="작성자명을 입력하세요">
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">담당 부서장명</span>
+                        <input type="text" class="info-input" placeholder="부서장명을 입력하세요">
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">주평가대상</span>
+                        <input type="text" class="info-input" placeholder="평가대상을 입력하세요">
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">벌점 및 주당근무시간</span>
+                        <input type="text" class="info-input" placeholder="예: 벌점 0점, 주당 40시간">
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">평가 방법</span>
+                        <input type="text" class="info-input" placeholder="평가 방법을 입력하세요">
+                    </div>
+                </div>
+
+                <div class="textarea-section">
+                    <label class="textarea-label">평가 목표 및 개요</label>
+                    <textarea class="textarea-input" placeholder="평가 목표 및 개요를 입력하세요"></textarea>
+                </div>
+
+                <div class="textarea-section">
+                    <label class="textarea-label">참고</label>
+                    <textarea class="textarea-input" placeholder="참고사항을 입력하세요"></textarea>
+                </div>
+
+                <div class="info-section">
+                    <div class="subject-row">
+                        <div class="info-row" style="grid-template-columns: 1fr; margin-bottom: 0;">
+                            <span class="info-label">선수과목</span>
+                            <input type="text" class="info-input" placeholder="선수과목을 입력하세요">
+                        </div>
+                        <div class="info-row" style="grid-template-columns: 1fr; margin-bottom: 0;">
+                            <span class="info-label">후속과목</span>
+                            <input type="text" class="info-input" placeholder="후속과목을 입력하세요">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>주별</th>
+                                <th>평가점/기준</th>
+                                <th>참고사항</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <!-- 행이 동적으로 추가됩니다 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="summary-section">
+                    <div class="summary-title">평가 요약</div>
+                    <div class="summary-stats">
+                        <div class="stat-item">
+                            <div class="stat-label">평균 점수</div>
+                            <div class="stat-value" id="avgScore">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">최고 점수</div>
+                            <div class="stat-value" id="maxScore">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">최저 점수</div>
+                            <div class="stat-value" id="minScore">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" onclick="addRow()">행 추가</button>
+            <button class="btn btn-secondary" onclick="removeRow()">행 삭제</button>
+            <button class="btn btn-success" onclick="calculateSummary()">요약 계산</button>
+            <button class="btn btn-primary" onclick="printReport()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        const ROW_COUNT = 16;
+
+        // 초기 행 생성
+        function initializeTable() {
+            const tbody = document.getElementById('tableBody');
+            for (let i = 1; i <= ROW_COUNT; i++) {
+                addRow(i);
+            }
+        }
+
+        // 행 추가
+        function addRow(weekNumber = null) {
+            const tbody = document.getElementById('tableBody');
+            const rows = tbody.querySelectorAll('tr');
+            const weekNum = weekNumber || rows.length + 1;
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${weekNum}주</td>
+                <td><input type="number" class="score-input" placeholder="점수 입력" min="0" max="100" step="0.1"></td>
+                <td><textarea class="remarks-input" placeholder="참고사항을 입력하세요"></textarea></td>
+            `;
+            tbody.appendChild(row);
+            
+            // 점수 입력 시 자동 계산
+            const scoreInput = row.querySelector('.score-input');
+            scoreInput.addEventListener('input', calculateSummary);
+        }
+
+        // 마지막 행 삭제
+        function removeRow() {
+            const tbody = document.getElementById('tableBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastChild);
+                calculateSummary();
+            }
+        }
+
+        // 요약 계산
+        function calculateSummary() {
+            const scoreInputs = document.querySelectorAll('.score-input');
+            const scores = Array.from(scoreInputs)
+                .map(input => parseFloat(input.value))
+                .filter(score => !isNaN(score) && score > 0);
+
+            if (scores.length === 0) {
+                document.getElementById('avgScore').textContent = '0';
+                document.getElementById('maxScore').textContent = '0';
+                document.getElementById('minScore').textContent = '0';
+                return;
+            }
+
+            const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+            const max = Math.max(...scores);
+            const min = Math.min(...scores);
+
+            document.getElementById('avgScore').textContent = avg.toFixed(1);
+            document.getElementById('maxScore').textContent = max.toFixed(1);
+            document.getElementById('minScore').textContent = min.toFixed(1);
+        }
+
+        // 인쇄
+        function printReport() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const rows = document.querySelectorAll('#tableBody tr');
+            let csv = '주별,평가점/기준,참고사항\n';
+            
+            rows.forEach(row => {
+                const week = row.querySelector('td:first-child')?.textContent || '';
+                const score = row.querySelector('.score-input')?.value || '';
+                const remarks = row.querySelector('.remarks-input')?.value || '';
+                
+                csv += `"${week}","${score}","${remarks}"\n`;
+            });
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `근무_평가서_${new Date().getFullYear()}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 날짜 자동 설정
+        function setDefaultDate() {
+            const today = new Date();
+            document.getElementById('year').value = today.getFullYear();
+            document.getElementById('startMonth').value = today.getMonth() + 1;
+            document.getElementById('startDay').value = today.getDate();
+            document.getElementById('endMonth').value = today.getMonth() + 1;
+            document.getElementById('endDay').value = today.getDate();
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setDefaultDate();
+            initializeTable();
+            calculateSummary();
+        });
+    </script>
+</body>
+</html>
+

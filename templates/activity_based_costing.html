@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>활동기반원가계산서</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 2px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 10px;
+        }
+
+        .header-subtitle {
+            font-size: 18px;
+            color: #6c757d;
+            font-weight: 500;
+        }
+
+        .info-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .info-row {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .info-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .info-input {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .info-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .table-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            white-space: nowrap;
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .activity-cell {
+            text-align: left;
+            font-weight: 500;
+        }
+
+        .total-row {
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            font-weight: 700;
+        }
+
+        .total-row td {
+            font-size: 16px;
+            color: #2c3e50;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+            font-family: inherit;
+            text-align: center;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input[type="number"] {
+            text-align: right;
+        }
+
+        .currency-display {
+            font-weight: 600;
+            color: #28a745;
+            font-size: 15px;
+        }
+
+        .rate-display {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 15px;
+        }
+
+        .summary-section {
+            margin-top: 30px;
+            padding: 25px;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0ff 100%);
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+        }
+
+        .summary-title {
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .actions {
+            margin-top: 30px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>활동기반원가계산서</h1>
+            <div class="header-subtitle">Activity Based Costing - Allocating Overhead Costs</div>
+        </div>
+
+        <div class="info-section">
+            <div class="info-row">
+                <span class="info-label">기간</span>
+                <input type="text" class="info-input" id="period" placeholder="예: 2025년 1분기">
+            </div>
+            <div class="info-row">
+                <span class="info-label">부서/센터</span>
+                <input type="text" class="info-input" id="department" placeholder="부서 또는 센터명">
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table id="costingTable">
+                <thead>
+                    <tr>
+                        <th>Activity<br>(활동명)</th>
+                        <th>Overhead<br>(예상 제조간접비)<br>₩</th>
+                        <th>Per Activity<br>(총 활동량)</th>
+                        <th>Overhead Rate per Activ<br>(활동당 배부율)<br>₩</th>
+                    </tr>
+                </thead>
+                <tbody id="costingBody">
+                    <!-- 행이 동적으로 추가됩니다 -->
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td>Total</td>
+                        <td id="totalOverhead" class="currency-display">₩0</td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="addRow()">행 추가</button>
+            <button class="btn btn-secondary" onclick="removeRow()">행 삭제</button>
+        </div>
+
+        <div class="summary-section">
+            <div class="summary-title">원가 계산 요약</div>
+            <div class="summary-stats">
+                <div class="stat-item">
+                    <div class="stat-label">총 제조간접비</div>
+                    <div class="stat-value" id="summaryTotal">₩0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">활동 항목 수</div>
+                    <div class="stat-value" id="summaryCount">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">평균 배부율</div>
+                    <div class="stat-value" id="summaryAvgRate">₩0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-success" onclick="calculateAll()">전체 계산</button>
+            <button class="btn btn-primary" onclick="printForm()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        let rowCounter = 0;
+        const DEFAULT_ITEMS = [
+            { activity: "PCB 조립 인건비 관련", overhead: 120000000, perActivity: 60000, unit: "hours" },
+            { activity: "설비 셋업", overhead: 180000000, perActivity: 3000, unit: "setups" },
+            { activity: "부품 관리", overhead: 200000000, perActivity: 500, unit: "parts" },
+            { activity: "생산 지시서 관리", overhead: 90000000, perActivity: 600, unit: "orders" },
+            { activity: "자재 입고/검수", overhead: 100000000, perActivity: 1000, unit: "orders" },
+            { activity: "설비 전력 소모", overhead: 160000000, perActivity: 80000, unit: "receipts" },
+            { activity: "품질 검사", overhead: 150000000, perActivity: 8000, unit: "machine hours" }
+        ];
+
+        // 초기 행 생성
+        function initializeTable() {
+            DEFAULT_ITEMS.forEach(item => {
+                addRow(item.activity, item.overhead, item.perActivity, item.unit);
+            });
+        }
+
+        // 행 추가
+        function addRow(activity = "", overhead = 0, perActivity = 0, unit = "") {
+            rowCounter++;
+            const tbody = document.getElementById('costingBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="activity-cell">
+                    <input type="text" class="activity-input" placeholder="활동명" value="${activity}">
+                </td>
+                <td>
+                    <input type="number" class="overhead-input" placeholder="0" min="0" step="1000" value="${overhead}">
+                </td>
+                <td>
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <input type="number" class="per-activity-input" placeholder="0" min="0" step="1" value="${perActivity}" style="flex: 1;">
+                        <input type="text" class="unit-input" placeholder="단위" value="${unit}" style="width: 80px;">
+                    </div>
+                </td>
+                <td>
+                    <span class="rate-display rate-amount">₩0</span>
+                </td>
+            `;
+            tbody.appendChild(row);
+            
+            // 계산 리스너 추가
+            const overheadInput = row.querySelector('.overhead-input');
+            const perActivityInput = row.querySelector('.per-activity-input');
+            
+            overheadInput.addEventListener('input', () => calculateRow(row));
+            perActivityInput.addEventListener('input', () => calculateRow(row));
+        }
+
+        // 행 삭제
+        function removeRow() {
+            const tbody = document.getElementById('costingBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastElementChild);
+                rowCounter = Math.max(0, rowCounter - 1);
+                calculateAll();
+            } else {
+                alert('삭제할 행이 없습니다.');
+            }
+        }
+
+        // 행별 계산
+        function calculateRow(row) {
+            const overhead = parseFloat(row.querySelector('.overhead-input')?.value || 0);
+            const perActivity = parseFloat(row.querySelector('.per-activity-input')?.value || 0);
+            
+            let rate = 0;
+            if (perActivity > 0) {
+                rate = overhead / perActivity;
+            }
+            
+            row.querySelector('.rate-amount').textContent = `₩${rate.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`;
+            calculateAll();
+        }
+
+        // 전체 계산
+        function calculateAll() {
+            const rows = document.querySelectorAll('#costingBody tr');
+            let totalOverhead = 0;
+            let totalRates = 0;
+            let rateCount = 0;
+
+            rows.forEach(row => {
+                const overhead = parseFloat(row.querySelector('.overhead-input')?.value || 0);
+                const perActivity = parseFloat(row.querySelector('.per-activity-input')?.value || 0);
+                
+                totalOverhead += overhead;
+                
+                if (perActivity > 0) {
+                    const rate = overhead / perActivity;
+                    totalRates += rate;
+                    rateCount++;
+                }
+            });
+
+            const avgRate = rateCount > 0 ? totalRates / rateCount : 0;
+
+            document.getElementById('totalOverhead').textContent = `₩${totalOverhead.toLocaleString('ko-KR')}`;
+            document.getElementById('summaryTotal').textContent = `₩${totalOverhead.toLocaleString('ko-KR')}`;
+            document.getElementById('summaryCount').textContent = rows.length;
+            document.getElementById('summaryAvgRate').textContent = `₩${avgRate.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`;
+        }
+
+        // 인쇄
+        function printForm() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const rows = document.querySelectorAll('#costingBody tr');
+            let csv = '활동기반원가계산서\n\n';
+            
+            csv += `기간,${document.getElementById('period').value}\n`;
+            csv += `부서/센터,${document.getElementById('department').value}\n\n`;
+            
+            csv += 'Activity(활동명),Overhead(예상 제조간접비),Per Activity(총 활동량),Overhead Rate per Activ(활동당 배부율)\n';
+            rows.forEach(row => {
+                const activity = row.querySelector('.activity-input')?.value || '';
+                const overhead = row.querySelector('.overhead-input')?.value || '';
+                const perActivity = row.querySelector('.per-activity-input')?.value || '';
+                const unit = row.querySelector('.unit-input')?.value || '';
+                const rate = row.querySelector('.rate-amount')?.textContent || '';
+                
+                csv += `"${activity}","₩${parseFloat(overhead || 0).toLocaleString('ko-KR')}","${perActivity} ${unit}","${rate}"\n`;
+            });
+
+            csv += `\nTotal,"${document.getElementById('totalOverhead').textContent}",,\n`;
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const period = document.getElementById('period').value || '활동기반원가계산서';
+            link.setAttribute('download', `${period}_활동기반원가계산서.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            initializeTable();
+            calculateAll();
+        });
+    </script>
+</body>
+</html>
+
