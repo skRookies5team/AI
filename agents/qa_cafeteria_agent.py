@@ -21,8 +21,8 @@ load_dotenv()
 # =========================
 # Milvus 연결 설정
 # =========================
-MILVUS_HOST = "175.120.35.228"
-MILVUS_PORT = "19530"
+MILVUS_HOST = os.getenv("HOST", "175.120.35.228")
+MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
 COLLECTION_NAME_MENU = "Employee_Meal_Menu_embeddings"
 
 # =========================

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File as FastAPIFile, Form
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agents.schedule_master import schedule_master
-from agents.supervisor import run_supervisor
+from agents.orchestrator_v2 import get_orchestrator_graph
+from agents.document_upload_service import process_uploaded_file
 
 
 class ScheduleChatRequest(BaseModel):
@@ -26,8 +31,17 @@ class ScheduleChatResponse(BaseModel):
 
 app = FastAPI(
     title="AI Agent Management Chatbot API",
-    version="0.2.0",
-    description="LangGraph 기반 멀티 에이전트 매니저먼트 챗봇 API",
+    version="0.3.0",
+    description="LangGraph Orchestrator 기반 멀티 에이전트 챗봇 API",
+)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 개발 환경에서는 모든 origin 허용
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -77,6 +91,36 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/", response_class=HTMLResponse)
+async def serve_ui() -> HTMLResponse:
+    """전자결재 시스템 UI 메인 페이지."""
+    templates_dir = Path(__file__).parent / "templates"
+    html_file = templates_dir / "index.html"
+    
+    if not html_file.exists():
+        raise HTTPException(status_code=404, detail="UI template not found")
+    
+    with open(html_file, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/document-writer", response_class=HTMLResponse)
+async def serve_document_writer_ui() -> HTMLResponse:
+    """AI 문서 작성 전용 UI 페이지."""
+    templates_dir = Path(__file__).parent / "templates"
+    html_file = templates_dir / "document_writer.html"
+    
+    if not html_file.exists():
+        raise HTTPException(status_code=404, detail="Document writer UI template not found")
+    
+    with open(html_file, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    
+    return HTMLResponse(content=html_content)
+
+
 class LeaveChatRequest(BaseModel):
     """휴가(leave) 챗봇 질의 모델."""
 
@@ -120,6 +164,8 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., description="사용자 입력 질의 문장")
     session_id: Optional[str] = Field(default=None, description="대화 세션 ID (멀티턴 대화 지원)")
+    # Short-term memory injection: 사용자 ID를 요청 시 주입 (로그인 기능 부재로 인한 임시 조치)
+    employee_id: Optional[int] = Field(default=1001, description="사원 번호 (기본값 1001)")
 
 
 class ChatResponse(BaseModel):
@@ -134,31 +180,110 @@ class ChatResponse(BaseModel):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
-    """통합 에이전트 매니저먼트 챗봇 엔드포인트.
+    """LangGraph Orchestrator 기반 통합 챗봇 엔드포인트.
     
-    LangGraph 기반 멀티 에이전트 시스템으로 사용자 질의를 처리합니다.
-    - 일정/연차: schedule 에이전트
-    - 문서/이메일: document 에이전트
-    - Q&A: qa 에이전트
-    - 기술: tech 에이전트
+    지원 시나리오:
+    1. 원스톱 출장/휴가 관리 (Schedule -> Document -> Email)
+    2. R&D 리포트 자동화 (Search -> RAG -> Report -> Email)
+    3. 스마트 회의 준비 (Room -> Materials -> Invite -> Snacks)
+    4. 기타 일반 조회 및 검색 (Legacy Agents Fallback)
     """
     normalized = payload.query.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="query 값이 필요합니다.")
 
     try:
-        result = await run_in_threadpool(run_supervisor, normalized, payload.session_id)
+        graph = get_orchestrator_graph()
+        
+        # Initial State with injected employee_id
+        input_state = {
+            "query": normalized,
+            "session_id": payload.session_id,
+            "employee_id": payload.employee_id, # Inject employee_id for short-term memory
+            "messages": []
+        }
+        
+        # Run Graph
+        final_state = await graph.ainvoke(input_state)
+        
+        # Process Output
+        messages = final_state.get("messages", [])
+        final_msg = final_state.get("final_response")
+        
+        if not final_msg:
+            # Join messages if no explicit final response
+            final_msg = "\n".join(messages) if messages else "요청하신 작업을 완료했습니다."
+
+        return ChatResponse(
+            ok=True,
+            message=final_msg,
+            rows=[], # 오케스트레이터는 주로 텍스트 응답을 반환하므로 rows는 비움
+            session_id=payload.session_id,
+        )
+
     except Exception as exc:  # pragma: no cover
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"챗봇 처리 실패: {exc}") from exc
 
-    if not isinstance(result, dict):
-        raise HTTPException(status_code=500, detail="챗봇 결과가 비정상입니다.")
 
-    return ChatResponse(
-        ok=bool(result.get("ok", False)),
-        message=str(result.get("message", "")),
-        rows=result.get("rows") or [],
-        error=result.get("error"),
-        session_id=result.get("session_id") or payload.session_id,
-    )
+class DocumentUploadResponse(BaseModel):
+    """문서 업로드 응답 모델."""
 
+    ok: bool = Field(..., description="요청 처리 성공 여부")
+    message: str = Field(..., description="처리 결과 메시지")
+    document_title: Optional[str] = Field(default=None, description="문서 제목")
+    chunks_count: Optional[int] = Field(default=None, description="생성된 청크 수")
+    text_length: Optional[int] = Field(default=None, description="추출된 텍스트 길이")
+
+
+@app.post("/api/upload-document", response_model=DocumentUploadResponse)
+async def upload_document_endpoint(
+    file: UploadFile = FastAPIFile(..., description="업로드할 문서 파일 (PDF/DOCX)"),
+    document_title: str = Form(..., description="문서 제목"),
+    employee_id: Optional[int] = Form(default=1001, description="사원 번호"),
+) -> DocumentUploadResponse:
+    """문서 업로드 및 Milvus DB 저장 엔드포인트."""
+    try:
+        # 파일 형식 검증
+        file_extension = Path(file.filename).suffix.lower() if file.filename else ""
+        if file_extension not in [".pdf", ".docx"]:
+            raise HTTPException(
+                status_code=400,
+                detail="지원하지 않는 파일 형식입니다. PDF (.pdf) 또는 Word (.docx) 파일만 업로드 가능합니다.",
+            )
+
+        if not document_title or not document_title.strip():
+            raise HTTPException(status_code=400, detail="문서 제목을 입력해주세요.")
+
+        # 파일 내용 읽기
+        file_content = await file.read()
+        
+        if not file_content:
+            raise HTTPException(status_code=400, detail="파일이 비어있습니다.")
+
+        # 문서 처리 (동기 함수를 비동기로 실행)
+        result = await run_in_threadpool(
+            process_uploaded_file,
+            file_content,
+            file.filename or "unknown",
+            document_title.strip(),
+        )
+
+        if not result.get("ok"):
+            raise HTTPException(status_code=500, detail=result.get("message", "문서 처리 실패"))
+
+        return DocumentUploadResponse(
+            ok=True,
+            message=result.get("message", "문서가 성공적으로 저장되었습니다."),
+            document_title=result.get("document_title"),
+            chunks_count=result.get("chunks_count"),
+            text_length=result.get("text_length"),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"문서 업로드 실패: {exc}") from exc

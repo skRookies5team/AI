@@ -1,0 +1,69 @@
+"""새 워크플로우 추가 예시.
+
+이 파일은 예시입니다. 실제 워크플로우를 추가할 때 참고하세요.
+워크플로우를 추가하려면:
+1. agents/workflows/ 디렉토리에 새 파일 생성 (예: my_workflow.py)
+2. get_xxx_graph() 함수 구현
+3. (선택) @workflow 데코레이터로 메타데이터 등록
+4. 파일을 저장하면 자동으로 레지스트리에 등록됨
+"""
+
+from __future__ import annotations
+
+from typing import Dict, Any
+from langgraph.graph import StateGraph, END
+
+from agents.state import OrchestratorState
+from agents.workflows import workflow  # 데코레이터 (선택적)
+
+
+# 방법 1: 데코레이터 사용 (권장)
+@workflow(
+    name="my_custom_workflow",
+    category="custom",
+    description="사용자 정의 워크플로우 설명",
+    priority=5,  # 우선순위 (높을수록 우선)
+    examples=["예시 질문 1", "예시 질문 2"],
+)
+def get_my_custom_workflow_graph():
+    """사용자 정의 워크플로우 그래프 생성."""
+    workflow = StateGraph(OrchestratorState)
+    
+    # 노드 정의
+    async def step1(state: OrchestratorState) -> Dict[str, Any]:
+        print("--- [My Workflow] Step 1 ---")
+        return {"messages": ["Step 1 executed"]}
+    
+    async def step2(state: OrchestratorState) -> Dict[str, Any]:
+        print("--- [My Workflow] Step 2 ---")
+        return {
+            "final_response": "워크플로우 완료",
+            "messages": ["Step 2 executed"]
+        }
+    
+    # 그래프 구성
+    workflow.add_node("step1", step1)
+    workflow.add_node("step2", step2)
+    
+    workflow.set_entry_point("step1")
+    workflow.add_edge("step1", "step2")
+    workflow.add_edge("step2", END)
+    
+    return workflow.compile()
+
+
+# 방법 2: 데코레이터 없이 사용
+# 파일만 저장하면 자동으로 등록되지만, 메타데이터는 기본값 사용
+def get_another_workflow_graph():
+    """다른 워크플로우 (자동 등록)."""
+    workflow = StateGraph(OrchestratorState)
+    
+    async def execute(state: OrchestratorState) -> Dict[str, Any]:
+        return {"final_response": "Another workflow completed"}
+    
+    workflow.add_node("execute", execute)
+    workflow.set_entry_point("execute")
+    workflow.add_edge("execute", END)
+    
+    return workflow.compile()
+

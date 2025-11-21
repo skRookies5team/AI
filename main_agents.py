@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from agents.supervisor import run_supervisor
-from agents.tech_patent_agent import set_progress_callback
 import argparse
+import asyncio
 import logging
 import uuid
 from typing import Any, Dict, Optional
@@ -10,7 +9,8 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from agents.supervisor import run_supervisor
+
+from agents.orchestrator_v2 import get_orchestrator_graph
 
 
 def _fmt_num(n):
@@ -146,17 +146,14 @@ def format_result(result) -> str:
     return str(result)
 
 
-def chat_loop() -> None:
-	"""대화 루프: 메모리 기능을 통해 멀티턴 대화 지원."""
-	print("Super Supervisor 대화 시작. 종료하려면 'exit' 입력.")
+async def chat_loop_async() -> None:
+	"""대화 루프: LangGraph Orchestrator 기반 멀티턴 대화 지원."""
+	print("깐부 AI Agent 시스템 시작 (LangGraph Orchestrator)")
+	print("종료하려면 'exit' 또는 'quit' 입력\n")
 
-	# 진행 상황 콜백 설정 (실시간 진행 상황 표시)
-	def progress_handler(message: str) -> None:
-		"""진행 상황 메시지를 실시간으로 표시."""
-		print(f"⏳ {message}", flush=True)
-
-	set_progress_callback(progress_handler)
-
+	# 오케스트레이터 그래프 초기화
+	graph = get_orchestrator_graph()
+	
 	# 세션 ID 생성 (대화 세션별 메모리 관리)
 	session_id = str(uuid.uuid4())
 	
@@ -165,8 +162,41 @@ def chat_loop() -> None:
 		if user.lower() in {"exit", "quit"}:
 			print("종료합니다.")
 			break
-		result = run_supervisor(user, session_id=session_id)
-		print("에이전트>", format_result(result))
+		
+		if not user:
+			continue
+		
+		try:
+			# 오케스트레이터 상태 생성
+			input_state = {
+				"query": user,
+				"session_id": session_id,
+				"employee_id": 1001,  # 기본 사원 번호 (환경변수나 설정으로 변경 가능)
+				"messages": []
+			}
+			
+			# 오케스트레이터 실행
+			print("🤖 처리 중...")
+			final_state = await graph.ainvoke(input_state)
+			
+			# 결과 처리
+			messages = final_state.get("messages", [])
+			final_msg = final_state.get("final_response")
+			
+			if not final_msg:
+				final_msg = "\n".join(messages) if messages else "요청하신 작업을 완료했습니다."
+			
+			print(f"\n에이전트> {final_msg}")
+			
+		except Exception as e:
+			print(f"\n❌ 오류 발생: {str(e)}")
+			import traceback
+			traceback.print_exc()
+
+
+def chat_loop() -> None:
+	"""동기 래퍼: 비동기 chat_loop_async 실행."""
+	asyncio.run(chat_loop_async())
 
 
 logger = logging.getLogger(__name__)
@@ -222,6 +252,7 @@ async def health() -> Dict[str, str]:
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
+    """LangGraph Orchestrator 기반 통합 챗봇 엔드포인트."""
     logger.info(
         "📥 요청 수신: message=%s, reservation=%s",
         request.message,
@@ -229,35 +260,62 @@ async def chat(request: ChatRequest) -> ChatResponse:
     )
 
     session_id = str(uuid.uuid4())
+    normalized = request.message.strip()
+    
+    if not normalized:
+        return ChatResponse(
+            intent=None,
+            response="질의를 입력해주세요.",
+            state={"error": "Empty query"},
+        )
 
-    full_context = request.context.copy()
-    if request.reservation:
-        full_context["reservation"] = request.reservation
-        logger.info("📋 예약 정보 추가: %s", request.reservation)
-
-    result = run_supervisor(
-        request.message,
-        session_id=session_id,
-        context=full_context,
-    )
-
-    if isinstance(result, dict):
-        intent = result.get("intent")
-        message = result.get("message", str(result))
+    try:
+        # 오케스트레이터 그래프 초기화
+        graph = get_orchestrator_graph()
+        
+        # Initial State
+        input_state = {
+            "query": normalized,
+            "session_id": session_id,
+            "employee_id": 1001,  # 기본 사원 번호 (요청에서 받을 수도 있음)
+            "messages": []
+        }
+        
+        # 예약 정보가 있으면 상태에 추가
+        if request.reservation:
+            input_state["reservation"] = request.reservation
+            logger.info("📋 예약 정보 추가: %s", request.reservation)
+        
+        # 컨텍스트 정보 추가
+        if request.context:
+            input_state.update(request.context)
+        
+        # 오케스트레이터 실행
+        final_state = await graph.ainvoke(input_state)
+        
+        # 결과 처리
+        messages = final_state.get("messages", [])
+        final_msg = final_state.get("final_response")
+        intent = final_state.get("intent")
+        
+        if not final_msg:
+            final_msg = "\n".join(messages) if messages else "요청하신 작업을 완료했습니다."
 
         logger.info("✅ 응답 생성: intent=%s", intent)
 
         return ChatResponse(
             intent=intent,
-            response=message,
-            state=result,
+            response=final_msg,
+            state=final_state,
         )
-
-    return ChatResponse(
-        intent=None,
-        response=str(result),
-        state={"raw": result},
-    )
+        
+    except Exception as exc:
+        logger.error("❌ 오류 발생: %s", exc, exc_info=True)
+        return ChatResponse(
+            intent=None,
+            response=f"오류 발생: {str(exc)}",
+            state={"error": str(exc)},
+        )
 
 
 def main() -> None:

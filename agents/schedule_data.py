@@ -36,8 +36,8 @@ _ENGINE_LOCK = asyncio.Lock()
 _COLUMNS_LOCK = asyncio.Lock()
 _SCHEDULE_COLUMNS: Optional[list[str]] = None
 
-_DEFAULT_DB_NAME = os.getenv("SCHEDULE_DB_NAME", "ai_agent")
-_EMPLOYEE_TABLE_NAME = os.getenv("EMPLOYEE_TABLE_NAME", "employee")
+_DEFAULT_DB_NAME = os.getenv("SCHEDULE_DB_NAME")
+_EMPLOYEE_TABLE_NAME = os.getenv("EMPLOYEE_TABLE_NAME")
 _EMPLOYEE_COLUMNS_CACHE: Optional[list[str]] = None
 _EMPLOYEE_COLUMNS_LOCK = asyncio.Lock()
 
@@ -108,7 +108,7 @@ def _build_async_db_url() -> str:
 
     user = os.getenv("SCHEDULE_DB_USER", "root")
     password = os.getenv("SCHEDULE_DB_PASSWORD", "root")
-    host = os.getenv("SCHEDULE_DB_HOST", "175.120.35.228")
+    host = os.getenv("HOST", "175.120.35.228")
     port = os.getenv("SCHEDULE_DB_PORT", "3306")
     database = os.getenv("SCHEDULE_DB_NAME", "ai_agent")
 
