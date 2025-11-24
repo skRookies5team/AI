@@ -11,8 +11,10 @@ class OrchestratorState(TypedDict):
     session_id: Optional[str]
     
     # Workflow Context
+    domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech'
+    last_domain: Optional[str]  # 이전 대화의 도메인 (단순 답변 시 라우팅용)
     intent: Optional[str]  # 'business_trip', 'research', 'meeting', etc.
-    current_step: str
+    current_step: Optional[str]  # Optional로 변경 (기본값 없음)
     
     # Extracted Data (Entities)
     employee_id: Optional[int]

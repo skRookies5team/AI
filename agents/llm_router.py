@@ -156,9 +156,9 @@ JSON 형식으로 응답하세요: {{"intent": "search|auto_reply"}}""",
 		context_info = ""
 		if route_type in ["qa", "supervisor", "email"]:
 			try:
-				from .email_search_agent import has_pending_email_results
-				from .tech_patent_agent import has_pending_patent_results
-				from .tech_master import has_pending_article_results
+				from agents.master_graphs.email.email_search_agent import has_pending_email_results
+				from agents.master_graphs.tech.tech_patent_agent import has_pending_patent_results
+				from agents.master_graphs.tech.tech_article_agent import has_pending_article_results
 
 				has_email = has_pending_email_results(session_id) if session_id else False
 				has_patent = has_pending_patent_results(session_id) if session_id else False
