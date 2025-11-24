@@ -30,4 +30,7 @@ dependencies = [
     "sqlalchemy>=2.0.44",
     "uvicorn>=0.38.0",
     "python-multipart>=0.0.20",
+    "asyncmy>=0.2.10",
+    "aiomysql>=0.3.2",
+    "pydantic-settings>=2.12.0",
 ]

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from agents.orchestrator_v2 import get_orchestrator_graph
+from agents.orchestrator_v3 import get_orchestrator_graph
 
 
 def _fmt_num(n):

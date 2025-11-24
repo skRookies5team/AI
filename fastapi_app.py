@@ -11,8 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agents.schedule_master import schedule_master
-from agents.orchestrator_v2 import get_orchestrator_graph
-from agents.document_upload_service import process_uploaded_file
+from agents.orchestrator_v3 import get_orchestrator_graph
+from agents.master_graphs.document.document_upload_service import process_uploaded_file
 
 
 class ScheduleChatRequest(BaseModel):
