@@ -1,6 +1,7 @@
 """회의실 에이전트 래퍼 (schedule_master 연동용)"""
 from __future__ import annotations
 
+
 import asyncio
 import logging
 import sys
