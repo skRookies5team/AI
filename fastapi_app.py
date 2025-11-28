@@ -10,9 +10,14 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from agents.schedule_master import schedule_master
+# schedule_master는 schedule/master_graph.py의 함수를 사용
+def schedule_master(query: str):
+    """스케줄 마스터 레거시 래퍼 함수."""
+    from agents.master_graphs.schedule.schedule_langgraph import run_schedule_agent
+    return run_schedule_agent(query)
 from agents.orchestrator_v3 import get_orchestrator_graph
-from agents.master_graphs.document.document_upload_service import process_uploaded_file
+# document_upload_service는 실제 사용 시점에만 import (lazy import)
+# sentence_transformers 의존성 때문에 모듈 레벨 import 시 충돌 발생 가능
 
 
 class ScheduleChatRequest(BaseModel):
@@ -176,6 +181,8 @@ class ChatResponse(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list, description="조회된 데이터 (있는 경우)")
     error: Optional[str] = Field(default=None, description="오류 메시지")
     session_id: Optional[str] = Field(default=None, description="세션 ID")
+    document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (문서 생성 시)")
+    is_html: bool = Field(default=False, description="응답이 HTML 문서인지 여부")
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -209,16 +216,34 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # Process Output
         messages = final_state.get("messages", [])
         final_msg = final_state.get("final_response")
+        document_path = final_state.get("document_path")
+        document_content = final_state.get("document_content")
+        
+        # 문서 생성인 경우 document_content를 우선 사용
+        if document_content:
+            final_msg = document_content
         
         if not final_msg:
             # Join messages if no explicit final response
             final_msg = "\n".join(messages) if messages else "요청하신 작업을 완료했습니다."
+
+        # HTML 문서 여부 확인 (document_content가 HTML인지 또는 message가 HTML 태그를 포함하는지)
+        is_html = False
+        if document_content or final_msg:
+            content_to_check = document_content if document_content else final_msg
+            is_html = (
+                content_to_check.strip().startswith('<!DOCTYPE') or
+                content_to_check.strip().startswith('<html') or
+                ('<html' in content_to_check and '</html>' in content_to_check)
+            )
 
         return ChatResponse(
             ok=True,
             message=final_msg,
             rows=[], # 오케스트레이터는 주로 텍스트 응답을 반환하므로 rows는 비움
             session_id=payload.session_id,
+            document_path=document_path,
+            is_html=is_html,
         )
 
     except Exception as exc:  # pragma: no cover
@@ -245,6 +270,9 @@ async def upload_document_endpoint(
 ) -> DocumentUploadResponse:
     """문서 업로드 및 Milvus DB 저장 엔드포인트."""
     try:
+        # document_upload_service는 lazy import (sentence_transformers 의존성 때문)
+        from agents.master_graphs.document.document_upload_service import process_uploaded_file
+        
         # 파일 형식 검증
         file_extension = Path(file.filename).suffix.lower() if file.filename else ""
         if file_extension not in [".pdf", ".docx"]:

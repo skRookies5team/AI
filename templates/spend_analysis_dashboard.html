@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>경영지원팀 지출 분석 대시보드</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #f5576c;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 1.2em;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(245, 87, 108, 0.3);
+        }
+        
+        .stat-card h3 {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+        
+        .stat-card.large .value {
+            font-size: 2.5em;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #f5576c;
+            padding-bottom: 10px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .full-width .chart-wrapper {
+            height: 400px;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💰 경영지원팀 지출 분석 대시보드</h1>
+            <p>지출 데이터 분석 및 통계</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card large">
+                <h3>총 지출 금액</h3>
+                <div class="value">16.1억원</div>
+            </div>
+            <div class="stat-card">
+                <h3>총 거래 건수</h3>
+                <div class="value">500건</div>
+            </div>
+            <div class="stat-card">
+                <h3>평균 거래 금액</h3>
+                <div class="value">323만원</div>
+            </div>
+            <div class="stat-card">
+                <h3>평균 단가</h3>
+                <div class="value">111만원</div>
+            </div>
+            <div class="stat-card">
+                <h3>평균 수량</h3>
+                <div class="value">9.6개</div>
+            </div>
+            <div class="stat-card">
+                <h3>최대 거래 금액</h3>
+                <div class="value">2404만원</div>
+            </div>
+        </div>
+        
+        <div class="charts-grid">
+            <div class="chart-container full-width">
+                <h2>월별 지출 추이</h2>
+                <div class="chart-wrapper">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>카테고리별 지출 금액 (상위 10개)</h2>
+                <div class="chart-wrapper">
+                    <canvas id="categoryAmountChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>카테고리별 거래 건수</h2>
+                <div class="chart-wrapper">
+                    <canvas id="categoryChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>공급업체별 지출 금액 (상위 10개)</h2>
+                <div class="chart-wrapper">
+                    <canvas id="supplierChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>구매자별 지출 금액 (상위 10개)</h2>
+                <div class="chart-wrapper">
+                    <canvas id="buyerChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>품목별 거래 빈도 (상위 10개)</h2>
+                <div class="chart-wrapper">
+                    <canvas id="itemChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Chart.js 기본 설정
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.color = '#333';
+        
+        // 색상 팔레트
+        const colors = [
+            'rgba(240, 147, 251, 0.8)',
+            'rgba(245, 87, 108, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+            'rgba(199, 199, 199, 0.8)',
+            'rgba(83, 102, 255, 0.8)',
+        ];
+        
+        // 월별 지출 추이
+        const monthlyData = {"2024-01": 131981135.0, "2024-02": 102108123.0, "2024-03": 160730739.0, "2024-04": 155153570.0, "2024-05": 153292594.0, "2024-06": 113254102.0, "2024-07": 98872358.0, "2024-08": 100389861.0, "2024-09": 162743425.0, "2024-10": 157582126.0, "2024-11": 148589298.0, "2024-12": 128057358.0};
+        new Chart(document.getElementById('monthlyChart'), {
+            type: 'line',
+            data: {
+                labels: Object.keys(monthlyData),
+                datasets: [{
+                    label: '지출 금액',
+                    data: Object.values(monthlyData),
+                    borderColor: 'rgba(245, 87, 108, 1)',
+                    backgroundColor: 'rgba(245, 87, 108, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let value = context.parsed.y;
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(2) + '억원';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만원';
+                                } else {
+                                    return value.toLocaleString() + '원';
+                                }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(1) + '억';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만';
+                                } else {
+                                    return value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 카테고리별 지출 금액
+        const categoryAmountData = {"\uc804\uc790\uc81c\ud488": 907146799.0, "\uc18c\ud504\ud2b8\uc6e8\uc5b4": 436823400.0, "\uac00\uad6c": 224664193.0, "\uc561\uc138\uc11c\ub9ac": 27114412.0, "\ubb38\uad6c\ub958": 8779134.0, "\uc0ac\ubb34\uc6a9\ud488": 8226751.0};
+        new Chart(document.getElementById('categoryAmountChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(categoryAmountData),
+                datasets: [{
+                    label: '지출 금액',
+                    data: Object.values(categoryAmountData),
+                    backgroundColor: 'rgba(240, 147, 251, 0.8)',
+                    borderColor: 'rgba(240, 147, 251, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let value = context.parsed.x;
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(2) + '억원';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만원';
+                                } else {
+                                    return value.toLocaleString() + '원';
+                                }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(1) + '억';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만';
+                                } else {
+                                    return value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 카테고리별 거래 건수
+        const categoryData = {"\uac00\uad6c": 102, "\uc0ac\ubb34\uc6a9\ud488": 60, "\uc18c\ud504\ud2b8\uc6e8\uc5b4": 46, "\ubb38\uad6c\ub958": 90, "\uc804\uc790\uc81c\ud488": 146, "\uc561\uc138\uc11c\ub9ac": 56};
+        new Chart(document.getElementById('categoryChart'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(categoryData),
+                datasets: [{
+                    data: Object.values(categoryData),
+                    backgroundColor: colors.slice(0, Object.keys(categoryData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+        
+        // 공급업체별 지출 금액
+        const supplierData = {"\ud14c\ud06c\ub9c8\ud2b8": 427390249.0, "\ube60\ub978\ubc30\uc1a1": 370959667.0, "\uc624\ud53c\uc2a4\uc6a9\ud488": 290655105.0, "\uac00\uad6c\uacf5\uae09": 263653936.0, "\ud074\ub77c\uc6b0\ub4dc\uc18c\ud504\ud2b8": 260095732.0};
+        new Chart(document.getElementById('supplierChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(supplierData),
+                datasets: [{
+                    label: '지출 금액',
+                    data: Object.values(supplierData),
+                    backgroundColor: 'rgba(245, 87, 108, 0.8)',
+                    borderColor: 'rgba(245, 87, 108, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let value = context.parsed.x;
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(2) + '억원';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만원';
+                                } else {
+                                    return value.toLocaleString() + '원';
+                                }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(1) + '억';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만';
+                                } else {
+                                    return value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 구매자별 지출 금액
+        const buyerData = {"\uc2e0\uc9c0\ud6c8": 176432269.0, "\uad8c\uc2b9\ud604": 125343634.0, "\uc774\uc608\uc900": 122441449.0, "\ud669\ub2e4\uc740": 99364356.0, "\uc724\uc11c\uc724": 98624552.0, "\uc624\uc2b9\ud604": 97806592.0, "\uc2e0\ub3c4\uc724": 90802920.0, "\uc774\uc11c\uc900": 89985012.0, "\ud64d\uc9c0\uc720": 89618451.0, "\ud669\uc608\ub9b0": 86020623.0};
+        new Chart(document.getElementById('buyerChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(buyerData),
+                datasets: [{
+                    label: '지출 금액',
+                    data: Object.values(buyerData),
+                    backgroundColor: colors.slice(0, Object.keys(buyerData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let value = context.parsed.x;
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(2) + '억원';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만원';
+                                } else {
+                                    return value.toLocaleString() + '원';
+                                }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                if (value >= 100000000) {
+                                    return (value / 100000000).toFixed(1) + '억';
+                                } else if (value >= 10000) {
+                                    return (value / 10000).toFixed(0) + '만';
+                                } else {
+                                    return value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 품목별 거래 빈도
+        const itemData = {"\uc2a4\ud14c\uc774\ud50c\ub7ec": 60, "\ub178\ud2b8\ubd81 \uac00\ubc29": 56, "\ub178\ud2b8\ubd81": 56, "\uc0ac\ubb34\uc6a9 \uc758\uc790": 53, "\ud654\uc774\ud2b8\ubcf4\ub4dc": 49, "\ub178\ud2b8\ud328\ub4dc": 48, "\uc5f0\uac04 \uc18c\ud504\ud2b8\uc6e8\uc5b4 \ub77c\uc774\uc120\uc2a4": 46, "\ud504\ub9b0\ud130": 45, "\ubaa8\ub2c8\ud130": 45, "\ud504\ub9b0\ud130 \uc789\ud06c": 42};
+        new Chart(document.getElementById('itemChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(itemData),
+                datasets: [{
+                    label: '거래 건수',
+                    data: Object.values(itemData),
+                    backgroundColor: 'rgba(75, 192, 192, 0.8)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

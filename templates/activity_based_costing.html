@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
             background: white;
             border-radius: 12px;
@@ -110,13 +110,14 @@
         }
 
         th {
-            padding: 16px 12px;
+            padding: 14px 10px;
             text-align: center;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
             letter-spacing: 0.5px;
             border-right: 1px solid rgba(255, 255, 255, 0.2);
             white-space: nowrap;
+            min-width: 120px;
         }
 
         th:last-child {
@@ -137,11 +138,23 @@
         }
 
         td {
-            padding: 14px 12px;
+            padding: 12px 10px;
             text-align: center;
-            font-size: 14px;
+            font-size: 13px;
             color: #495057;
             border-right: 1px solid #e9ecef;
+        }
+        
+        .text-left {
+            text-align: left;
+        }
+        
+        .date-input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 13px;
         }
 
         td:last-child {
@@ -346,10 +359,21 @@
             <table id="costingTable">
                 <thead>
                     <tr>
-                        <th>Activity<br>(활동명)</th>
-                        <th>Overhead<br>(예상 제조간접비)<br>₩</th>
-                        <th>Per Activity<br>(총 활동량)</th>
-                        <th>Overhead Rate per Activ<br>(활동당 배부율)<br>₩</th>
+                        <th>활동명<br>(activity_name)</th>
+                        <th>원가 드라이버<br>(cost_driver)</th>
+                        <th>단위당 원가율<br>(cost_rate_per_unit)<br>₩</th>
+                        <th>활동량<br>(activity_quantity)</th>
+                        <th>총 활동 원가<br>(total_activity_cost)<br>₩</th>
+                        <th>고정비<br>(fixed_cost)<br>₩</th>
+                        <th>변동비<br>(variable_cost)<br>₩</th>
+                        <th>고정/변동 비율<br>(fixed_variable_ratio)</th>
+                        <th>활동 유형<br>(activity_type)</th>
+                        <th>부서<br>(department)</th>
+                        <th>절감 가능 비용<br>(potential_savings_cost)<br>₩</th>
+                        <th>비필수 활동 원가<br>(non_essential_activity_cost)<br>₩</th>
+                        <th>생산성 영향 수준<br>(productivity_impact_level)</th>
+                        <th>원가 풀<br>(cost_pool)</th>
+                        <th>데이터 참조일<br>(data_reference_date)</th>
                     </tr>
                 </thead>
                 <tbody id="costingBody">
@@ -357,10 +381,11 @@
                 </tbody>
                 <tfoot>
                     <tr class="total-row">
-                        <td>Total</td>
-                        <td id="totalOverhead" class="currency-display">₩0</td>
-                        <td></td>
-                        <td></td>
+                        <td colspan="4" style="text-align: right; font-weight: 700;">합계</td>
+                        <td id="totalActivityCost" class="currency-display">₩0</td>
+                        <td id="totalFixedCost" class="currency-display">₩0</td>
+                        <td id="totalVariableCost" class="currency-display">₩0</td>
+                        <td colspan="8"></td>
                     </tr>
                 </tfoot>
             </table>
@@ -398,53 +423,79 @@
 
     <script>
         let rowCounter = 0;
-        const DEFAULT_ITEMS = [
-            { activity: "PCB 조립 인건비 관련", overhead: 120000000, perActivity: 60000, unit: "hours" },
-            { activity: "설비 셋업", overhead: 180000000, perActivity: 3000, unit: "setups" },
-            { activity: "부품 관리", overhead: 200000000, perActivity: 500, unit: "parts" },
-            { activity: "생산 지시서 관리", overhead: 90000000, perActivity: 600, unit: "orders" },
-            { activity: "자재 입고/검수", overhead: 100000000, perActivity: 1000, unit: "orders" },
-            { activity: "설비 전력 소모", overhead: 160000000, perActivity: 80000, unit: "receipts" },
-            { activity: "품질 검사", overhead: 150000000, perActivity: 8000, unit: "machine hours" }
-        ];
 
         // 초기 행 생성
         function initializeTable() {
-            DEFAULT_ITEMS.forEach(item => {
-                addRow(item.activity, item.overhead, item.perActivity, item.unit);
-            });
+            // 데이터가 이미 있으면 초기화하지 않음
+            const tbody = document.getElementById('costingBody');
+            if (tbody.children.length === 0) {
+                addRow();
+            }
         }
 
         // 행 추가
-        function addRow(activity = "", overhead = 0, perActivity = 0, unit = "") {
+        function addRow(rowData = {}) {
             rowCounter++;
             const tbody = document.getElementById('costingBody');
             const row = document.createElement('tr');
+            
+            // 오늘 날짜 기본값
+            const today = new Date().toISOString().split('T')[0];
+            
             row.innerHTML = `
-                <td class="activity-cell">
-                    <input type="text" class="activity-input" placeholder="활동명" value="${activity}">
+                <td class="text-left">
+                    <input type="text" class="activity-name-input" placeholder="활동명" value="${rowData.activity_name || ''}">
                 </td>
                 <td>
-                    <input type="number" class="overhead-input" placeholder="0" min="0" step="1000" value="${overhead}">
+                    <input type="text" class="cost-driver-input" placeholder="원가 드라이버" value="${rowData.cost_driver || ''}">
                 </td>
                 <td>
-                    <div style="display: flex; gap: 5px; align-items: center;">
-                        <input type="number" class="per-activity-input" placeholder="0" min="0" step="1" value="${perActivity}" style="flex: 1;">
-                        <input type="text" class="unit-input" placeholder="단위" value="${unit}" style="width: 80px;">
-                    </div>
+                    <input type="number" class="cost-rate-input" placeholder="0" min="0" step="0.01" value="${rowData.cost_rate_per_unit || ''}">
                 </td>
                 <td>
-                    <span class="rate-display rate-amount">₩0</span>
+                    <input type="number" class="activity-quantity-input" placeholder="0" min="0" step="1" value="${rowData.activity_quantity || ''}">
+                </td>
+                <td>
+                    <input type="number" class="total-activity-cost-input" placeholder="0" min="0" step="1000" value="${rowData.total_activity_cost || ''}">
+                </td>
+                <td>
+                    <input type="number" class="fixed-cost-input" placeholder="0" min="0" step="1000" value="${rowData.fixed_cost || ''}">
+                </td>
+                <td>
+                    <input type="number" class="variable-cost-input" placeholder="0" min="0" step="1000" value="${rowData.variable_cost || ''}">
+                </td>
+                <td>
+                    <input type="text" class="ratio-input" placeholder="예: 70:30" value="${rowData.fixed_variable_ratio || ''}">
+                </td>
+                <td>
+                    <input type="text" class="activity-type-input" placeholder="활동 유형" value="${rowData.activity_type || ''}">
+                </td>
+                <td>
+                    <input type="text" class="department-input" placeholder="부서" value="${rowData.department || ''}">
+                </td>
+                <td>
+                    <input type="number" class="potential-savings-input" placeholder="0" min="0" step="1000" value="${rowData.potential_savings_cost || ''}">
+                </td>
+                <td>
+                    <input type="number" class="non-essential-cost-input" placeholder="0" min="0" step="1000" value="${rowData.non_essential_activity_cost || ''}">
+                </td>
+                <td>
+                    <input type="text" class="productivity-impact-input" placeholder="High/Medium/Low" value="${rowData.productivity_impact_level || ''}">
+                </td>
+                <td>
+                    <input type="text" class="cost-pool-input" placeholder="원가 풀" value="${rowData.cost_pool || ''}">
+                </td>
+                <td>
+                    <input type="date" class="date-input" value="${rowData.data_reference_date || today}">
                 </td>
             `;
             tbody.appendChild(row);
             
             // 계산 리스너 추가
-            const overheadInput = row.querySelector('.overhead-input');
-            const perActivityInput = row.querySelector('.per-activity-input');
-            
-            overheadInput.addEventListener('input', () => calculateRow(row));
-            perActivityInput.addEventListener('input', () => calculateRow(row));
+            const inputs = row.querySelectorAll('input[type="number"]');
+            inputs.forEach(input => {
+                input.addEventListener('input', () => calculateRow(row));
+            });
         }
 
         // 행 삭제
@@ -461,33 +512,47 @@
 
         // 행별 계산
         function calculateRow(row) {
-            const overhead = parseFloat(row.querySelector('.overhead-input')?.value || 0);
-            const perActivity = parseFloat(row.querySelector('.per-activity-input')?.value || 0);
+            const totalCost = parseFloat(row.querySelector('.total-activity-cost-input')?.value || 0);
+            const fixedCost = parseFloat(row.querySelector('.fixed-cost-input')?.value || 0);
+            const variableCost = parseFloat(row.querySelector('.variable-cost-input')?.value || 0);
+            const quantity = parseFloat(row.querySelector('.activity-quantity-input')?.value || 0);
             
-            let rate = 0;
-            if (perActivity > 0) {
-                rate = overhead / perActivity;
+            // total_activity_cost가 없으면 fixed + variable로 계산
+            if (!totalCost && (fixedCost || variableCost)) {
+                const calculatedTotal = fixedCost + variableCost;
+                row.querySelector('.total-activity-cost-input').value = calculatedTotal;
             }
             
-            row.querySelector('.rate-amount').textContent = `₩${rate.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`;
+            // cost_rate_per_unit 계산 (total_cost / quantity)
+            const costRateInput = row.querySelector('.cost-rate-input');
+            if (quantity > 0 && totalCost) {
+                const rate = totalCost / quantity;
+                costRateInput.value = rate.toFixed(2);
+            }
+            
             calculateAll();
         }
 
         // 전체 계산
         function calculateAll() {
             const rows = document.querySelectorAll('#costingBody tr');
-            let totalOverhead = 0;
+            let totalActivityCost = 0;
+            let totalFixedCost = 0;
+            let totalVariableCost = 0;
             let totalRates = 0;
             let rateCount = 0;
 
             rows.forEach(row => {
-                const overhead = parseFloat(row.querySelector('.overhead-input')?.value || 0);
-                const perActivity = parseFloat(row.querySelector('.per-activity-input')?.value || 0);
+                const totalCost = parseFloat(row.querySelector('.total-activity-cost-input')?.value || 0);
+                const fixedCost = parseFloat(row.querySelector('.fixed-cost-input')?.value || 0);
+                const variableCost = parseFloat(row.querySelector('.variable-cost-input')?.value || 0);
+                const rate = parseFloat(row.querySelector('.cost-rate-input')?.value || 0);
                 
-                totalOverhead += overhead;
+                totalActivityCost += totalCost;
+                totalFixedCost += fixedCost;
+                totalVariableCost += variableCost;
                 
-                if (perActivity > 0) {
-                    const rate = overhead / perActivity;
+                if (rate > 0) {
                     totalRates += rate;
                     rateCount++;
                 }
@@ -495,10 +560,15 @@
 
             const avgRate = rateCount > 0 ? totalRates / rateCount : 0;
 
-            document.getElementById('totalOverhead').textContent = `₩${totalOverhead.toLocaleString('ko-KR')}`;
-            document.getElementById('summaryTotal').textContent = `₩${totalOverhead.toLocaleString('ko-KR')}`;
+            // tfoot 업데이트
+            document.getElementById('totalActivityCost').textContent = `₩${totalActivityCost.toLocaleString('ko-KR')}`;
+            document.getElementById('totalFixedCost').textContent = `₩${totalFixedCost.toLocaleString('ko-KR')}`;
+            document.getElementById('totalVariableCost').textContent = `₩${totalVariableCost.toLocaleString('ko-KR')}`;
+            
+            // summary 업데이트
+            document.getElementById('summaryTotal').textContent = `₩${totalActivityCost.toLocaleString('ko-KR')}`;
             document.getElementById('summaryCount').textContent = rows.length;
-            document.getElementById('summaryAvgRate').textContent = `₩${avgRate.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`;
+            document.getElementById('summaryAvgRate').textContent = `₩${avgRate.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}`;
         }
 
         // 인쇄
@@ -514,18 +584,28 @@
             csv += `기간,${document.getElementById('period').value}\n`;
             csv += `부서/센터,${document.getElementById('department').value}\n\n`;
             
-            csv += 'Activity(활동명),Overhead(예상 제조간접비),Per Activity(총 활동량),Overhead Rate per Activ(활동당 배부율)\n';
+            csv += '활동명,원가 드라이버,단위당 원가율,활동량,총 활동 원가,고정비,변동비,고정/변동 비율,활동 유형,부서,절감 가능 비용,비필수 활동 원가,생산성 영향 수준,원가 풀,데이터 참조일\n';
             rows.forEach(row => {
-                const activity = row.querySelector('.activity-input')?.value || '';
-                const overhead = row.querySelector('.overhead-input')?.value || '';
-                const perActivity = row.querySelector('.per-activity-input')?.value || '';
-                const unit = row.querySelector('.unit-input')?.value || '';
-                const rate = row.querySelector('.rate-amount')?.textContent || '';
+                const activityName = row.querySelector('.activity-name-input')?.value || '';
+                const costDriver = row.querySelector('.cost-driver-input')?.value || '';
+                const costRate = row.querySelector('.cost-rate-input')?.value || '';
+                const activityQuantity = row.querySelector('.activity-quantity-input')?.value || '';
+                const totalCost = row.querySelector('.total-activity-cost-input')?.value || '';
+                const fixedCost = row.querySelector('.fixed-cost-input')?.value || '';
+                const variableCost = row.querySelector('.variable-cost-input')?.value || '';
+                const ratio = row.querySelector('.ratio-input')?.value || '';
+                const activityType = row.querySelector('.activity-type-input')?.value || '';
+                const department = row.querySelector('.department-input')?.value || '';
+                const potentialSavings = row.querySelector('.potential-savings-input')?.value || '';
+                const nonEssentialCost = row.querySelector('.non-essential-cost-input')?.value || '';
+                const productivityImpact = row.querySelector('.productivity-impact-input')?.value || '';
+                const costPool = row.querySelector('.cost-pool-input')?.value || '';
+                const referenceDate = row.querySelector('.date-input')?.value || '';
                 
-                csv += `"${activity}","₩${parseFloat(overhead || 0).toLocaleString('ko-KR')}","${perActivity} ${unit}","${rate}"\n`;
+                csv += `"${activityName}","${costDriver}","${costRate}","${activityQuantity}","${totalCost}","${fixedCost}","${variableCost}","${ratio}","${activityType}","${department}","${potentialSavings}","${nonEssentialCost}","${productivityImpact}","${costPool}","${referenceDate}"\n`;
             });
 
-            csv += `\nTotal,"${document.getElementById('totalOverhead').textContent}",,\n`;
+            csv += `\n합계,,,,${document.getElementById('totalActivityCost').textContent},${document.getElementById('totalFixedCost').textContent},${document.getElementById('totalVariableCost').textContent},,,,,\n`;
 
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
@@ -541,7 +621,11 @@
 
         // 페이지 로드 시 초기화
         window.addEventListener('DOMContentLoaded', () => {
-            initializeTable();
+            // 데이터가 이미 채워진 경우 initializeTable() 건너뛰기
+            const hasData = document.querySelectorAll('#costingBody tr').length > 0;
+            if (!hasData) {
+                initializeTable();
+            }
             calculateAll();
         });
     </script>

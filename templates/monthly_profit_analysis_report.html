@@ -124,6 +124,28 @@
             border-bottom: none;
         }
 
+        tfoot {
+            background-color: #f8f9fa;
+            border-top: 2px solid #667eea;
+        }
+
+        tfoot tr {
+            font-weight: 700;
+        }
+
+        tfoot td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 15px;
+            color: #2c3e50;
+            background-color: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+        }
+
+        tfoot td:last-child {
+            border-right: none;
+        }
+
         td {
             padding: 14px 12px;
             text-align: center;
@@ -177,12 +199,45 @@
             resize: vertical;
             min-height: 60px;
             transition: all 0.3s;
+            overflow: hidden;
+            line-height: 1.5;
         }
 
         textarea:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* textarea 자동 높이 조정 */
+        textarea.auto-resize {
+            min-height: 60px;
+            max-height: 400px;
+            overflow-y: auto;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        /* 결론 및 제언 테이블의 내용 칸 스타일 */
+        #conclusionTable textarea {
+            text-align: left;
+            min-height: 80px;
+            max-height: 400px;
+        }
+
+        #conclusionTable td {
+            vertical-align: top;
+            padding: 15px 12px;
+        }
+
+        #conclusionTable td:first-child {
+            width: 200px;
+            min-width: 150px;
+        }
+
+        #conclusionTable td:last-child {
+            width: auto;
         }
 
         .currency {
@@ -327,21 +382,6 @@
             </div>
         </div>
 
-        <div class="summary-cards">
-            <div class="summary-card">
-                <div class="summary-label">총 매출</div>
-                <div class="summary-value" id="totalSales">₩0</div>
-            </div>
-            <div class="summary-card">
-                <div class="summary-label">총 수익</div>
-                <div class="summary-value" id="totalProfit">₩0</div>
-            </div>
-            <div class="summary-card">
-                <div class="summary-label">평균 수익률</div>
-                <div class="summary-value" id="avgProfitMargin">0%</div>
-            </div>
-        </div>
-
         <!-- 1. 지역별 수익현황 -->
         <div class="section">
             <h2 class="section-title">1. 지역별 수익현황</h2>
@@ -360,6 +400,14 @@
                     <tbody id="regionalBody">
                         <!-- 행이 동적으로 추가됩니다 -->
                     </tbody>
+                    <tfoot id="regionalFooter" style="display: none;">
+                        <tr>
+                            <td colspan="3" style="text-align: right; font-weight: 700; color: #2c3e50;">합계</td>
+                            <td id="regionalTotalSales" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td id="regionalTotalProfit" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td id="regionalAvgMargin" style="text-align: center; font-weight: 700; color: #dc3545;">0%</td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div style="margin-top: 15px; display: flex; gap: 10px;">
@@ -388,6 +436,15 @@
                     <tbody id="productBody">
                         <!-- 행이 동적으로 추가됩니다 -->
                     </tbody>
+                    <tfoot id="productFooter" style="display: none;">
+                        <tr>
+                            <td colspan="4" style="text-align: right; font-weight: 700; color: #2c3e50;">합계</td>
+                            <td id="productTotalSales" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td id="productTotalCost" style="text-align: right; font-weight: 700; color: #6c757d;">₩0</td>
+                            <td id="productTotalProfit" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td id="productAvgMargin" style="text-align: center; font-weight: 700; color: #dc3545;">0%</td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div style="margin-top: 15px; display: flex; gap: 10px;">
@@ -415,6 +472,15 @@
                     <tbody id="promotionBody">
                         <!-- 행이 동적으로 추가됩니다 -->
                     </tbody>
+                    <tfoot id="promotionFooter" style="display: none;">
+                        <tr>
+                            <td colspan="3" style="text-align: right; font-weight: 700; color: #2c3e50;">합계</td>
+                            <td id="promotionTotalCost" style="text-align: right; font-weight: 700; color: #6c757d;">₩0</td>
+                            <td id="promotionTotalSales" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td id="promotionAvgROI" style="text-align: center; font-weight: 700; color: #dc3545;">0%</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div style="margin-top: 15px; display: flex; gap: 10px;">
@@ -440,6 +506,15 @@
                     <tbody id="channelBody">
                         <!-- 행이 동적으로 추가됩니다 -->
                     </tbody>
+                    <tfoot id="channelFooter" style="display: none;">
+                        <tr>
+                            <td style="text-align: right; font-weight: 700; color: #2c3e50;">합계</td>
+                            <td id="channelTotalSales" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td id="channelTotalProfit" style="text-align: right; font-weight: 700; color: #28a745;">₩0</td>
+                            <td style="text-align: center; font-weight: 700; color: #dc3545;">100%</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div style="margin-top: 15px; display: flex; gap: 10px;">
@@ -585,6 +660,15 @@
         // 프로모션 행 생성
         function createPromotionRow(no) {
             const row = document.createElement('tr');
+            const textarea = document.createElement('textarea');
+            textarea.className = 'auto-resize';
+            textarea.placeholder = '비고';
+            
+            // textarea 자동 높이 조정 이벤트 추가
+            textarea.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+            
             row.innerHTML = `
                 <td class="no-cell">${no}</td>
                 <td><input type="text" placeholder="프로모션명"></td>
@@ -592,8 +676,9 @@
                 <td><input type="number" class="cost-input" placeholder="0" min="0" step="1000"></td>
                 <td><input type="number" class="sales-input" placeholder="0" min="0" step="1000"></td>
                 <td><span class="percentage roi-display">0%</span></td>
-                <td><textarea placeholder="비고"></textarea></td>
+                <td></td>
             `;
+            row.querySelector('td:last-child').appendChild(textarea);
             addCalculationListeners(row, 'promotion');
             return row;
         }
@@ -615,11 +700,41 @@
         // 결론 행 생성
         function createConclusionRow() {
             const row = document.createElement('tr');
+            const textarea = document.createElement('textarea');
+            textarea.className = 'auto-resize';
+            textarea.placeholder = '내용을 입력하세요';
+            
+            // textarea 자동 높이 조정 이벤트 추가
+            textarea.addEventListener('input', function() {
+                autoResizeTextarea(this);
+            });
+            
             row.innerHTML = `
                 <td><input type="text" placeholder="구분 (예: 주요 성과, 개선사항)"></td>
-                <td><textarea placeholder="내용을 입력하세요"></textarea></td>
+                <td></td>
             `;
+            row.querySelector('td:last-child').appendChild(textarea);
+            // 초기 높이 설정
+            setTimeout(() => autoResizeTextarea(textarea), 10);
             return row;
+        }
+
+        // textarea 자동 높이 조정 함수
+        function autoResizeTextarea(textarea) {
+            if (!textarea) return;
+            textarea.style.height = 'auto';
+            const scrollHeight = textarea.scrollHeight;
+            const minHeight = 60;
+            const maxHeight = 400; // 최대 높이 400px
+            const newHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
+            textarea.style.height = newHeight + 'px';
+            
+            // 스크롤이 필요하면 스크롤 표시
+            if (scrollHeight > maxHeight) {
+                textarea.style.overflowY = 'auto';
+            } else {
+                textarea.style.overflowY = 'hidden';
+            }
         }
 
         // 계산 리스너 추가
@@ -627,6 +742,14 @@
             const inputs = row.querySelectorAll('input[type="number"]');
             inputs.forEach(input => {
                 input.addEventListener('input', () => {
+                    calculateRow(row, type);
+                    calculateAll();
+                });
+                input.addEventListener('change', () => {
+                    calculateRow(row, type);
+                    calculateAll();
+                });
+                input.addEventListener('blur', () => {
                     calculateRow(row, type);
                     calculateAll();
                 });
@@ -678,46 +801,215 @@
 
         // 전체 계산
         function calculateAll() {
+            console.log('📊 calculateAll() 함수 실행 중...');
+            console.log('📋 regionalBody 행 수:', document.querySelectorAll('#regionalBody tr').length);
+            console.log('📋 productBody 행 수:', document.querySelectorAll('#productBody tr').length);
+            
             // 모든 행 계산
             document.querySelectorAll('#regionalBody tr').forEach(row => calculateRow(row, 'regional'));
             document.querySelectorAll('#productBody tr').forEach(row => calculateRow(row, 'product'));
             document.querySelectorAll('#promotionBody tr').forEach(row => calculateRow(row, 'promotion'));
             calculateChannelProportion();
 
-            // 전체 요약 계산
+            // 전체 요약 계산 (1-4번 테이블: 지역별, 제품별, 프로모션, 채널별)
             let totalSales = 0;
             let totalProfit = 0;
 
-            // 지역별 합계
-            document.querySelectorAll('#regionalBody .sales-input').forEach(input => {
-                totalSales += parseFloat(input.value || 0);
+            // 1. 지역별 수익현황 합계 및 하단 합계 행 계산
+            let regionalSales = 0;
+            let regionalProfit = 0;
+            // 모든 행을 순회하며 input의 위치로 판단
+            document.querySelectorAll('#regionalBody tr').forEach((row, index) => {
+                // number 타입의 input만 찾기
+                const numberInputs = Array.from(row.querySelectorAll('input')).filter(input => {
+                    const inputType = input.type || input.getAttribute('type') || '';
+                    return inputType === 'number';
+                });
+                
+                // 첫 번째 number input = 총매출, 두 번째 number input = 총수익
+                if (numberInputs.length >= 2) {
+                    const salesInput = numberInputs[0];
+                    const profitInput = numberInputs[1];
+                    
+                    // value 속성에서 값 읽기 (class_ 속성 문제 대응)
+                    const salesValue = salesInput.value || salesInput.getAttribute('value') || '0';
+                    const profitValue = profitInput.value || profitInput.getAttribute('value') || '0';
+                    
+                    // 쉼표 제거 후 숫자로 변환
+                    const sales = parseFloat(salesValue.toString().replace(/,/g, '')) || 0;
+                    const profit = parseFloat(profitValue.toString().replace(/,/g, '')) || 0;
+                    
+                    console.log(`Row ${index + 1}: sales=${sales}, profit=${profit}, salesValue="${salesValue}", profitValue="${profitValue}"`);
+                    
+                    if (!isNaN(sales)) {
+                        regionalSales += sales;
+                        totalSales += sales;
+                    }
+                    if (!isNaN(profit)) {
+                        regionalProfit += profit;
+                        totalProfit += profit;
+                    }
+                } else {
+                    console.log(`Row ${index + 1}: numberInputs.length=${numberInputs.length}, 모든 input:`, row.querySelectorAll('input'));
+                }
             });
-            document.querySelectorAll('#regionalBody .profit-input').forEach(input => {
-                totalProfit += parseFloat(input.value || 0);
+            const regionalMargin = regionalSales > 0 ? (regionalProfit / regionalSales * 100).toFixed(2) : 0;
+            
+            // 지역별 하단 합계 행 업데이트 (데이터가 있으면 항상 표시)
+            const regionalFooter = document.getElementById('regionalFooter');
+            if (regionalFooter) {
+                const hasData = document.querySelectorAll('#regionalBody tr').length > 0;
+                if (hasData) {
+                    regionalFooter.style.display = '';
+                    const regionalTotalSalesEl = document.getElementById('regionalTotalSales');
+                    const regionalTotalProfitEl = document.getElementById('regionalTotalProfit');
+                    const regionalAvgMarginEl = document.getElementById('regionalAvgMargin');
+                    if (regionalTotalSalesEl) regionalTotalSalesEl.textContent = `₩${regionalSales.toLocaleString()}`;
+                    if (regionalTotalProfitEl) regionalTotalProfitEl.textContent = `₩${regionalProfit.toLocaleString()}`;
+                    if (regionalAvgMarginEl) regionalAvgMarginEl.textContent = `${regionalMargin}%`;
+                } else {
+                    regionalFooter.style.display = 'none';
+                }
+            }
+            
+            console.log('📊 지역별 계산 결과:', { 
+                regionalSales, 
+                regionalProfit, 
+                regionalMargin,
+                rowsCount: document.querySelectorAll('#regionalBody tr').length
             });
 
-            // 제품별 합계
-            document.querySelectorAll('#productBody .sales-input').forEach(input => {
-                totalSales += parseFloat(input.value || 0);
+            // 2. 제품별 손익분석 합계 및 하단 합계 행 계산
+            let productSales = 0;
+            let productCost = 0;
+            let productProfit = 0;
+            document.querySelectorAll('#productBody tr').forEach(row => {
+                const inputs = row.querySelectorAll('input[type="number"]');
+                // 5번째 input이 매출액, 6번째 input이 원가
+                if (inputs.length >= 6) {
+                    const salesValue = inputs[4].value || inputs[4].getAttribute('value') || 0;
+                    const costValue = inputs[5].value || inputs[5].getAttribute('value') || 0;
+                    const sales = parseFloat(salesValue) || 0;
+                    const cost = parseFloat(costValue) || 0;
+                    const profit = sales - cost;
+                    
+                    if (!isNaN(sales) && sales > 0) {
+                        productSales += sales;
+                        totalSales += sales;
+                    }
+                    if (!isNaN(cost) && cost > 0) {
+                        productCost += cost;
+                    }
+                    if (!isNaN(profit)) {
+                        productProfit += profit;
+                        totalProfit += profit;
+                    }
+                }
             });
-            document.querySelectorAll('#productBody .profit-display').forEach(span => {
-                const profit = parseFloat(span.textContent.replace(/[₩,]/g, '') || 0);
-                totalProfit += profit;
-            });
+            const productMargin = productSales > 0 ? (productProfit / productSales * 100).toFixed(2) : 0;
+            
+            // 제품별 하단 합계 행 업데이트
+            const productFooter = document.getElementById('productFooter');
+            if (productFooter) {
+                if (productSales > 0 || productProfit > 0) {
+                    productFooter.style.display = '';
+                    document.getElementById('productTotalSales').textContent = `₩${productSales.toLocaleString()}`;
+                    document.getElementById('productTotalCost').textContent = `₩${productCost.toLocaleString()}`;
+                    document.getElementById('productTotalProfit').textContent = `₩${productProfit.toLocaleString()}`;
+                    document.getElementById('productAvgMargin').textContent = `${productMargin}%`;
+                } else {
+                    productFooter.style.display = 'none';
+                }
+            }
+            
 
-            // 채널별 합계
-            document.querySelectorAll('#channelBody .sales-input').forEach(input => {
-                totalSales += parseFloat(input.value || 0);
+            // 3. 프로모션 효과분석 합계 및 하단 합계 행 계산
+            let promotionCost = 0;
+            let promotionSales = 0;
+            let promotionROIs = [];
+            document.querySelectorAll('#promotionBody tr').forEach(row => {
+                const inputs = row.querySelectorAll('input[type="number"]');
+                // 4번째 input이 총비용, 5번째 input이 추가매출
+                const costValue = inputs.length >= 4 ? (inputs[3].value || inputs[3].getAttribute('value') || 0) : 0;
+                const salesValue = inputs.length >= 5 ? (inputs[4].value || inputs[4].getAttribute('value') || 0) : 0;
+                const cost = parseFloat(costValue) || 0;
+                const sales = parseFloat(salesValue) || 0;
+                
+                // ROI는 span 요소에서 읽기
+                const spans = row.querySelectorAll('span');
+                const roiSpan = Array.from(spans).find(span => {
+                    const cls = span.className || span.getAttribute('class') || span.getAttribute('class_') || '';
+                    return cls.includes('roi-display');
+                });
+                const roiText = roiSpan?.textContent || '0%';
+                const roi = parseFloat(roiText.replace('%', '')) || 0;
+                
+                if (!isNaN(cost) && cost > 0) promotionCost += cost;
+                if (!isNaN(sales) && sales > 0) {
+                    promotionSales += sales;
+                    totalSales += sales;
+                }
+                if (!isNaN(roi)) {
+                    promotionROIs.push(roi);
+                }
+                totalProfit += (sales - cost);
             });
-            document.querySelectorAll('#channelBody .profit-input').forEach(input => {
-                totalProfit += parseFloat(input.value || 0);
+            const avgROI = promotionROIs.length > 0 
+                ? (promotionROIs.reduce((a, b) => a + b, 0) / promotionROIs.length).toFixed(2) 
+                : 0;
+            
+            // 프로모션 하단 합계 행 업데이트 (데이터가 있으면 항상 표시)
+            const promotionFooter = document.getElementById('promotionFooter');
+            if (promotionFooter) {
+                const hasData = document.querySelectorAll('#promotionBody tr').length > 0;
+                if (hasData) {
+                    promotionFooter.style.display = '';
+                    document.getElementById('promotionTotalCost').textContent = `₩${promotionCost.toLocaleString()}`;
+                    document.getElementById('promotionTotalSales').textContent = `₩${promotionSales.toLocaleString()}`;
+                    document.getElementById('promotionAvgROI').textContent = `${avgROI}%`;
+                } else {
+                    promotionFooter.style.display = 'none';
+                }
+            }
+            
+
+            // 4. 판매채널별 요약 합계 및 하단 합계 행 계산
+            let channelSales = 0;
+            let channelProfit = 0;
+            document.querySelectorAll('#channelBody tr').forEach(row => {
+                const inputs = row.querySelectorAll('input[type="number"]');
+                // 2번째 input이 총매출, 3번째 input이 총수익
+                if (inputs.length >= 3) {
+                    const salesValue = inputs[1].value || inputs[1].getAttribute('value') || 0;
+                    const profitValue = inputs[2].value || inputs[2].getAttribute('value') || 0;
+                    const sales = parseFloat(salesValue) || 0;
+                    const profit = parseFloat(profitValue) || 0;
+                    if (!isNaN(sales) && sales > 0) {
+                        channelSales += sales;
+                        totalSales += sales;
+                    }
+                    if (!isNaN(profit) && profit > 0) {
+                        channelProfit += profit;
+                        totalProfit += profit;
+                    }
+                }
             });
+            
+            // 채널별 하단 합계 행 업데이트 (데이터가 있으면 항상 표시)
+            const channelFooter = document.getElementById('channelFooter');
+            if (channelFooter) {
+                const hasData = document.querySelectorAll('#channelBody tr').length > 0;
+                if (hasData) {
+                    channelFooter.style.display = '';
+                    document.getElementById('channelTotalSales').textContent = `₩${channelSales.toLocaleString()}`;
+                    document.getElementById('channelTotalProfit').textContent = `₩${channelProfit.toLocaleString()}`;
+                } else {
+                    channelFooter.style.display = 'none';
+                }
+            }
+            
 
-            const avgMargin = totalSales > 0 ? (totalProfit / totalSales * 100).toFixed(2) : 0;
-
-            document.getElementById('totalSales').textContent = `₩${totalSales.toLocaleString()}`;
-            document.getElementById('totalProfit').textContent = `₩${totalProfit.toLocaleString()}`;
-            document.getElementById('avgProfitMargin').textContent = `${avgMargin}%`;
+            // 각 테이블별 summary cards는 이미 위에서 업데이트됨
         }
 
         // 인쇄
@@ -805,10 +1097,143 @@
         }
 
         // 페이지 로드 시 초기화
-        window.addEventListener('DOMContentLoaded', () => {
-            setDefaultDate();
-            initializeTables();
-            calculateAll();
+        function initializeCalculation() {
+            // 이미 데이터가 채워진 경우 initializeTables() 건너뛰기
+            const hasData = document.querySelectorAll('#regionalBody tr').length > 0 ||
+                          document.querySelectorAll('#productBody tr').length > 0 ||
+                          document.querySelectorAll('#channelBody tr').length > 0;
+            
+            if (!hasData) {
+                setDefaultDate();
+                initializeTables();
+            }
+            
+            // 모든 textarea에 자동 높이 조정 적용
+            document.querySelectorAll('textarea').forEach(textarea => {
+                textarea.classList.add('auto-resize');
+                autoResizeTextarea(textarea);
+                
+                // 입력 시 자동 높이 조정
+                textarea.addEventListener('input', function() {
+                    autoResizeTextarea(this);
+                });
+            });
+            
+            // 기존 입력 필드에 계산 리스너 추가
+            document.querySelectorAll('#regionalBody tr').forEach(row => {
+                addCalculationListeners(row, 'regional');
+            });
+            document.querySelectorAll('#productBody tr').forEach(row => {
+                addCalculationListeners(row, 'product');
+            });
+            document.querySelectorAll('#promotionBody tr').forEach(row => {
+                addCalculationListeners(row, 'promotion');
+            });
+            document.querySelectorAll('#channelBody tr').forEach(row => {
+                addCalculationListeners(row, 'channel');
+            });
+            
+            // 전체 계산 실행 (약간의 지연을 두어 DOM이 완전히 로드된 후 실행)
+            // 여러 번 실행하여 확실하게 계산
+            setTimeout(() => {
+                console.log('🔄 calculateAll() 실행 시작...');
+                calculateAll();
+            }, 100);
+            
+            setTimeout(() => {
+                console.log('🔄 calculateAll() 재실행 (200ms 후)...');
+                calculateAll();
+            }, 300);
+            
+            setTimeout(() => {
+                console.log('🔄 calculateAll() 재실행 (500ms 후)...');
+                calculateAll();
+            }, 600);
+            
+            setTimeout(() => {
+                console.log('🔄 calculateAll() 재실행 (1000ms 후)...');
+                calculateAll();
+            }, 1100);
+            
+            // 모든 input 필드의 값 변경 감지 (전역 이벤트 위임)
+            document.addEventListener('input', (e) => {
+                if (e.target.matches('input[type="number"]')) {
+                    const row = e.target.closest('tr');
+                    if (row) {
+                        const tbody = row.closest('tbody');
+                        if (tbody) {
+                            let type = '';
+                            if (tbody.id === 'regionalBody') type = 'regional';
+                            else if (tbody.id === 'productBody') type = 'product';
+                            else if (tbody.id === 'promotionBody') type = 'promotion';
+                            else if (tbody.id === 'channelBody') type = 'channel';
+                            if (type) {
+                                calculateRow(row, type);
+                            }
+                        }
+                    }
+                    setTimeout(() => calculateAll(), 50);
+                }
+            });
+            
+            // 데이터가 변경될 때마다 자동으로 계산 (MutationObserver 사용)
+            const observer = new MutationObserver(() => {
+                setTimeout(() => {
+                    calculateAll();
+                }, 50);
+                
+                // 새로 추가된 textarea에도 자동 높이 조정 적용
+                document.querySelectorAll('textarea:not(.auto-resize-initialized)').forEach(textarea => {
+                    textarea.classList.add('auto-resize-initialized');
+                    textarea.classList.add('auto-resize');
+                    autoResizeTextarea(textarea);
+                    textarea.addEventListener('input', function() {
+                        autoResizeTextarea(this);
+                    });
+                });
+                
+                // 새로 추가된 행에 계산 리스너 추가
+                document.querySelectorAll('#regionalBody tr:not([data-listeners-added])').forEach(row => {
+                    row.setAttribute('data-listeners-added', 'true');
+                    addCalculationListeners(row, 'regional');
+                });
+                document.querySelectorAll('#productBody tr:not([data-listeners-added])').forEach(row => {
+                    row.setAttribute('data-listeners-added', 'true');
+                    addCalculationListeners(row, 'product');
+                });
+                document.querySelectorAll('#promotionBody tr:not([data-listeners-added])').forEach(row => {
+                    row.setAttribute('data-listeners-added', 'true');
+                    addCalculationListeners(row, 'promotion');
+                });
+                document.querySelectorAll('#channelBody tr:not([data-listeners-added])').forEach(row => {
+                    row.setAttribute('data-listeners-added', 'true');
+                    addCalculationListeners(row, 'channel');
+                });
+            });
+            
+            // 테이블 body들을 관찰
+            const tableBodies = ['regionalBody', 'productBody', 'promotionBody', 'channelBody', 'conclusionBody'];
+            tableBodies.forEach(bodyId => {
+                const body = document.getElementById(bodyId);
+                if (body) {
+                    observer.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['value'] });
+                }
+            });
+        }
+        
+        // DOMContentLoaded와 window.onload 모두에서 실행
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeCalculation);
+        } else {
+            initializeCalculation();
+        }
+        
+        // window.onload에서도 실행 (모든 리소스가 로드된 후)
+        window.addEventListener('load', () => {
+            console.log('🌐 window.onload 이벤트 - calculateAll() 실행');
+            setTimeout(() => {
+                calculateAll();
+            }, 200);
         });
     </script>
 </body>

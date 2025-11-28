@@ -106,21 +106,6 @@
             border-right: none;
         }
 
-        /* 이름 컬럼 스타일 (하위 헤더 포함) */
-        .name-header {
-            background: linear-gradient(135deg, #5a67d8 0%, #6b5b95 100%);
-        }
-
-        .sub-header-row {
-            background: rgba(102, 126, 234, 0.9);
-        }
-
-        .sub-header-row th {
-            padding: 12px 8px;
-            font-size: 13px;
-            font-weight: 500;
-            border-top: 1px solid rgba(255, 255, 255, 0.3);
-        }
 
         tbody tr {
             border-bottom: 1px solid #e9ecef;
@@ -149,23 +134,6 @@
             border-right: none;
         }
 
-        /* 이름 컬럼 (국문/영문) */
-        .name-cell {
-            display: flex;
-            gap: 10px;
-            padding: 0;
-        }
-
-        .name-input-group {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .name-input-group input {
-            width: 100%;
-        }
 
         input[type="text"],
         select {
@@ -317,9 +285,6 @@
                 padding: 10px 8px;
             }
 
-            .name-cell {
-                flex-direction: column;
-            }
         }
     </style>
 </head>
@@ -346,7 +311,7 @@
                 <div class="stat-value" id="activeEmployees">0</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">정규직</div>
+                <div class="stat-label">부서 수</div>
                 <div class="stat-value" id="regularEmployees">0</div>
             </div>
         </div>
@@ -355,13 +320,11 @@
             <table>
                 <thead>
                     <tr>
-                        <th rowspan="2" class="name-header">이름</th>
-                        <th rowspan="2">직원별 상태<br>(재직)</th>
-                        <th rowspan="2">직급</th>
-                        <th rowspan="2">계약형태<br>(정규, 비정규, 인턴)</th>
-                    </tr>
-                    <tr class="sub-header-row">
-                        <!-- 하위 헤더는 이름 컬럼에만 있음 -->
+                        <th>이름</th>
+                        <th>부서</th>
+                        <th>직급/직위</th>
+                        <th>역할</th>
+                        <th>이메일</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -394,6 +357,11 @@
         // 초기 행 생성
         function initializeTable() {
             const tbody = document.getElementById('tableBody');
+            // 이미 데이터가 채워져 있으면 초기화하지 않음
+            if (tbody.children.length > 0) {
+                console.log(`이미 ${tbody.children.length}개의 행이 존재합니다. 초기화를 건너뜁니다.`);
+                return;
+            }
             for (let i = 0; i < ROW_COUNT; i++) {
                 addRow();
             }
@@ -404,41 +372,23 @@
             const tbody = document.getElementById('tableBody');
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td class="name-cell">
-                    <div class="name-input-group">
-                        <input type="text" placeholder="국문 이름" class="korean-name">
-                        <input type="text" placeholder="English Name" class="english-name">
-                    </div>
+                <td>
+                    <input type="text" placeholder="이름" class="name-input">
                 </td>
                 <td>
-                    <select class="status-select">
-                        <option value="">선택</option>
-                        <option value="재직">재직</option>
-                        <option value="휴직">휴직</option>
-                        <option value="퇴직">퇴직</option>
-                        <option value="퇴사예정">퇴사예정</option>
-                    </select>
+                    <input type="text" placeholder="부서" class="dept-input">
                 </td>
                 <td>
-                    <input type="text" placeholder="예: 대리, 과장, 차장" class="position-input">
+                    <input type="text" placeholder="직급/직위" class="position-input">
                 </td>
                 <td>
-                    <select class="contract-select">
-                        <option value="">선택</option>
-                        <option value="정규">정규</option>
-                        <option value="비정규">비정규</option>
-                        <option value="인턴">인턴</option>
-                        <option value="계약직">계약직</option>
-                    </select>
+                    <input type="text" placeholder="역할" class="job-role-input">
+                </td>
+                <td>
+                    <input type="email" placeholder="이메일" class="email-input">
                 </td>
             `;
             tbody.appendChild(row);
-            
-            // 통계 업데이트 이벤트 리스너 추가
-            const statusSelect = row.querySelector('.status-select');
-            const contractSelect = row.querySelector('.contract-select');
-            statusSelect.addEventListener('change', calculateStats);
-            contractSelect.addEventListener('change', calculateStats);
         }
 
         // 마지막 행 삭제
@@ -454,24 +404,24 @@
         function calculateStats() {
             const rows = document.querySelectorAll('#tableBody tr');
             let total = rows.length;
-            let active = 0;
-            let regular = 0;
+            let deptCount = {};
 
             rows.forEach(row => {
-                const status = row.querySelector('.status-select')?.value || '';
-                const contract = row.querySelector('.contract-select')?.value || '';
+                const dept = row.querySelector('.dept-input')?.value || '';
                 
-                if (status === '재직') {
-                    active++;
-                }
-                if (contract === '정규') {
-                    regular++;
+                if (dept) {
+                    deptCount[dept] = (deptCount[dept] || 0) + 1;
                 }
             });
 
             document.getElementById('totalEmployees').textContent = total;
-            document.getElementById('activeEmployees').textContent = active;
-            document.getElementById('regularEmployees').textContent = regular;
+            document.getElementById('activeEmployees').textContent = total; // 재직 중은 전체 직원 수로 표시
+            
+            // 부서 수 표시
+            const deptCountText = Object.keys(deptCount).length > 0 
+                ? Object.keys(deptCount).length 
+                : 0;
+            document.getElementById('regularEmployees').textContent = deptCountText;
         }
 
         // 인쇄
@@ -482,16 +432,16 @@
         // 데이터 내보내기 (CSV)
         function exportData() {
             const rows = document.querySelectorAll('#tableBody tr');
-            let csv = '국문이름,영문이름,직원상태,직급,계약형태\n';
+            let csv = '이름,부서,직급/직위,역할,이메일\n';
             
             rows.forEach(row => {
-                const koreanName = row.querySelector('.korean-name')?.value || '';
-                const englishName = row.querySelector('.english-name')?.value || '';
-                const status = row.querySelector('.status-select')?.value || '';
+                const name = row.querySelector('.name-input')?.value || '';
+                const dept = row.querySelector('.dept-input')?.value || '';
                 const position = row.querySelector('.position-input')?.value || '';
-                const contract = row.querySelector('.contract-select')?.value || '';
+                const jobRole = row.querySelector('.job-role-input')?.value || '';
+                const email = row.querySelector('.email-input')?.value || '';
                 
-                csv += `"${koreanName}","${englishName}","${status}","${position}","${contract}"\n`;
+                csv += `"${name}","${dept}","${position}","${jobRole}","${email}"\n`;
             });
 
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -508,7 +458,18 @@
         // 페이지 로드 시 초기화
         window.addEventListener('DOMContentLoaded', () => {
             setReportDate();
-            initializeTable();
+            
+            // 이미 데이터가 채워져 있는지 확인
+            const existingRows = document.querySelectorAll('#tableBody tr');
+            if (existingRows.length > 0) {
+                // 이미 데이터가 있으면 초기화하지 않음
+                console.log(`이미 ${existingRows.length}개의 행이 존재합니다. 초기화를 건너뜁니다.`);
+            } else {
+                // 데이터가 없으면 초기 행 생성
+                initializeTable();
+            }
+            
+            // 통계 계산 (데이터가 있든 없든 실행)
             calculateStats();
         });
     </script>

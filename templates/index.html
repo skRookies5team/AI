@@ -238,6 +238,20 @@
             border-top-right-radius: 4px;
         }
 
+        /* 문서 iframe이 포함된 메시지의 경우 전체 너비 사용 */
+        .message.bot .message-content.document-content {
+            max-width: 100%;
+            width: 100%;
+        }
+
+        .message.bot .message-bubble.document-bubble {
+            max-width: 100%;
+            width: 100%;
+            padding: 0;
+            background: transparent;
+            box-shadow: none;
+        }
+
         .message-time {
             font-size: 11px;
             color: #999;
@@ -556,7 +570,7 @@
             padding: 20px;
             background: #f8f9fa;
             min-height: 400px;
-            max-height: 600px;
+            max-height: calc(100vh - 300px);
             overflow-y: auto;
             white-space: pre-wrap;
             font-size: 14px;
@@ -566,6 +580,12 @@
 
         .result-preview.active {
             display: block;
+        }
+        
+        .result-preview iframe {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
 
         .action-buttons {
@@ -807,7 +827,7 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label">요구사항 (AI에게 전달할 지시사항)</label>
-                                <textarea id="requirements" class="form-textarea" placeholder="예:&#10;1. 신제품의 핵심 기능과 특징을 명확히 기술&#10;2. 개발 일정과 마일스톤을 포함&#10;3. 예산 계획과 리소스 배분 명시&#10;4. 마케팅 전략과 출시 계획 포함" required></textarea>
+                                <textarea id="requirements" class="form-textarea" placeholder="문서 양식을 선택하면 요구사항 예시가 표시됩니다." required></textarea>
                             </div>
                             <div class="form-group">
                                 <div class="checkbox-group">
@@ -1088,6 +1108,26 @@
                                 <div class="option-card-icon">⭐</div>
                                 <div class="option-card-title">업무 성과 평가</div>
                             </div>
+                            <div class="option-card" onclick="selectDocumentAction('공급업체 평가서 작성')">
+                                <div class="option-card-icon">📋</div>
+                                <div class="option-card-title">공급업체 평가서</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('계약 갱신 보고서 작성')">
+                                <div class="option-card-icon">📄</div>
+                                <div class="option-card-title">계약 갱신 보고서</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('활동기준 원가 계산서 작성')">
+                                <div class="option-card-icon">💰</div>
+                                <div class="option-card-title">활동기준 원가</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('프로젝트 일정표 작성')">
+                                <div class="option-card-icon">📅</div>
+                                <div class="option-card-title">프로젝트 일정표</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('제품 비교표 작성')">
+                                <div class="option-card-icon">📊</div>
+                                <div class="option-card-title">제품 비교표</div>
+                            </div>
                             <div class="option-card" onclick="selectDocumentAction('문서 작성 폼 열기')">
                                 <div class="option-card-icon">📝</div>
                                 <div class="option-card-title">상세 작성 폼</div>
@@ -1102,6 +1142,27 @@
             }, 1000);
         }
         
+        // 문서 작성 상태 추적
+        let currentDocumentState = {
+            isWaitingForRequirements: false,
+            template: null,
+            title: null
+        };
+
+        // 문서 양식 매핑
+        const documentTemplateMap = {
+            '제품개발 계획서 작성': 'product_development_plan',
+            '발주서 작성': 'purchase_order',
+            '인사정보 리포트 작성': 'hr_summary_report',
+            '수익 분석 리포트 작성': 'monthly_profit_analysis_report',
+            '업무 성과 평가 작성': 'work_performance_review',
+            '공급업체 평가서 작성': 'supplier_evaluation_form',
+            '계약 갱신 보고서 작성': 'contract_renewal_report',
+            '활동기준 원가 계산서 작성': 'activity_based_costing',
+            '프로젝트 일정표 작성': 'project_schedule',
+            '제품 비교표 작성': 'product_comparison_table'
+        };
+
         // 문서 작업 선택 함수
         function selectDocumentAction(action) {
             if (action === '문서 작성 폼 열기') {
@@ -1122,8 +1183,59 @@
                 documentMenuCards.style.display = 'none';
             }
             
-            // 선택한 작업에 따라 처리
-            handleBotResponse(action);
+            // 문서 양식 매핑 확인
+            const template = documentTemplateMap[action];
+            if (template) {
+                // 문서 작성 모드 시작
+                currentDocumentState.isWaitingForRequirements = true;
+                currentDocumentState.template = template;
+                
+                // 문서 양식별 예시 표시
+                showDocumentExample(template, action);
+            } else {
+                // 일반 응답 처리
+                handleBotResponse(action);
+            }
+        }
+
+        // 문서 양식별 예시 표시 함수
+        function showDocumentExample(template, actionName) {
+            showTypingIndicator();
+            
+            setTimeout(() => {
+                hideTypingIndicator();
+                
+                const exampleText = templateRequirements[template] || '요구사항을 입력해주세요.';
+                
+                // 문서 제목 placeholder 가져오기
+                const titlePlaceholders = {
+                    'product_development_plan': '예: 2024년 신제품 개발 계획서',
+                    'purchase_order': '예: 2024년 3분기 원자재 발주서',
+                    'hr_summary_report': '예: 2024년 1분기 인사정보 요약 리포트',
+                    'monthly_profit_analysis_report': '예: 2024년 3월 월별 수익 분석 리포트',
+                    'work_performance_review': '예: 2024년 상반기 업무 성과 평가',
+                    'supplier_evaluation_form': '예: 2024년 ABC공급업체 평가서',
+                    'contract_renewal_report': '예: XYZ회사 계약 갱신 보고서',
+                    'activity_based_costing': '예: 2024년 제조부서 활동기준 원가 계산서',
+                    'project_schedule': '예: 신제품 출시 프로젝트 일정표',
+                    'product_comparison_table': '예: 스마트폰 제품 비교표'
+                };
+                
+                const titlePlaceholder = titlePlaceholders[template] || '예: 문서 제목을 입력하세요';
+                
+                // 예시를 코드 블록 형식으로 표시
+                const formattedExample = exampleText.replace(/\n/g, '<br>');
+                
+                addBotMessage(
+                    `📝 <strong>${actionName}</strong><br><br>` +
+                    `아래 예시문을 참고하여 요구사항을 작성해주세요:<br><br>` +
+                    `<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #667eea; margin: 10px 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap;">${formattedExample}</div>` +
+                    `<br>💡 <strong>위 예시문을 확인하시고 작성해주세요.</strong><br>` +
+                    `채팅창에 요구사항을 입력하시면 문서 작성을 진행하겠습니다.<br><br>` +
+                    `📌 <strong>문서 제목 예시:</strong> ${titlePlaceholder}`,
+                    []
+                );
+            }, 1000);
         }
 
         function sendMessage() {
@@ -1136,7 +1248,12 @@
             input.value = '';
             input.style.height = 'auto';
             
-            handleBotResponse(message);
+            // 문서 작성 모드인 경우
+            if (currentDocumentState.isWaitingForRequirements && currentDocumentState.template) {
+                handleDocumentGeneration(message);
+            } else {
+                handleBotResponse(message);
+            }
         }
 
         function addUserMessage(text) {
@@ -1160,6 +1277,164 @@
             const optionCards = document.getElementById('optionCards');
             if (optionCards) {
                 optionCards.style.display = 'none';
+            }
+        }
+
+        // 문서 생성 처리 함수
+        async function handleDocumentGeneration(requirements) {
+            showTypingIndicator();
+            
+            try {
+                const template = currentDocumentState.template;
+                
+                // 문서 제목 추출 시도 (요구사항에서 추출하거나 기본값 사용)
+                let title = '문서';
+                const titleMatch = requirements.match(/(?:제목|title)[:\s]+([^\n]+)/i);
+                if (titleMatch) {
+                    title = titleMatch[1].trim();
+                } else {
+                    // 기본 제목 생성
+                    const titleMap = {
+                        'product_development_plan': '제품개발 계획서',
+                        'purchase_order': '발주서',
+                        'hr_summary_report': '인사정보 요약 리포트',
+                        'monthly_profit_analysis_report': '월별 수익 분석 리포트',
+                        'work_performance_review': '업무 성과 평가',
+                        'supplier_evaluation_form': '공급업체 평가서',
+                        'contract_renewal_report': '계약 갱신 보고서',
+                        'activity_based_costing': '활동기준 원가 계산서',
+                        'project_schedule': '프로젝트 일정표',
+                        'product_comparison_table': '제품 비교표'
+                    };
+                    title = titleMap[template] || '문서';
+                }
+                
+                const query = `문서 작성해줘. 양식: ${template}, 제목: ${title}. 요구사항: ${requirements}`;
+                
+                const payload = {
+                    query: query,
+                    session_id: 'doc_session_' + Date.now(),
+                    employee_id: 1001
+                };
+                
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const aiMessage = result.message || '문서 생성에 실패했습니다.';
+                const isHtml = result.is_html || false;
+                
+                hideTypingIndicator();
+                
+                // 문서 작성 모드 초기화
+                currentDocumentState.isWaitingForRequirements = false;
+                currentDocumentState.template = null;
+                currentDocumentState.title = null;
+                
+                // 생성된 문서를 채팅 화면에 표시
+                if (isHtml || aiMessage.includes('<!DOCTYPE') || aiMessage.includes('<html')) {
+                    // HTML 문서인 경우 iframe으로 표시
+                    const iframe = document.createElement('iframe');
+                    iframe.style.width = '100%';
+                    iframe.style.minHeight = '800px';
+                    iframe.style.height = '800px';
+                    iframe.style.border = '2px solid #667eea';
+                    iframe.style.borderRadius = '8px';
+                    iframe.style.backgroundColor = 'white';
+                    iframe.style.marginTop = '10px';
+                    iframe.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+                    iframe.style.overflow = 'auto';
+                    iframe.srcdoc = aiMessage;
+                    
+                    // iframe 로드 후 높이 자동 조절
+                    iframe.onload = function() {
+                        try {
+                            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            const iframeBody = iframeDoc.body;
+                            if (iframeBody) {
+                                const height = Math.max(
+                                    iframeBody.scrollHeight,
+                                    iframeBody.offsetHeight,
+                                    iframeDoc.documentElement.clientHeight,
+                                    iframeDoc.documentElement.scrollHeight,
+                                    iframeDoc.documentElement.offsetHeight
+                                );
+                                iframe.style.height = Math.max(height + 20, 800) + 'px';
+                            }
+                        } catch (e) {
+                            // Cross-origin 제한으로 인한 오류 무시
+                            console.log('iframe 높이 자동 조절 실패 (정상):', e);
+                        }
+                    };
+                    
+                    addBotMessage(
+                        `✅ <strong>문서가 성공적으로 생성되었습니다!</strong><br><br>` +
+                        `📄 <strong>${title}</strong>`,
+                        []
+                    );
+                    
+                    // iframe을 별도 메시지로 추가
+                    const messagesContainer = document.getElementById('chatMessages');
+                    const documentDiv = document.createElement('div');
+                    documentDiv.className = 'message bot';
+                    documentDiv.style.width = '100%';
+                    documentDiv.style.maxWidth = '100%';
+                    documentDiv.innerHTML = `
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content document-content" style="max-width: 100%; width: 100%;">
+                            <div class="message-bubble document-bubble" style="padding: 0; background: transparent; box-shadow: none; max-width: 100%; width: 100%;">
+                                ${iframe.outerHTML}
+                            </div>
+                        </div>
+                    `;
+                    messagesContainer.appendChild(documentDiv);
+                    scrollToBottom();
+                    
+                    // 문서 생성 후 환영 메시지와 옵션 카드 다시 표시
+                    setTimeout(() => {
+                        showWelcomeMessageWithOptions();
+                    }, 500);
+                } else {
+                    // 일반 텍스트인 경우
+                    addBotMessage(
+                        `✅ <strong>문서가 성공적으로 생성되었습니다!</strong><br><br>` +
+                        `📄 <strong>${title}</strong><br><br>` +
+                        `<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; line-height: 1.6;">${aiMessage}</div>`,
+                        []
+                    );
+                    
+                    // 문서 생성 후 환영 메시지와 옵션 카드 다시 표시
+                    setTimeout(() => {
+                        showWelcomeMessageWithOptions();
+                    }, 500);
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                hideTypingIndicator();
+                
+                // 문서 작성 모드 초기화
+                currentDocumentState.isWaitingForRequirements = false;
+                currentDocumentState.template = null;
+                currentDocumentState.title = null;
+                
+                let errorMessage = '문서 생성 중 오류가 발생했습니다.\n\n';
+                if (error.message === 'Failed to fetch') {
+                    errorMessage += '서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.';
+                } else {
+                    errorMessage += `오류 내용: ${error.message}`;
+                }
+                
+                addBotMessage(errorMessage, ['다시 시도', '문서 작성 폼 열기']);
             }
         }
 
@@ -1293,6 +1568,28 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
+        // 환영 메시지 표시 함수
+        function showWelcomeMessageWithOptions() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            // 환영 메시지
+            const welcomeMessage = document.createElement('div');
+            welcomeMessage.className = 'message bot';
+            welcomeMessage.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble">
+                        어떤 도움이 필요하신가요?
+                    </div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            messagesContainer.appendChild(welcomeMessage);
+            
+            scrollToBottom();
+        }
+
         // ===== 문서 작성 기능 =====
         document.getElementById('documentForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -1311,7 +1608,8 @@
             document.getElementById('generateBtn').disabled = true;
             document.getElementById('loadingDiv').classList.add('active');
             document.getElementById('resultPreview').classList.remove('active');
-            document.getElementById('placeholderMessage').style.display = 'none';
+            document.getElementById('resultPreview').innerHTML = ''; // 결과 영역 초기화
+            // placeholderMessage는 문서 생성 완료 후 숨김 (로딩 중에는 유지)
             document.getElementById('actionButtons').style.display = 'none';
             hideAlert();
 
@@ -1345,10 +1643,60 @@
 
                 const result = await response.json();
                 const aiMessage = result.message || '문서 생성에 실패했습니다.';
+                const isHtml = result.is_html || false; // API에서 HTML 여부 확인
 
-                document.getElementById('resultPreview').textContent = aiMessage;
-                document.getElementById('resultPreview').classList.add('active');
-                document.getElementById('placeholderMessage').style.display = 'none';
+                // placeholderMessage 숨기기
+                const placeholderMessage = document.getElementById('placeholderMessage');
+                placeholderMessage.style.display = 'none';
+
+                // HTML 문서인 경우 iframe으로 표시, 텍스트인 경우 textContent로 표시
+                const resultPreview = document.getElementById('resultPreview');
+                resultPreview.innerHTML = ''; // 기존 내용 초기화
+                
+                if (isHtml || aiMessage.includes('<!DOCTYPE') || aiMessage.includes('<html')) {
+                    // HTML 문서인 경우 iframe 사용
+                    const iframe = document.createElement('iframe');
+                    iframe.style.width = '100%';
+                    iframe.style.minHeight = '800px';
+                    iframe.style.height = '800px';
+                    iframe.style.border = 'none';
+                    iframe.style.borderRadius = '8px';
+                    iframe.style.backgroundColor = 'white';
+                    iframe.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+                    
+                    // HTML 콘텐츠를 iframe에 삽입
+                    iframe.srcdoc = aiMessage;
+                    
+                    // iframe 로드 후 높이 자동 조절
+                    iframe.onload = function() {
+                        try {
+                            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            const iframeBody = iframeDoc.body;
+                            if (iframeBody) {
+                                const height = Math.max(
+                                    iframeBody.scrollHeight,
+                                    iframeBody.offsetHeight,
+                                    iframeDoc.documentElement.clientHeight,
+                                    iframeDoc.documentElement.scrollHeight,
+                                    iframeDoc.documentElement.offsetHeight
+                                );
+                                iframe.style.height = Math.max(height + 20, 800) + 'px';
+                            }
+                        } catch (e) {
+                            // Cross-origin 제한으로 인한 오류 무시
+                            console.log('iframe 높이 자동 조절 실패 (정상):', e);
+                        }
+                    };
+                    
+                    resultPreview.appendChild(iframe);
+                    console.log('✅ HTML 문서가 iframe에 표시되었습니다.');
+                } else {
+                    // 일반 텍스트인 경우
+                    resultPreview.textContent = aiMessage;
+                    console.log('📄 텍스트 응답이 표시되었습니다.');
+                }
+                
+                resultPreview.classList.add('active');
                 document.getElementById('actionButtons').style.display = 'flex';
                 showAlert('문서가 성공적으로 생성되었습니다!', 'success');
 
@@ -1370,8 +1718,11 @@
                     showAlert(`오류 발생: ${error.message}`, 'error');
                 }
                 
-                document.getElementById('resultPreview').textContent = errorMessage;
-                document.getElementById('resultPreview').classList.add('active');
+                const resultPreview = document.getElementById('resultPreview');
+                resultPreview.textContent = errorMessage;
+                resultPreview.classList.add('active');
+                // 에러 시에도 placeholderMessage 숨김
+                document.getElementById('placeholderMessage').style.display = 'none';
             } finally {
                 document.getElementById('loadingDiv').classList.remove('active');
                 document.getElementById('generateBtn').disabled = false;
@@ -1379,8 +1730,12 @@
         });
 
         function copyToClipboard() {
-            const content = document.getElementById('resultPreview').textContent;
-            navigator.clipboard.writeText(content).then(() => {
+            const resultPreview = document.getElementById('resultPreview');
+            // HTML인 경우 텍스트로 변환하여 복사
+            const content = resultPreview.innerHTML || resultPreview.textContent;
+            // HTML 태그 제거하여 순수 텍스트로 복사
+            const textContent = resultPreview.textContent || resultPreview.innerText || '';
+            navigator.clipboard.writeText(textContent).then(() => {
                 showAlert('클립보드에 복사되었습니다!', 'success');
             }).catch(err => {
                 console.error('복사 실패:', err);
@@ -1406,6 +1761,237 @@
             const alertDiv = document.getElementById('alertMessage');
             alertDiv.classList.remove('active');
         }
+
+        // ===== 문서 양식별 요구사항 예시 정의 =====
+        const templateRequirements = {
+            'product_development_plan': `RDB 미사용 - 수동 입력 방식:
+1. 신제품의 핵심 기능과 특징을 명확히 기술
+   예: 건강 모니터링(심박수, 혈압, 수면 분석), GPS 추적, 스마트 알림, 7일 배터리 수명
+2. 개발 일정과 마일스톤을 포함
+   예: 2024년 1월~6월 (6개월), Q1: 설계 및 프로토타입, Q2: 테스트 및 양산 준비
+3. 예산 계획과 리소스 배분 명시
+   예: 총 50억원 (인력비 30억, 부품비 15억, 마케팅 5억)
+4. 마케팅 전략과 출시 계획 포함
+   예: 젊은 층 타겟, SNS 마케팅, 인플루언서 협업
+5. 기술적 난이도와 위험 요소 분석
+   예: 배터리 수명 최적화가 주요 도전 과제
+6. 경쟁사 제품과의 차별화 포인트
+   예: AI 기반 건강 코칭 기능, 무선 충전, 방수 기능`,
+            
+            'purchase_order': `RDB 미사용 - 수동 입력 방식:
+1. 발주할 품목명과 수량을 명확히 기재
+   예: 디스플레이 패널 10,000개, 배터리 15,000개
+2. 납기일과 납품 장소를 지정
+   예: 납기일 2024년 3월 31일, 납품 장소: 서울 본사 창고
+3. 단가와 총액을 명시
+   예: 디스플레이 패널 단가 50,000원, 배터리 단가 30,000원
+4. 품질 기준과 검수 조건 포함
+   예: 불량률 0.1% 이하, ISO 9001 인증 필수
+5. 납품 조건과 결제 조건 명시
+   예: 배송비 공급업체 부담, 계약금 30%, 검수 후 잔금 70%
+6. 특별 요구사항이나 주의사항 포함
+   예: 포장은 방수 처리 필수, 납기일 준수 시 보너스 지급`,
+            
+            'hr_summary_report': `RDB 사용 - employee 테이블에서 자동 조회:
+📊 자동으로 DB에서 데이터를 조회하므로 아래 정보만 입력하세요:
+
+1. 부서 필터링 (선택사항)
+   예: - 부서: 개발팀, 영업팀
+
+2. 직급 필터링 (선택사항)
+   예: - 직급: 과장, 차장
+
+💡 입력 예시:
+- 부서: 개발팀, 영업팀
+- 직급: 과장, 차장
+
+또는 간단히:
+- 전체 직원 인사정보 조회
+
+⚠️ 참고: 입력하지 않으면 employee 테이블의 모든 데이터가 조회됩니다.`,
+            
+            'monthly_profit_analysis_report': `RDB 사용 - company_sales 테이블에서 자동 조회:
+📊 자동으로 DB에서 데이터를 조회하므로 아래 정보만 입력하세요:
+
+1. 분석 기간 (필수)
+   예: - 분석 기간: 2024년 3월
+   또는: - 분석 기간: 2019년 5월
+
+2. 지역 필터링 (선택사항)
+   예: - 지역: 한국, 미국, 일본
+   또는: - 지역: 중국, 미국
+
+3. 제품 카테고리 필터링 (선택사항)
+   예: - 제품 카테고리: 휴대폰, 태블릿, 노트북
+   또는: - 제품: 스마트폰, 태블릿
+
+💡 입력 예시:
+- 분석 기간: 2024년 3월
+- 지역: 한국, 미국, 일본
+- 제품 카테고리: 휴대폰, 태블릿
+
+⚠️ 참고: 입력하지 않은 조건은 필터링되지 않고 모든 데이터가 조회됩니다.`,
+            
+            'work_performance_review': `RDB 미사용 - 수동 입력 방식:
+1. 평가 대상자 기본 정보
+   예: 부서명: 개발팀, 코드번호: DEV-001
+   평가 기간: 2024년 1월 1일 ~ 3월 31일
+
+2. 업무 정보
+   예: 업무명: 웹 애플리케이션 개발
+   작성자명: 박개발, 담당 부서장명: 최부장
+
+3. 평가 대상 및 기준
+   예: 주평가대상: 신입 개발자 교육
+   벌점 및 주당근무시간: 벌점 0점, 주당 40시간
+   평가 방법: 주별 코드 리뷰 및 과제 평가
+
+4. 평가 목표 및 개요
+   예: 신입 개발자의 기술 역량 향상 및 협업 능력 평가
+
+5. 주별 평가 점수
+   예: 1주 80점, 2주 85점, 3주 88점, 4주 90점, 5주 92점, 6주 95점`,
+            
+            'supplier_evaluation_form': `RDB 미사용 - 수동 입력 방식:
+1. 평가 대상 공급업체 정보
+   예: 회사명: ABC공급업체, 담당자: 홍길동, 연락처: 02-1234-5678
+
+2. 평가 기간과 평가 항목별 점수
+   예: 평가 기간: 2024년 1분기
+   평가 항목: 품질(90점), 납기(85점), 가격(88점), 서비스(92점)
+
+3. 품질 평가
+   예: 불량률 0.1% 이하, 납품 품질 우수, ISO 인증 보유
+
+4. 납기 준수도와 서비스 품질 평가
+   예: 납기 준수율 95%, A/S 대응 신속, 기술 지원 우수
+
+5. 가격 경쟁력 평가
+   예: 시장 평균 대비 10% 저렴, 가격 안정성 우수
+
+6. 종합 평가 및 개선 권고사항
+   예: 종합 평가 우수, 장기 계약 권장, 납기 개선 필요`,
+            
+            'contract_renewal_report': `RDB 미사용 - 수동 입력 방식:
+1. 계약 상대방 정보
+   예: 회사명: XYZ회사, 대표자: 김대표, 사업자등록번호: 123-45-67890
+
+2. 현재 계약 조건 요약
+   예: 계약 기간: 2023년 1월~12월, 계약 금액: 5억원, 서비스: 클라우드 플랫폼
+
+3. 계약 기간 중 실적 평가
+   예: 서비스 만족도 95%, 가용성 99.9%, 기술 지원 우수
+
+4. 계약 갱신 필요성 분석
+   예: 비즈니스 확장 필요, 현재 서비스 만족도 높음, 장기 협력 관계 유지
+
+5. 갱신 시 변경 요청 사항
+   예: 저장 용량 50% 확대, 보안 강화, SLA 개선
+
+6. 새로운 계약 조건 제안
+   예: 갱신 기간: 2024년 1월~12월, 계약 금액: 5.5억원 (10% 증가)`,
+            
+            'activity_based_costing': `RDB 사용 - activity_based_costing 테이블에서 자동 조회:
+📊 자동으로 DB에서 데이터를 조회하므로 아래 정보만 입력하세요:
+
+1. 분석 기간 (필수)
+   예: - 분석 기간: 2024년 1분기
+   또는: - 분석 기간: 2023년 1분기
+
+2. 부서/센터 필터링 (선택사항)
+   예: - 부서/센터: 생산부서, 품질관리부서
+   또는: - 부서: R&D, Operations
+
+3. 활동 유형 필터링 (선택사항)
+   예: - 활동 유형: 생산, 품질 관리, 배송
+   또는: - 활동 유형: Production, Quality Management, Shipping
+
+💡 입력 예시:
+- 분석 기간: 2024년 1분기
+- 부서/센터: 생산부서, 품질관리부서
+- 활동 유형: 생산, 품질 관리, 배송
+
+⚠️ 참고: 한글로 입력하면 자동으로 영어로 변환되어 DB에서 검색됩니다.
+입력하지 않은 조건은 필터링되지 않고 모든 데이터가 조회됩니다.`,
+            
+            'project_schedule': `RDB 미사용 - 수동 입력 방식:
+1. 프로젝트명과 목표
+   예: 프로젝트명: 2024년 신제품 출시 프로젝트
+   목표: 신제품 시장 출시 및 매출 목표 달성
+
+2. 프로젝트 일정표
+   예: 기간: 2024년 1월~6월
+   마일스톤: 1월 요구사항 정의, 2월 설계, 3월 개발 시작, 4월 테스트, 5월 양산 준비, 6월 출시
+
+3. 단계별 작업 내용과 담당자 배정
+   예: 설계 단계: 개발팀 10명, QA 단계: QA팀 5명, 마케팅: 마케팅팀 3명
+
+4. 주요 의사결정 시점과 체크포인트
+   예: 2월 말 설계 리뷰, 4월 중 테스트 리뷰, 5월 말 출시 최종 승인
+
+5. 리스크 요인과 대응 계획
+   예: 개발 지연 위험 → 버퍼 기간 추가, 자원 부족 → 외부 인력 투입
+
+6. 예산 계획과 자원 배분
+   예: 총 예산 50억원, 인력비 30억, 부품비 15억, 마케팅 5억`,
+            
+            'product_comparison_table': `RDB 사용 - mobile_devices 테이블에서 자동 조회:
+📊 자동으로 DB에서 데이터를 조회하므로 아래 정보만 입력하세요:
+
+1. 비교 목적 (필수)
+   예: - 비교 목적: 신제품 선정을 위한 프리미엄 스마트폰 비교
+
+2. 비교 대상 제품명 (필수 - 저장공간 정보 포함 필수!)
+   예: - 비교 대상: iPhone 15 Pro 512GB, Galaxy S24 Ultra 128GB, Pixel 8 Pro 256GB
+   
+⚠️ 중요: 제품명에 저장공간 정보(128GB, 256GB, 512GB 등)를 반드시 포함하세요!
+   - 올바른 예: iPhone 15 Pro 512GB
+   - 잘못된 예: iPhone 15 Pro (저장공간 정보 누락 시 잘못된 제품이 선택될 수 있음)
+
+💡 입력 예시:
+- 비교 목적: 신제품 선정을 위한 프리미엄 스마트폰 비교
+- 비교 대상: iPhone 15 Pro 512GB, Galaxy S24 Ultra 128GB, Pixel 8 Pro 256GB
+
+⚠️ 참고: 제품명은 mobile_devices 테이블의 model_name 컬럼과 정확히 일치해야 합니다.`
+        };
+
+        // 문서 양식 선택 시 요구사항 예시 업데이트
+        document.getElementById('templateSelect')?.addEventListener('change', function() {
+            const selectedTemplate = this.value;
+            const requirementsTextarea = document.getElementById('requirements');
+            const documentTitleInput = document.getElementById('documentTitle');
+            
+            if (selectedTemplate && templateRequirements[selectedTemplate]) {
+                // 요구사항 placeholder 업데이트
+                requirementsTextarea.placeholder = templateRequirements[selectedTemplate];
+                
+                // 문서 제목 placeholder도 함께 업데이트
+                const titlePlaceholders = {
+                    'product_development_plan': '예: 2024년 신제품 개발 계획서',
+                    'purchase_order': '예: 2024년 3분기 원자재 발주서',
+                    'hr_summary_report': '예: 2024년 1분기 인사정보 요약 리포트',
+                    'monthly_profit_analysis_report': '예: 2024년 3월 월별 수익 분석 리포트',
+                    'work_performance_review': '예: 2024년 상반기 업무 성과 평가',
+                    'supplier_evaluation_form': '예: 2024년 ABC공급업체 평가서',
+                    'contract_renewal_report': '예: XYZ회사 계약 갱신 보고서',
+                    'activity_based_costing': '예: 2024년 제조부서 활동기준 원가 계산서',
+                    'project_schedule': '예: 신제품 출시 프로젝트 일정표',
+                    'product_comparison_table': '예: 스마트폰 제품 비교표'
+                };
+                
+                if (titlePlaceholders[selectedTemplate]) {
+                    documentTitleInput.placeholder = titlePlaceholders[selectedTemplate];
+                }
+                
+                // 기존 내용이 없으면 placeholder를 참고할 수 있도록
+                if (!requirementsTextarea.value) {
+                    // placeholder를 보여주기 위해 빈 상태 유지
+                }
+            } else {
+                requirementsTextarea.placeholder = '문서 양식을 선택하면 요구사항 예시가 표시됩니다.';
+                documentTitleInput.placeholder = '예: 문서 제목을 입력하세요';
+            }
+        });
 
         // 입력창 높이 자동 조절
         const chatInput = document.getElementById('chatInput');

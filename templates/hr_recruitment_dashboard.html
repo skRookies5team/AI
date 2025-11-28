@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>인사팀 채용 현황 대시보드</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 1.2em;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+        
+        .stat-card h3 {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card .value {
+            font-size: 2.5em;
+            font-weight: bold;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .full-width .chart-wrapper {
+            height: 400px;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 인사팀 채용 현황 대시보드</h1>
+            <p>채용 데이터 분석 및 통계</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>전체 지원자 수</h3>
+                <div class="value">3,000</div>
+            </div>
+            <div class="stat-card">
+                <h3>평균 경력 연수</h3>
+                <div class="value">12.4년</div>
+            </div>
+            <div class="stat-card">
+                <h3>평균 희망 연봉</h3>
+                <div class="value">8,785만원</div>
+            </div>
+            <div class="stat-card">
+                <h3>희망 연봉 범위</h3>
+                <div class="value">4,056 ~ 13,499만원</div>
+            </div>
+        </div>
+        
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h2>지원 상태별 분포</h2>
+                <div class="chart-wrapper">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>성별 분포</h2>
+                <div class="chart-wrapper">
+                    <canvas id="genderChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container full-width">
+                <h2>월별 지원 추이</h2>
+                <div class="chart-wrapper">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>직무별 지원 현황 (상위 10개)</h2>
+                <div class="chart-wrapper">
+                    <canvas id="positionChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>학력별 분포</h2>
+                <div class="chart-wrapper">
+                    <canvas id="educationChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>경력 연수 분포</h2>
+                <div class="chart-wrapper">
+                    <canvas id="experienceChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>희망 연봉 분포</h2>
+                <div class="chart-wrapper">
+                    <canvas id="salaryChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>지역별 분포 (상위 10개)</h2>
+                <div class="chart-wrapper">
+                    <canvas id="regionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Chart.js 기본 설정
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.color = '#333';
+        
+        // 색상 팔레트
+        const colors = [
+            'rgba(102, 126, 234, 0.8)',
+            'rgba(118, 75, 162, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+            'rgba(199, 199, 199, 0.8)',
+            'rgba(83, 102, 255, 0.8)',
+        ];
+        
+        // 지원 상태별 분포
+        const statusData = {"\ucc44\uc6a9\ub428": 1031, "\ubd88\ud569\uaca9": 970, "\uba74\uc811 \uc9c4\ud589 \uc911": 999};
+        new Chart(document.getElementById('statusChart'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(statusData),
+                datasets: [{
+                    data: Object.values(statusData),
+                    backgroundColor: colors.slice(0, Object.keys(statusData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+        
+        // 성별 분포
+        const genderData = {"\ub0a8\uc131": 1473, "\uc5ec\uc131": 1527};
+        new Chart(document.getElementById('genderChart'), {
+            type: 'pie',
+            data: {
+                labels: Object.keys(genderData),
+                datasets: [{
+                    data: Object.values(genderData),
+                    backgroundColor: colors.slice(0, Object.keys(genderData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+        
+        // 월별 지원 추이
+        const monthlyData = {"2023-01": 238, "2023-02": 260, "2023-03": 268, "2023-04": 251, "2023-05": 257, "2023-06": 248, "2023-07": 229, "2023-08": 239, "2023-09": 262, "2023-10": 261, "2023-11": 237, "2023-12": 250};
+        new Chart(document.getElementById('monthlyChart'), {
+            type: 'line',
+            data: {
+                labels: Object.keys(monthlyData),
+                datasets: [{
+                    label: '지원자 수',
+                    data: Object.values(monthlyData),
+                    borderColor: 'rgba(102, 126, 234, 1)',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 50
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 직무별 지원 현황
+        const positionData = {"\ub124\ud2b8\uc6cc\ud06c\uc7a5\ube44\uc0ac\uc5c5\ubd80": 304, "\uc2a4\ub9c8\ud2b8\uae30\uae30\uc0ac\uc5c5\ubd80": 304, "\ubc18\ub3c4\uccb4\uc0ac\uc5c5\ubd80": 303, "\uc804\uc790\ubd80\ud488\uc0ac\uc5c5\ubd80": 302, "\uc804\ub825\uc804\uc790\uc0ac\uc5c5\ubd80": 301, "\uc18c\ube44\uc790\uc804\uc790\uc0ac\uc5c5\ubd80": 300, "\ud30c\uc6cc\uc804\uc790\uc0ac\uc5c5\ubd80": 299, "\ud1b5\uc2e0\ub124\ud2b8\uc6cc\ud06c\uc0ac\uc5c5\ubd80": 297, "\ubaa8\ubc14\uc77c\uc194\ub8e8\uc158\uc0ac\uc5c5\ubd80": 296, "\ubb34\uc120\ud1b5\uc2e0\uc0ac\uc5c5\ubd80": 294};
+        new Chart(document.getElementById('positionChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(positionData),
+                datasets: [{
+                    label: '지원자 수',
+                    data: Object.values(positionData),
+                    backgroundColor: 'rgba(102, 126, 234, 0.8)',
+                    borderColor: 'rgba(102, 126, 234, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        
+        // 학력별 분포
+        const educationData = {"\ud559\uc0ac": 774, "\uc11d\uc0ac": 714, "\ubc15\uc0ac": 762, "\uace0\ub4f1\ud559\uad50": 750};
+        new Chart(document.getElementById('educationChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(educationData),
+                datasets: [{
+                    label: '지원자 수',
+                    data: Object.values(educationData),
+                    backgroundColor: colors.slice(0, Object.keys(educationData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        
+        // 경력 연수 분포
+        const experienceData = {"11\ub144 \uc774\uc0c1": 1702, "4-5\ub144": 225, "6-10\ub144": 615, "1-3\ub144": 356, "0\ub144": 102};
+        new Chart(document.getElementById('experienceChart'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(experienceData),
+                datasets: [{
+                    data: Object.values(experienceData),
+                    backgroundColor: colors.slice(0, Object.keys(experienceData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+        
+        // 희망 연봉 분포
+        const salaryData = {"7000-9000\ub9cc\uc6d0": 625, "5000-7000\ub9cc\uc6d0": 673, "1\uc5b5\uc6d0 \uc774\uc0c1": 806, "9000\ub9cc-1\uc5b5\uc6d0": 624, "5000\ub9cc\uc6d0 \ubbf8\ub9cc": 272};
+        new Chart(document.getElementById('salaryChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(salaryData),
+                datasets: [{
+                    label: '지원자 수',
+                    data: Object.values(salaryData),
+                    backgroundColor: 'rgba(118, 75, 162, 0.8)',
+                    borderColor: 'rgba(118, 75, 162, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        
+        // 지역별 분포
+        const regionData = {"\ub300\uad6c": 637, "\uc11c\uc6b8": 423, "\ubd80\uc0b0": 417, "\ub300\uc804": 411, "\uad11\uc8fc": 395, "\uc778\ucc9c": 368, "\uc6b8\uc0b0": 349};
+        new Chart(document.getElementById('regionChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(regionData),
+                datasets: [{
+                    label: '지원자 수',
+                    data: Object.values(regionData),
+                    backgroundColor: colors.slice(0, Object.keys(regionData).length),
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -7,25 +7,57 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
-import PyPDF2
-from docx import Document
-from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connections, utility
-from sentence_transformers import SentenceTransformer
+# Optional imports for document processing
+try:
+    import PyPDF2
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+    PyPDF2 = None
+
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    Document = None
+
+try:
+    from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connections, utility
+    MILVUS_AVAILABLE = True
+except ImportError:
+    MILVUS_AVAILABLE = False
+    Collection = None
+    CollectionSchema = None
+    DataType = None
+    FieldSchema = None
+    connections = None
+    utility = None
+
+# sentence_transformers는 실제 사용 시점에만 import (lazy import)
+# 모듈 레벨에서 import하면 transformers 라이브러리 충돌 발생
 
 # Milvus 연결 설정 (환경 변수 또는 기본값)
 # HOST 환경 변수 사용 (SCHEDULE_DB_HOST와 MILVUS_HOST를 통합)
-MILVUS_HOST = os.getenv("HOST", "localhost")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
+MILVUS_HOST = os.getenv("HOST")
+MILVUS_PORT = os.getenv("MILVUS_PORT")
 MILVUS_COLLECTION_NAME = "document_vectors"
 
 # 임베딩 모델 초기화 (한번만 로드)
 _embedding_model = None
 
 
-def get_embedding_model() -> SentenceTransformer:
+def get_embedding_model():
     """임베딩 모델을 가져오거나 초기화합니다."""
     global _embedding_model
     if _embedding_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise ImportError(
+                "sentence-transformers가 설치되지 않았습니다. "
+                "pip install sentence-transformers를 실행해주세요."
+            )
         # 한국어 지원 임베딩 모델 사용
         _embedding_model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
     return _embedding_model
@@ -33,6 +65,9 @@ def get_embedding_model() -> SentenceTransformer:
 
 def extract_text_from_pdf(file_path: Path) -> str:
     """PDF 파일에서 텍스트를 추출합니다."""
+    if not PDF_AVAILABLE:
+        raise ImportError("PyPDF2가 설치되지 않았습니다. pip install PyPDF2를 실행해주세요.")
+    
     text = ""
     try:
         with open(file_path, 'rb') as file:
@@ -46,6 +81,9 @@ def extract_text_from_pdf(file_path: Path) -> str:
 
 def extract_text_from_docx(file_path: Path) -> str:
     """DOCX 파일에서 텍스트를 추출합니다."""
+    if not DOCX_AVAILABLE:
+        raise ImportError("python-docx가 설치되지 않았습니다. pip install python-docx를 실행해주세요.")
+    
     text = ""
     try:
         doc = Document(file_path)
@@ -82,8 +120,88 @@ def split_text_into_chunks(text: str, chunk_size: int = 500, overlap: int = 50) 
     return chunks
 
 
-def ensure_milvus_collection(collection_name: str = MILVUS_COLLECTION_NAME) -> Collection:
+def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 100) -> List[str]:
+    """텍스트를 청크로 분할합니다 (AI-013 요구사항).
+    
+    Args:
+        text: 분할할 텍스트
+        chunk_size: 청크 크기 (단어 수)
+        chunk_overlap: 청크 간 겹치는 단어 수
+    
+    Returns:
+        청크 리스트
+    """
+    return split_text_into_chunks(text, chunk_size=chunk_size, overlap=chunk_overlap)
+
+
+def upsert_to_milvus(
+    file_path: str,
+    chunks: List[str],
+    embeddings: List[List[float]],
+    metadata: Dict[str, Any],
+    collection_name: str = MILVUS_COLLECTION_NAME,
+) -> Dict[str, Any]:
+    """Milvus에 벡터 데이터를 Upsert합니다 (AI-013 요구사항).
+    
+    Args:
+        file_path: 원본 파일 경로
+        chunks: 텍스트 청크 리스트
+        embeddings: 임베딩 벡터 리스트
+        metadata: 추가 메타데이터
+        collection_name: Milvus 컬렉션 이름
+    
+    Returns:
+        처리 결과 딕셔너리
+    """
+    if not MILVUS_AVAILABLE:
+        return {
+            "ok": False,
+            "error": "pymilvus가 설치되지 않았습니다.",
+            "message": "pymilvus가 설치되지 않았습니다. pip install pymilvus를 실행해주세요.",
+        }
+    
+    try:
+        # Milvus 컬렉션 확인/생성
+        collection = ensure_milvus_collection(collection_name)
+        
+        # 동일한 제목의 기존 문서 삭제 (Upsert)
+        document_title = metadata.get("source", Path(file_path).stem)
+        delete_existing_document(collection, document_title)
+        
+        # 데이터 준비
+        entities = [
+            [document_title] * len(chunks),  # document_title
+            chunks,  # chunk_text
+            embeddings,  # embedding
+        ]
+        
+        # Milvus에 삽입
+        collection.insert(entities)
+        collection.flush()
+        
+        return {
+            "ok": True,
+            "message": f"문서가 성공적으로 저장되었습니다. ({len(chunks)}개 청크)",
+            "document_title": document_title,
+            "chunks_count": len(chunks),
+            "embeddings_count": len(embeddings),
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "error": str(e),
+            "message": f"Milvus 업로드 실패: {str(e)}",
+        }
+
+
+def ensure_milvus_collection(collection_name: str = MILVUS_COLLECTION_NAME):
     """Milvus 컬렉션이 존재하는지 확인하고 없으면 생성합니다."""
+    if not MILVUS_AVAILABLE:
+        raise ImportError("pymilvus가 설치되지 않았습니다. pip install pymilvus를 실행해주세요.")
+    
     # Milvus 연결
     if not connections.has_connection("default"):
         connections.connect("default", host=MILVUS_HOST, port=MILVUS_PORT)

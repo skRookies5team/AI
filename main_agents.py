@@ -186,7 +186,19 @@ async def chat_loop_async() -> None:
 			if not final_msg:
 				final_msg = "\n".join(messages) if messages else "요청하신 작업을 완료했습니다."
 			
-			print(f"\n에이전트> {final_msg}")
+			# HTML 문서인 경우 요약 출력
+			if isinstance(final_msg, str) and final_msg.strip().startswith("<!DOCTYPE") or final_msg.strip().startswith("<html"):
+				print(f"\n✅ 문서 생성 완료!")
+				print(f"📄 문서 크기: {len(final_msg):,} 문자")
+				print(f"💡 HTML 문서는 final_response에 포함되어 있습니다.")
+				print(f"\n📋 문서 미리보기 (처음 500자):")
+				print("-" * 60)
+				preview = final_msg[:500].replace("\n", " ").strip()
+				print(preview + "..." if len(final_msg) > 500 else preview)
+				print("-" * 60)
+				print(f"\n전체 HTML 문서를 보시려면 final_response 변수를 확인하세요.")
+			else:
+				print(f"\n에이전트> {final_msg}")
 			
 		except Exception as e:
 			print(f"\n❌ 오류 발생: {str(e)}")

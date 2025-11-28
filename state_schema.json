@@ -1,0 +1,723 @@
+{
+  "description": "전체 Agent 시스템을 위한 State 스키마 정의",
+  "version": "1.0.0",
+  "state": {
+    "comment": "모든 Agent가 공유하는 기본 State 구조",
+    "input": {
+      "query": {
+        "type": "string",
+        "description": "사용자 발화/질문"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "사용자 ID"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "대화 세션 ID (대화 컨텍스트 관리용)"
+      },
+      "employee_id": {
+        "type": "integer",
+        "description": "사원 ID (employee 테이블의 employee_id)"
+      },
+      "employee_name": {
+        "type": "string",
+        "description": "사원 이름"
+      }
+    },
+    "routing": {
+      "domain": {
+        "type": "string",
+        "description": "도메인 분류 (supervisor에서 결정)",
+        "enum": [
+          "schedule",
+          "document",
+          "qa",
+          "email",
+          "tech"
+        ]
+      },
+      "last_domain": {
+        "type": "string",
+        "description": "이전 대화의 도메인 (단순 답변 시 라우팅용)",
+        "enum": [
+          "schedule",
+          "document",
+          "qa",
+          "email",
+          "tech"
+        ]
+      },
+      "intent": {
+        "type": "string",
+        "description": "세부 의도 (각 마스터그래프에서 결정)"
+      },
+      "current_step": {
+        "type": "string",
+        "description": "현재 처리 단계"
+      }
+    },
+    "schedule_domain": {
+      
+      "leave": {
+        "leave_type": {
+          "type": "string",
+          "enum": [
+            "연차",
+            "반차",
+            "병가",
+            "경조사"
+          ],
+          "description": "휴가 유형"
+        },
+        "start_date": {
+          "type": "string",
+          "description": "휴가 시작 날짜"
+        },
+        "end_date": {
+          "type": "string",
+          "description": "휴가 종료 날짜"
+        },
+        "total_days": {
+          "type": "number",
+          "description": "총 휴가 일수"
+        },
+        "reason": {
+          "type": "string",
+          "description": "휴가 신청 사유"
+        },
+        "leave_balance": {
+      
+          "type": "object",
+          "description": "연차 잔여 정보",
+          "properties": {
+            "year": {
+              "type": "integer",
+              "description": "연차 기준 연도"
+            },
+            "total_entitlement_days": {
+              "type": "number",
+              "description": "총 부여된 연차 일수"
+            },
+            "used_days": {
+              "type": "number",
+              "description": "이미 사용한 연차"
+            },
+            "remaining_days": {
+              "type": "number",
+              "description": "잔여 연차"
+            },
+            "pending_days": {
+              "type": "number",
+              "description": "결재 대기 중인 연차"
+            }
+          }
+        },
+        "leave_request_id": {
+       
+          "type": "string",
+          "description": "휴가 신청 ID"
+        },
+        "leave_status": {
+        
+          "type": "string",
+          "enum": [
+            "대기",
+            "승인",
+            "반려",
+            "취소"
+          ],
+          "description": "휴가 상태"
+        }
+      },
+      "schedule": {
+        "schedule_id": {
+        
+          "type": "integer",
+          "description": "일정 ID"
+        },
+        "title": {
+      
+          "type": "string",
+          "description": "일정 제목"
+        },
+        "description": {
+        
+          "type": "string",
+          "description": "일정 설명"
+        },
+        "start_time": {
+          
+          "type": "string",
+          "description": "일정 시작 시간"
+        },
+        "end_time": {
+      
+          "type": "string",
+          "description": "일정 종료 시간"
+        },
+        "schedule_type": {
+          
+          "type": "string",
+          "description": "일정 유형"
+        },
+        "location": {
+         
+          "type": "string",
+          "description": "일정 장소"
+        },
+        "alert_time": {
+        
+          "type": "string",
+          "description": "알림 시간"
+        },
+        "schedule_status": {
+    
+          "type": "string",
+          "description": "일정 상태"
+        },
+        "schedule_conflicts": {
+       
+          "type": "array",
+          "description": "일정 충돌 목록",
+          "items": {
+            "type": "object",
+            "properties": {
+              "schedule_id": {
+                "type": "integer"
+              },
+              "title": {
+                "type": "string"
+              },
+              "start_time": {
+                "type": "string"
+              },
+              "end_time": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+    
+      "meeting_room": {
+        "meeting_room_id": {
+        
+          "type": "integer",
+          "description": "회의실 ID"
+        },
+        "room_code": { 
+          "type": "string",
+          "description": "회의실 코드"
+        },
+        "room_name": {
+        
+          "type": "string",
+          "description": "회의실 이름"
+        },
+        "building": {
+          "type": "string",
+          "description": "건물명"
+        },
+        "floor": {
+          "type": "string",
+          "description": "층수"
+        },
+        "capacity": {
+          "type": "integer",
+          "description": "수용 인원"
+        },
+        "has_video": {
+          "type": "boolean",
+          "description": "화상회의 장비 여부"
+        },
+        "reservation_id": {
+         
+          "type": "integer",
+          "description": "예약 ID"
+        },
+        "reservation_status": {
+       
+          "type": "string",
+          "enum": [
+            "CONFIRMED",
+            "PENDING",
+            "CANCELLED"
+          ],
+          "description": "예약 상태"
+        },
+        "recommended_rooms": {
+        
+          "type": "array",
+          "description": "추천 회의실 목록",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "room_code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "building": {
+                "type": "string"
+              },
+              "floor": {
+                "type": "string"
+              },
+              "capacity": {
+                "type": "integer"
+              },
+              "has_video": {
+                "type": "boolean"
+              },
+              "score": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "participants": {
+          "type": "integer",
+          "description": "참석 인원 수"
+        },
+        "require_video": {
+          "type": "boolean",
+          "description": "화상회의 장비 필요 여부"
+        }
+      }
+    },
+    "document_domain": {
+      "comment": "문서 도메인 관련 필드",
+      "document_content": {
+        "type": "string",
+        "description": "생성된 문서 내용 (HTML/JSON 형식)"
+      },
+      "document_path": {
+        "type": "string",
+        "description": "문서 파일 경로"
+      },
+      "document_id": {
+        "type": "string",
+        "description": "문서 ID (결재 시스템 연동용)"
+      },
+      "template_name": {
+        "type": "string",
+        "description": "사용된 템플릿 이름"
+      },
+      "approval_line": {
+        "type": "array",
+        "description": "결재 라인",
+        "items": {
+          "type": "object",
+          "properties": {
+            "employee_id": {
+              "type": "integer"
+            },
+            "employee_name": {
+              "type": "string"
+            },
+            "order": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "approval_status": {
+        "type": "string",
+        "description": "결재 상태",
+        "enum": [
+          "대기",
+          "진행중",
+          "승인",
+          "반려"
+        ]
+      },
+      "vector_db_collection": {
+        "type": "string",
+        "description": "Milvus 컬렉션 이름"
+      }
+    },
+    "qa_domain": {
+      "comment": "Q&A 도메인 관련 필드",
+      "search_query": {
+        "type": "string",
+        "description": "검색 쿼리"
+      },
+      "search_type": {
+        "type": "string",
+        "description": "검색 유형",
+        "enum": [
+          "manual",
+          "benefit",
+          "menu",
+          "recommend"
+        ]
+      },
+      "rag_results": {
+        "type": "array",
+        "description": "RAG 검색 결과",
+        "items": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "score": {
+              "type": "number"
+            },
+            "source": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "menu_date": {
+        "type": "string",
+        "description": "식단 조회 날짜 (YYYY-MM-DD)"
+      },
+      "menu_corner": {
+        "type": "string",
+        "description": "식단 코너"
+      },
+      "menu_recommendation": {
+        "type": "object",
+        "description": "메뉴 추천 결과",
+        "properties": {
+          "recommended_menu": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "calories": {
+            "type": "number"
+          },
+          "preference_score": {
+            "type": "number"
+          }
+        }
+      },
+      "benefit_category": {
+        "type": "string",
+        "description": "복리후생 카테고리"
+      }
+    },
+    "email_domain": {
+      "comment": "이메일 도메인 관련 필드",
+      "email_draft": {
+        "type": "string",
+        "description": "생성된 이메일 초안"
+      },
+      "email_subject": {
+        "type": "string",
+        "description": "이메일 제목"
+      },
+      "email_to": {
+        "type": "array",
+        "description": "수신자 목록",
+        "items": {
+          "type": "string"
+        }
+      },
+      "email_cc": {
+        "type": "array",
+        "description": "참조자 목록",
+        "items": {
+          "type": "string"
+        }
+      },
+      "email_search_results": {
+        "type": "array",
+        "description": "이메일 검색 결과",
+        "items": {
+          "type": "object",
+          "properties": {
+            "email_id": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "snippet": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "email_sent": {
+        "type": "boolean",
+        "description": "이메일 발송 여부"
+      }
+    },
+    "tech_domain": {
+      "comment": "기술 검색 관련 필드 (논문 및 특허 검색)",
+      "article_search": {
+        "type": "object",
+        "description": "논문 검색 관련 필드",
+        "properties": {
+          "article_query": {
+            "type": "string",
+            "description": "사용자 발화 또는 검색 키워드"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "대화 세션 ID (세션 상태 유지용)"
+          },
+          "intent": {
+            "type": "string",
+            "description": "사용자 의도",
+            "enum": [
+              "search",
+              "detail",
+              "ask_source",
+              "continue_search",
+              "unknown"
+            ]
+          },
+          "response": {
+            "type": "string",
+            "description": "최종 응답 메시지"
+          },
+          "error": {
+            "type": "string",
+            "description": "오류 메시지"
+          },
+          "search_source": {
+            "type": "string",
+            "description": "검색 소스",
+            "enum": [
+              "web",
+              "internal",
+              "unknown"
+            ]
+          },
+          "identifier": {
+            "type": "string",
+            "description": "논문 ID (detail intent일 때 선택된 논문의 identifier)"
+          },
+          "search_results": {
+            "type": "array",
+            "description": "검색된 논문 목록",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "논문 제목"
+                },
+                "identifier": {
+                  "type": "string",
+                  "description": "DOI 또는 내부 ID"
+                },
+                "pdf_link": {
+                  "type": "string",
+                  "description": "PDF 링크"
+                },
+                "detail_link": {
+                  "type": "string",
+                  "description": "상세 페이지 링크"
+                },
+                "pdf_path": {
+                  "type": "string",
+                  "description": "로컬 저장 경로 (다운로드된 경우)"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "벡터DB에서 온 경우 내용 포함"
+                }
+              }
+            }
+          },
+          "vectorization_status": {
+            "type": "string",
+            "description": "벡터화 상태",
+            "enum": [
+              "completed",
+              "failed",
+              null
+            ]
+          },
+          "vector_db_collection": {
+            "type": "string",
+            "description": "Milvus 컬렉션 이름"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "검색 키워드 (자동 생성)"
+          },
+          "summary": {
+            "type": "string",
+            "description": "AI 요약 (검색 시)"
+          },
+          "displayed_count": {
+            "type": "integer",
+            "description": "표시된 결과 개수 (페이지네이션용)"
+          }
+        }
+      },
+      "patent_search": {
+        "type": "object",
+        "description": "특허 검색 관련 필드",
+        "properties": {
+          "patent_query": {
+            "type": "string",
+            "description": "사용자 발화 또는 검색 키워드"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "대화 세션 ID (세션 상태 유지용)"
+          },
+          "search_mode": {
+            "type": "string",
+            "description": "검색 모드",
+            "enum": [
+              "server",
+              "web",
+              null
+            ]
+          },
+          "use_server_first": {
+            "type": "boolean",
+            "description": "서버 기반 먼저 시도 여부"
+          },
+          "intent": {
+            "type": "string",
+            "description": "사용자 의도",
+            "enum": [
+              "search",
+              "detail",
+              "ask_search_mode",
+              "ask_web_search",
+              "unknown"
+            ]
+          },
+          "response": {
+            "type": "string",
+            "description": "최종 응답 메시지"
+          },
+          "error": {
+            "type": "string",
+            "description": "오류 메시지"
+          },
+          "search_source": {
+            "type": "string",
+            "description": "검색 소스",
+            "enum": [
+              "server",
+              "web",
+              "unknown"
+            ]
+          },
+          "identifier": {
+            "type": "string",
+            "description": "특허 식별자 (detail intent일 때 선택된 특허의 application_number)"
+          },
+          "search_results": {
+            "type": "array",
+            "description": "검색된 특허 목록",
+            "items": {
+              "type": "object",
+              "properties": {
+                "application_number": {
+                  "type": "string",
+                  "description": "특허 출원번호"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "특허 제목"
+                },
+                "abstract": {
+                  "type": "string",
+                  "description": "특허 초록"
+                }
+              }
+            }
+          },
+          "vectorization_status": {
+            "type": "string",
+            "description": "벡터화 상태",
+            "enum": [
+              "completed",
+              "failed",
+              null
+            ]
+          },
+          "vector_db_collection": {
+            "type": "string",
+            "description": "Milvus 컬렉션 이름"
+          },
+          "progress_status": {
+            "type": "string",
+            "description": "진행 상황 메시지"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "검색 키워드 (자동 추출)"
+          },
+          "selected_patent": {
+            "type": "object",
+            "description": "선택된 특허 상세 정보",
+            "properties": {
+              "application_number": {
+                "type": "string",
+                "description": "특허 출원번호"
+              },
+              "title": {
+                "type": "string",
+                "description": "특허 제목"
+              },
+              "abstract": {
+                "type": "string",
+                "description": "특허 초록"
+              },
+              "pdf_link": {
+                "type": "string",
+                "description": "PDF 링크"
+              },
+              "pdf_content": {
+                "type": "string",
+                "description": "PDF 내용"
+              }
+            }
+          },
+          "pdf_link": {
+            "type": "string",
+            "description": "PDF 다운로드 링크"
+          }
+        }
+      }
+    },
+
+    "output": {
+      "final_response": {
+        "type": "string",
+        "description": "최종 응답 메시지"
+      },
+      "messages": {
+        "type": "array",
+        "description": "처리 과정 메시지 목록 (LangGraph의 operator.add로 누적)",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ok": {
+        "type": "boolean",
+        "description": "처리 성공 여부"
+      },
+      "error": {
+        "type": "string",
+        "description": "에러 메시지"
+      }
+    }
+  }
+}

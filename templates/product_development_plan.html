@@ -199,15 +199,41 @@
         }
 
         td {
-            padding: 12px;
+            padding: 8px;
             text-align: center;
             font-size: 14px;
             color: #495057;
             border-right: 1px solid #e9ecef;
+            vertical-align: middle;
         }
 
         td:last-child {
             border-right: none;
+        }
+
+        /* 테이블 내부 input 필드 스타일 */
+        td input[type="text"],
+        td input[type="number"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        td input[type="text"]:focus,
+        td input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
+
+        td input[type="text"]:hover,
+        td input[type="number"]:hover {
+            border-color: #adb5bd;
         }
 
         .total-row {
