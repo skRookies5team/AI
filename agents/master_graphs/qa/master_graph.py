@@ -107,12 +107,31 @@ class QAMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 기존 qa_manual_agent 사용
-        result = manual_search(query)
+        # 기존 qa_manual_agent 사용 (비동기 호출, state 전달)
+        result = await manual_search(query, orchestrator_state=state)
+        
+        # 검색 성공 여부 확인
+        is_success = result.get("ok", False)
+        message = result.get("message", "")
+        error = result.get("error", "")
+        
+        # 명확한 manual 관련 키워드가 있으면 fallback하지 않음
+        manual_keywords = ["메뉴얼", "manual", "매뉴얼", "연차", "휴가", "병가", "반차", "경조사", "출장", 
+                          "근무", "근태", "규정", "정책", "지침", "가이드", "안내"]
+        has_manual_keyword = any(kw in query.lower() for kw in manual_keywords)
         
         # 검색 결과가 없거나 부적절한 경우, 다른 에이전트로 fallback 시도
-        message = result.get("message", "")
-        if not message or "찾을 수 없습니다" in message or "포함되어 있지 않습니다" in message:
+        # 단, manual 관련 키워드가 있으면 fallback하지 않음
+        should_fallback = (
+            not is_success or 
+            not message or 
+            "찾을 수 없습니다" in message or 
+            "포함되어 있지 않습니다" in message or
+            "오류가 발생했습니다" in message or
+            "검색 중 오류" in message
+        )
+        
+        if should_fallback and not has_manual_keyword:
             # 식단/메뉴 관련 키워드가 있으면 menu로 재라우팅
             if any(k in query for k in ["식단", "메뉴", "구내식당", "점심", "저녁", "다이어트", "먹어야", "먹을까"]):
                 print("⚠️ Manual 검색 실패, menu로 재라우팅")
@@ -122,9 +141,11 @@ class QAMasterGraph(BaseMasterGraph):
                 print("⚠️ Manual 검색 실패, benefit으로 재라우팅")
                 return await self.query_benefit(state)
         
+        # manual 관련 키워드가 있거나 성공한 경우, 결과 반환
         return {
             "final_response": message if message else "검색 결과를 찾을 수 없습니다.",
             "messages": [message] if message else ["검색 결과를 찾을 수 없습니다."],
+            "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
         }
     
     async def query_benefit(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -132,12 +153,13 @@ class QAMasterGraph(BaseMasterGraph):
         print("--- [QA Master] Querying Benefit ---")
         query = state.get("query", "")
         
-        # 기존 qa_benefit_agent 사용
-        result = benefit_rag(query)
+        # 기존 qa_benefit_agent 사용 (비동기 호출, state 전달)
+        result = await benefit_rag(query, orchestrator_state=state)
         
         return {
             "final_response": result.get("message", "복리후생 정보를 찾을 수 없습니다."),
             "messages": [result.get("message", "")],
+            "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
         }
     
     async def query_menu(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -145,12 +167,13 @@ class QAMasterGraph(BaseMasterGraph):
         print("--- [QA Master] Querying Menu ---")
         query = state.get("query", "")
         
-        # 기존 qa_cafeteria_agent 사용
-        result = cafeteria_menu(query)
+        # 기존 qa_cafeteria_agent 사용 (비동기 호출, state 전달)
+        result = await cafeteria_menu(query, orchestrator_state=state)
         
         return {
             "final_response": result.get("message", "식단 정보를 찾을 수 없습니다."),
             "messages": [result.get("message", "")],
+            "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
         }
     
     async def recommend_menu(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -159,8 +182,8 @@ class QAMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         employee_id = state.get("employee_id")
         
-        # 메뉴 추천: 식단 조회 결과를 바탕으로 추천 메시지 추가
-        result = cafeteria_menu(query)
+        # 메뉴 추천: 식단 조회 결과를 바탕으로 추천 메시지 추가 (state 전달)
+        result = await cafeteria_menu(query, orchestrator_state=state)
         
         # 식단 조회 결과가 있으면 추천 메시지 추가
         message = result.get("message", "")
@@ -174,6 +197,7 @@ class QAMasterGraph(BaseMasterGraph):
         return {
             "final_response": message if message else "메뉴 추천을 제공할 수 없습니다. 식단 조회를 먼저 해주세요.",
             "messages": [message] if message else ["메뉴 추천을 제공할 수 없습니다."],
+            "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
         }
 
 

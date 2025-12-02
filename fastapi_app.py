@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field
 from agents.schedule_master import schedule_master
 from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.master_graphs.document.document_upload_service import process_uploaded_file
+from agents.redis_checkpoint import get_redis_checkpointer
+
+# Redis 체크포인터 초기화 (앱 시작 시 한 번만)
+_redis_checkpointer = get_redis_checkpointer()
 
 
 class ScheduleChatRequest(BaseModel):
@@ -193,32 +197,57 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=400, detail="query 값이 필요합니다.")
 
     try:
-        graph = get_orchestrator_graph()
+        # 그래프 생성 (Redis 체크포인터는 자동으로 생성됨)
+        # checkpointer를 전달하지 않으면 orchestrator_v3에서 자동으로 Redis 체크포인터 생성 시도
+        graph = get_orchestrator_graph(checkpointer=_redis_checkpointer)
+        
+        # 세션 ID 생성 (없으면 자동 생성)
+        session_id = payload.session_id
+        if not session_id:
+            import uuid
+            session_id = str(uuid.uuid4())
         
         # Initial State with injected employee_id
+        # Redis 체크포인터를 사용하면 이전 state가 자동으로 복원됨
         input_state = {
             "query": normalized,
-            "session_id": payload.session_id,
+            "session_id": session_id,
+            "user_id": str(payload.employee_id),
             "employee_id": payload.employee_id, # Inject employee_id for short-term memory
-            "messages": []
+            "messages": [],
+            "conversation_history": []  # 멀티턴 대화 히스토리
         }
         
-        # Run Graph
-        final_state = await graph.ainvoke(input_state)
+        # Redis 체크포인터를 사용하여 state 복원 및 실행
+        # session_id를 thread_id로 사용하여 세션별 독립적인 메모리 관리
+        config = {"configurable": {"thread_id": session_id}}
+        
+        # 그래프 실행 (Redis 체크포인터가 있으면 state가 자동으로 저장되고 복원됨)
+        final_state = await graph.ainvoke(input_state, config=config)
         
         # Process Output
         messages = final_state.get("messages", [])
         final_msg = final_state.get("final_response")
+        conversation_history = final_state.get("conversation_history", [])
         
         if not final_msg:
             # Join messages if no explicit final response
             final_msg = "\n".join(messages) if messages else "요청하신 작업을 완료했습니다."
+        
+        # 최근 응답 메시지 찾기
+        if conversation_history:
+            recent_assistant_msgs = [
+                msg for msg in conversation_history 
+                if msg.get("role") == "assistant"
+            ]
+            if recent_assistant_msgs:
+                final_msg = recent_assistant_msgs[-1].get("content", final_msg)
 
         return ChatResponse(
             ok=True,
             message=final_msg,
             rows=[], # 오케스트레이터는 주로 텍스트 응답을 반환하므로 rows는 비움
-            session_id=payload.session_id,
+            session_id=session_id,
         )
 
     except Exception as exc:  # pragma: no cover

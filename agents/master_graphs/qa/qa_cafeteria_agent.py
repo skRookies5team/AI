@@ -4,11 +4,12 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Dict, List, TypedDict, Optional
+from typing import Dict, List, TypedDict, Optional, Any
 from collections import Counter
 from dotenv import load_dotenv
 from pymilvus import connections, Collection
 from sentence_transformers import SentenceTransformer
+from agents.embedding_utils import get_embedding_generator
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
@@ -21,15 +22,21 @@ load_dotenv()
 # =========================
 # Milvus 연결 설정
 # =========================
-MILVUS_HOST = os.getenv("HOST", "175.120.35.228")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
-COLLECTION_NAME_MENU = "Employee_Meal_Menu_embeddings"
+# 환경 변수에서 읽기 (공백 제거)
+def _get_env_trimmed(key: str, default: str = "") -> str:
+    """환경 변수 조회 (공백 제거)."""
+    value = os.getenv(key, default)
+    return value.strip() if value else default
+
+MILVUS_HOST = _get_env_trimmed("HOST") or _get_env_trimmed("MILVUS_HOST") or "175.114.229.152"
+MILVUS_PORT = int(_get_env_trimmed("MILVUS_PORT") or "19530")
+COLLECTION_NAME_MENU = _get_env_trimmed("CAFETERIA_COLLECTION") or _get_env_trimmed("COLLECTION_NAME_MENU") or "Employee_Meal_Menu_embeddings"
 
 # =========================
 # 싱글톤 패턴으로 초기화 (한 번만 실행)
 # =========================
 _collection: Optional[Collection] = None
-_embedding_model: Optional[SentenceTransformer] = None
+_embedding_model = None  # OpenAIEmbeddingGenerator 인스턴스
 _rag_app = None  # LangGraph 앱 캐시
 
 
@@ -48,7 +55,7 @@ def _initialize_connections() -> tuple[Collection, SentenceTransformer]:
         raise RuntimeError(f"Milvus 연결 실패: {e}")
 
     try:
-        _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        _embedding_model = get_embedding_generator()
     except Exception as e:
         raise RuntimeError(f"임베딩 모델 로딩 실패: {e}")
 
@@ -68,6 +75,7 @@ class GraphState(TypedDict):
     retrieved_contexts: List[str]
     answer: str
     timings: Dict[str, float]
+    conversation_history: Optional[List[Dict[str, str]]]  # 이전 대화 히스토리 (Redis 숏텀 메모리)
 
 
 # =========================
@@ -123,12 +131,12 @@ def calculate_keyword_score(text: str, keywords: List[str]) -> float:
 # =========================
 # LangGraph 노드 함수들
 # =========================
-def analyze_query(state: GraphState, collection: Collection, embedding_model: SentenceTransformer) -> GraphState:
+def analyze_query(state: GraphState, collection: Collection, embedding_model) -> GraphState:
     """사용자 질문을 임베딩 벡터로 변환하고 키워드 추출."""
     start_time = time.time()
     question = state["question"]
 
-    query_embedding = embedding_model.encode([question])[0].tolist()
+    query_embedding = embedding_model.embed(question)
     query_keywords = extract_keywords(question)
 
     elapsed_time = time.time() - start_time
@@ -300,22 +308,37 @@ def generate_answer(state: GraphState) -> GraphState:
     contexts = state["retrieved_contexts"]
 
     context_text = "\n\n".join([f"[문서 {i+1}]\n{ctx}" for i, ctx in enumerate(contexts)])
+    conversation_history = state.get("conversation_history")
 
-    prompt_template = ChatPromptTemplate.from_messages([
+    # 이전 대화 히스토리 구성
+    messages = [
         ("system", """당신은 깐부전자의 직원 식단표를 안내하는 전문 AI 어시스턴트입니다.
 제공된 식단표 데이터를 기반으로 직원들의 식단 관련 질문에 대해 정확하고 상세한 답변을 제공하세요.
 답변할 때는 식단표의 내용을 직접 참고하여 답변하며, 날짜, 요일, 메뉴, 칼로리 등의 정보를 명확히 안내하세요.
 식단표에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.
+이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변하세요.
 답변은 친절하고 이해하기 쉽게 작성해주세요."""),
-        ("user", """다음은 깐부전자의 직원 식단표 데이터에서 검색된 관련 내용입니다:
+    ]
+    
+    # 이전 대화 히스토리 추가 (최근 5개)
+    if conversation_history:
+        for msg in conversation_history[-5:]:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role and content:
+                messages.append((role, content))
+    
+    messages.append(("user", """다음은 깐부전자의 직원 식단표 데이터에서 검색된 관련 내용입니다:
 
 {context}
 
 질문: {question}
 
 위 식단표 데이터를 참고하여 질문에 대한 상세하고 실용적인 답변을 한국어로 제공해주세요.
-답변에는 가능한 한 구체적인 날짜, 요일, 메뉴 정보, 칼로리 등을 포함해주세요.""")
-    ])
+답변에는 가능한 한 구체적인 날짜, 요일, 메뉴 정보, 칼로리 등을 포함해주세요.
+이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요."""))
+    
+    prompt_template = ChatPromptTemplate.from_messages(messages)
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -347,7 +370,7 @@ def generate_answer(state: GraphState) -> GraphState:
 # =========================
 # LangGraph 그래프 생성
 # =========================
-def _create_rag_graph(collection: Collection, embedding_model: SentenceTransformer):
+def _create_rag_graph(collection: Collection, embedding_model):
     """하이브리드 RAG 그래프 생성."""
     workflow = StateGraph(GraphState)
 
@@ -377,11 +400,15 @@ def _create_rag_graph(collection: Collection, embedding_model: SentenceTransform
 # =========================
 # 메인 함수: cafeteria_menu
 # =========================
-def cafeteria_menu(user_text: str) -> Dict:
+async def cafeteria_menu(
+    user_text: str,
+    orchestrator_state: Optional[Dict[str, Any]] = None,
+) -> Dict:
     """구내식당 식단표 질문에 대한 RAG 기반 답변 생성.
 
     Args:
         user_text: 사용자 질문
+        orchestrator_state: OrchestratorState 딕셔너리 (Redis 숏텀 메모리용)
 
     Returns:
         {
@@ -402,6 +429,21 @@ def cafeteria_menu(user_text: str) -> Dict:
         if _rag_app is None:
             _rag_app = _create_rag_graph(collection, embedding_model)
 
+        # conversation_history 추출
+        conversation_history = None
+        if orchestrator_state:
+            conv_history = orchestrator_state.get("conversation_history", [])
+            if conv_history:
+                # Message 객체를 dict로 변환
+                conversation_history = [
+                    {
+                        "role": msg.get("role", ""),
+                        "content": msg.get("content", ""),
+                    }
+                    for msg in conv_history
+                    if isinstance(msg, dict) and msg.get("role") and msg.get("content")
+                ]
+
         # 초기 상태 설정
         initial_state: GraphState = {
             "question": user_text,
@@ -411,11 +453,22 @@ def cafeteria_menu(user_text: str) -> Dict:
             "keyword_search_results": [],
             "retrieved_contexts": [],
             "answer": "",
-            "timings": {}
+            "timings": {},
+            "conversation_history": conversation_history,
         }
 
-        # 그래프 실행
-        result = _rag_app.invoke(initial_state)
+        # 그래프 실행 (비동기)
+        result = await _rag_app.ainvoke(initial_state)
+
+        # Redis에 검색 컨텍스트 저장
+        if orchestrator_state is not None:
+            if "qa_search_context" not in orchestrator_state:
+                orchestrator_state["qa_search_context"] = {}
+            orchestrator_state["qa_search_context"]["cafeteria"] = {
+                "last_query": user_text,
+                "last_answer": result.get("answer", ""),
+                "retrieved_contexts": result.get("retrieved_contexts", [])[:3],
+            }
 
         return {
             "ok": True,

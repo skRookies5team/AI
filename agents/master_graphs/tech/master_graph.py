@@ -82,8 +82,63 @@ class TechMasterGraph(BaseMasterGraph):
         print("--- [Tech Master] Routing Intent ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
+        tech_search_context = state.get("tech_search_context", {})
         
-        # llm_router를 사용한 LLM 기반 분류
+        # 1. 이전 대화 컨텍스트 확인 (Redis 숏텀 메모리)
+        # "웹 검색", "사내 검색", "1", "2" 등 모호한 답변이 들어올 경우
+        # 이전에 활성화된 서브 에이전트(patent 또는 article)로 라우팅
+        
+        last_active_agent = None
+        last_timestamp = 0
+        
+        # 특허 검색 컨텍스트 확인
+        if tech_search_context and "patent" in tech_search_context:
+            patent_ctx = tech_search_context["patent"]
+            # ask_search_mode 상태라면 무조건 patent로 라우팅 (우선순위 최상)
+            if patent_ctx.get("intent") == "ask_search_mode":
+                print(f"✅ 이전 컨텍스트(ask_search_mode)에 따라 라우팅 유지: patent")
+                return {"intent": "patent"}
+            
+            # 최근 검색 결과나 진행 중인 상태가 있는지 확인
+            if patent_ctx.get("results"):
+                last_active_agent = "patent"
+                # 타임스탬프가 있다면 비교 로직 추가 가능 (현재는 단순 우선순위나 플래그로 처리)
+        
+        # 논문 검색 컨텍스트 확인 (특허보다 우선순위가 높거나, 가장 최근 것 선택 로직 필요)
+        # 여기서는 단순하게 최근에 "ask_source" 상태였던 것을 우선 찾음
+        if tech_search_context and "article" in tech_search_context:
+            article_ctx = tech_search_context["article"]
+            if article_ctx.get("intent") == "ask_source":
+                last_active_agent = "article"
+            elif not last_active_agent and article_ctx.get("results"):
+                last_active_agent = "article"
+                
+        # 2. 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우 이전 컨텍스트보다 우선
+        explicit_keywords = {
+            "논문": "article",
+            "paper": "article",
+            "학술": "article",
+            "ScienceON": "article",
+            "특허": "patent",
+            "patent": "patent",
+            "Patent": "patent",
+        }
+        
+        query_lower = query.lower()
+        for keyword, intent_type in explicit_keywords.items():
+            if keyword.lower() in query_lower:
+                print(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅")
+                return {"intent": intent_type}
+        
+        # 3. 선택지 답변이거나 연속된 대화인 경우 이전 에이전트 유지
+        # 단, "찾아"는 제외 (명시적 요청일 수 있음)
+        is_continuation = any(k in query for k in ["웹", "사내", "1", "2", "3", "더"]) or query.isdigit()
+        
+        if is_continuation and last_active_agent:
+            print(f"✅ 이전 컨텍스트에 따라 라우팅 유지: {last_active_agent}")
+            return {"intent": last_active_agent}
+
+        # 4. llm_router를 사용한 LLM 기반 분류 (새로운 요청인 경우)
         intent = await asyncio.to_thread(
             classify_intent_with_llm,
             query=query,
@@ -116,13 +171,18 @@ class TechMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 기존 tech_patent_agent 사용
-        result = patent_search(query, session_id=session_id)
+        # 기존 tech_patent_agent 사용 (Redis 숏텀 메모리 state 전달)
+        # patent_search 함수는 이제 비동기 함수이므로 await 사용
+        result = await patent_search(query, session_id=session_id, orchestrator_state=state)
         
+        # patent_search에서 업데이트된 state를 반영하여 Redis에 저장
+        # message가 비어있으면 error 필드 확인
+        message = result.get("message") or result.get("error") or "특허 검색 결과를 찾을 수 없습니다."
         return {
-            "final_response": result.get("message", "특허 검색 결과를 찾을 수 없습니다."),
+            "final_response": message,
             "search_results": result.get("items", []),
-            "messages": [result.get("message", "")],
+            "messages": [message],
+            "tech_search_context": state.get("tech_search_context"),
         }
     
     def should_vectorize(self, state: OrchestratorState) -> str:
@@ -151,14 +211,16 @@ class TechMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 기존 tech_article_agent 사용
-        # article_master 함수 사용
-        result = article_master(query, session_id=session_id)
+        # 기존 tech_article_agent 사용 (Redis 숏텀 메모리 state 전달)
+        # article_master 함수는 이제 비동기 함수이므로 await 사용
+        result = await article_master(query, session_id=session_id, orchestrator_state=state)
         
+        # article_master에서 업데이트된 state를 반영하여 Redis에 저장
         return {
             "final_response": result.get("message", "논문 검색 결과를 찾을 수 없습니다."),
             "search_results": result.get("items", []),
             "messages": [result.get("message", "")],
+            "tech_search_context": state.get("tech_search_context"),
         }
     
     async def vectorize_article(self, state: OrchestratorState) -> Dict[str, Any]:

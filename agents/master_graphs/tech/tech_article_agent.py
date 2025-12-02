@@ -235,18 +235,26 @@ def classify_intent(state: ScienceONAgentState) -> ScienceONAgentState:
         if has_web_keyword:
             # 웹 검색 명시 - LLM 호출 없이 바로 검색 의도로 처리
             LOGGER.info("웹 검색 실행 (LLM 호출 생략)")
+            # 이전 쿼리가 있으면 그것을 사용, 없으면 사용자 입력을 쿼리로 사용
+            current_query = state.get("query", "").strip()
+            final_query = current_query if current_query else user_input
+            
             return {
                 "intent": "search",
-                "query": user_input,
+                "query": final_query,
                 "download_index": -1,
                 "search_source": "web",
             }
         elif has_internal_keyword:
             # 사내 서버 검색 명시 - LLM 호출 없이 바로 검색 의도로 처리
             LOGGER.info("사내 서버 검색 실행 (LLM 호출 생략)")
+            # 이전 쿼리가 있으면 그것을 사용, 없으면 사용자 입력을 쿼리로 사용
+            current_query = state.get("query", "").strip()
+            final_query = current_query if current_query else user_input
+            
             return {
                 "intent": "search",
-                "query": user_input,
+                "query": final_query,
                 "download_index": -1,
                 "search_source": "internal",
             }
@@ -873,7 +881,9 @@ def build_scienceon_agent_graph() -> Any:
     workflow.add_edge("show_article_detail", "generate_response")
     workflow.add_edge("generate_response", END)
 
-    return workflow.compile()
+    # checkpointer=None으로 컴파일 (직렬화 불가능한 객체 방지)
+    # 실제 상태는 OrchestratorState.tech_search_context를 통해 Redis에 저장됨
+    return workflow.compile(checkpointer=None)
 
 
 # 전역 에이전트 그래프 인스턴스
@@ -883,9 +893,10 @@ SCIENCEON_AGENT_GRAPH = build_scienceon_agent_graph()
 AGENT_GRAPH = SCIENCEON_AGENT_GRAPH
 
 
-def run_scienceon_agent(
+async def run_scienceon_agent(
     user_input: str,
     state: Optional[ScienceONAgentState] = None,
+    orchestrator_state: Optional[Dict[str, Any]] = None,
 ) -> ScienceONAgentState:
     """ScienceON 서브 에이전트를 실행한다.
 
@@ -1000,12 +1011,28 @@ def run_scienceon_agent(
     # 에이전트 실행 (LangGraph 기반)
     try:
         LOGGER.info("ScienceON 에이전트 실행 시작: user_input=%s", user_input[:100])
-        final_state = SCIENCEON_AGENT_GRAPH.invoke(initial_state)
+        # AsyncRedisSaver를 사용하는 경우 비동기 인터페이스 사용
+        final_state = await SCIENCEON_AGENT_GRAPH.ainvoke(initial_state)
         LOGGER.info(
             "ScienceON 에이전트 실행 완료: intent=%s, results_count=%d",
             final_state.get("intent"),
             len(final_state.get("results", [])),
         )
+        
+        # OrchestratorState에 검색 결과 저장 (Redis 숏텀 메모리)
+        if orchestrator_state is not None:
+            if "tech_search_context" not in orchestrator_state or orchestrator_state["tech_search_context"] is None:
+                orchestrator_state["tech_search_context"] = {}
+            if "article" not in orchestrator_state["tech_search_context"]:
+                orchestrator_state["tech_search_context"]["article"] = {}
+            
+            orchestrator_state["tech_search_context"]["article"]["results"] = final_state.get("results", [])
+            orchestrator_state["tech_search_context"]["article"]["last_keyword"] = final_state.get("keyword", "")
+            orchestrator_state["tech_search_context"]["article"]["displayed_count"] = final_state.get("displayed_count", 0)
+            # 쿼리와 의도도 저장하여 문맥 유지 (ask_source 등에서 필요)
+            orchestrator_state["tech_search_context"]["article"]["query"] = final_state.get("query", "")
+            orchestrator_state["tech_search_context"]["article"]["intent"] = final_state.get("intent", "unknown")
+        
         return final_state
     except Exception as exc:
         LOGGER.exception("ScienceON 에이전트 실행 중 오류 발생")
@@ -1030,9 +1057,9 @@ def run_scienceon_agent(
 
 
 # 하위 호환성을 위한 별칭
-def run_agent(user_input: str, state: Optional[ScienceONAgentState] = None) -> ScienceONAgentState:
+async def run_agent(user_input: str, state: Optional[ScienceONAgentState] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> ScienceONAgentState:
     """하위 호환성을 위한 별칭. run_scienceon_agent를 사용하세요."""
-    return run_scienceon_agent(user_input, state)
+    return await run_scienceon_agent(user_input, state, orchestrator_state)
 
 
 # ============================================================================
@@ -1310,40 +1337,137 @@ def _normalize_items_from_results(results: List[Dict[str, Any]]) -> List[Dict[st
             })
     return items
 
-def has_pending_article_results(session_id: Optional[str]) -> bool:
-    """세션에 이전 논문 검색 결과가 저장되어 있는지 확인한다."""
-    if not session_id:
-        return False
-    st = _ARTICLE_MEMORY.get(session_id)
-    return bool(st and isinstance(st, dict) and st.get("results") and len(st.get("results")) > 0)
+def has_pending_article_results(session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> bool:
+    """세션에 이전 논문 검색 결과가 저장되어 있는지 확인한다 (Redis 숏텀 메모리 우선)."""
+    # Redis 숏텀 메모리에서 확인 (우선)
+    if orchestrator_state and "tech_search_context" in orchestrator_state:
+        article_context = orchestrator_state["tech_search_context"].get("article", {})
+        if article_context.get("results"):
+            return True
+    
+    # 하위 호환성: 로컬 메모리에서 확인
+    if session_id:
+        st = _ARTICLE_MEMORY.get(session_id)
+        return bool(st and isinstance(st, dict) and st.get("results") and len(st.get("results")) > 0)
+    
+    return False
 
-def article_master(query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+async def article_master(query: str, session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """LangGraph 기반 논문 검색/다운로드 마스터 엔트리.
 
-    - 세션 상태를 복원/저장한다.
+    - 세션 상태를 복원/저장한다 (Redis 숏텀 메모리 사용).
     - 숫자만 입력되었고, 이전 결과가 있으면 다운로드 명령으로 해석한다.
     - ask_source 상태에서는 "1", "2" 같은 선택지 답변을 그대로 전달한다.
     - 에이전트 사용 불가 시 폴백으로 검색만 수행한다.
     """
     t = (query or "").strip()
     
-    # 세션 상태 확인
-    st: Optional[ScienceONAgentState] = _ARTICLE_MEMORY.get(session_id) if session_id else None
+    # Redis 숏텀 메모리에서 세션 상태 복원
+    st: Optional[ScienceONAgentState] = None
+    if orchestrator_state and "tech_search_context" in orchestrator_state:
+        # tech_search_context가 None일 수 있으므로 안전하게 처리
+        tech_context = orchestrator_state.get("tech_search_context") or {}
+        article_context = tech_context.get("article", {})
+        
+        # 이전 검색 결과 확인
+        previous_results = article_context.get("results", [])
+        last_query = article_context.get("query")
+        last_keyword = article_context.get("last_keyword")
+        
+        # 사용자 입력이 질문 형태이고, 이전 검색 결과가 있으면 대화식으로 답변
+        user_input_lower = t.lower()
+        question_keywords = ["요청한적", "요청한 적", "찾아달라고", "찾아달라고 했", "검색한적", "검색한 적", "이전에", "전에", "했어", "했어?", "했나", "했나?", "요청했", "요청했어", "요청했나"]
+        is_question = any(qk in user_input_lower for qk in question_keywords) or user_input_lower.endswith("?") or user_input_lower.endswith("요?")
+        
+        # last_query가 없으면 last_keyword를 사용하거나, results가 있으면 질문에 답변
+        display_query = last_query or last_keyword or "논문"
+        
+        if is_question and previous_results:
+            # 이전 검색 결과가 있으면 대화식으로 답변
+            results_count = len(previous_results)
+            print(f"🔍 [DEBUG] 질문 감지 및 이전 결과 확인: is_question={is_question}, results_count={results_count}, display_query={display_query}")
+            message = f"네, '{display_query}'에 대한 논문 검색을 요청하셨고, {results_count}개의 논문을 찾았습니다.\n\n"
+            message += "찾은 논문 목록:\n"
+            for idx, article in enumerate(previous_results[:5], 1):  # 최대 5개만 표시
+                title = article.get("title", "제목 없음")
+                message += f"{idx}. {title}\n"
+            if results_count > 5:
+                message += f"\n... 외 {results_count - 5}개 더 있습니다."
+            message += "\n\n자세히 보고 싶은 논문 번호를 선택해주세요."
+            
+            return {
+                "ok": True,
+                "intent": "search",
+                "message": message,
+                "summary": "",
+                "link": _search_url(display_query),
+                "items": [{"index": idx, "title": a.get("title"), "link": a.get("pdf_link", "")} for idx, a in enumerate(previous_results, 1)],
+                "results": previous_results,
+            }
+        
+        # 결과가 있거나, 이전 쿼리가 있는 경우 상태 복원 (ask_source 상태 등 대응)
+        if article_context.get("results") or article_context.get("query"):
+            # Redis에서 복원된 상태 구성
+            st = {
+                "messages": [],
+                "user_input": "",
+                "intent": article_context.get("intent", "unknown"),
+                "query": article_context.get("query", ""),
+                "download_index": -1,
+                "keyword": article_context.get("last_keyword", ""),
+                "results": article_context.get("results", []),
+                "summary": "",
+                "response": "",
+                "error": None,
+                "search_source": "unknown",
+                "current_status": "",
+                "conversation_history": [],
+                "displayed_count": article_context.get("displayed_count", 0),
+            }
+    
+    # 하위 호환성: 로컬 메모리에서도 확인
+    if st is None and session_id:
+        st = _ARTICLE_MEMORY.get(session_id)
     
     # ask_source 상태에서 "1", "2" 같은 답변은 그대로 전달 (다운로드로 변환하지 않음)
     if st and st.get("intent") == "ask_source":
         # ask_source 상태에서는 "1", "2"를 그대로 전달하여 ask_search_source에서 처리
         pass
-    elif _AGENT_AVAILABLE and t.isdigit() and has_pending_article_results(session_id):
+    elif _AGENT_AVAILABLE and t.isdigit() and has_pending_article_results(session_id, orchestrator_state):
         # 이전 결과가 있고 ask_source 상태가 아닐 때만 다운로드로 변환
         t = f"{t}번째 논문 pdf 다운받아줘"
 
     if _AGENT_AVAILABLE:
         try:
-            # 세션 상태 복원
-            st: Optional[ScienceONAgentState] = _ARTICLE_MEMORY.get(session_id) if session_id else None
-            st = run_scienceon_agent(user_input=t, state=st)
-            # 세션 상태 저장
+            # 세션 상태 복원 (Redis 우선, 없으면 로컬 메모리)
+            if st is None:
+                if orchestrator_state and "tech_search_context" in orchestrator_state:
+                    # tech_search_context가 None일 수 있으므로 안전하게 처리
+                    tech_context = orchestrator_state.get("tech_search_context") or {}
+                    article_context = tech_context.get("article", {})
+                    
+                    if article_context.get("results") or article_context.get("query"):
+                        st = {
+                            "messages": [],
+                            "user_input": "",
+                            "intent": article_context.get("intent", "unknown"),
+                            "query": article_context.get("query", ""),
+                            "download_index": -1,
+                            "keyword": article_context.get("last_keyword", ""),
+                            "results": article_context.get("results", []),
+                            "summary": "",
+                            "response": "",
+                            "error": None,
+                            "search_source": "unknown",
+                            "current_status": "",
+                            "conversation_history": [],
+                            "displayed_count": article_context.get("displayed_count", 0),
+                        }
+                if st is None and session_id:
+                    st = _ARTICLE_MEMORY.get(session_id)
+            
+            st = await run_scienceon_agent(user_input=t, state=st, orchestrator_state=orchestrator_state)
+            # 세션 상태 저장 (하위 호환성: 로컬 메모리에도 저장)
             if session_id:
                 _ARTICLE_MEMORY[session_id] = st  # type: ignore[assignment]
             # 정규화된 응답 구성
@@ -1365,14 +1489,14 @@ def article_master(query: str, session_id: Optional[str] = None) -> Dict[str, An
             }
         except Exception as exc:
             # 폴백: 검색만 수행
-            fb = article_search(query)
+            fb = await article_search(query, orchestrator_state)
             fb["message"] = f"{fb.get('message', '')} (agent 연동 실패로 폴백: {exc})"
             return fb
 
     # 폴백만 가능한 환경: 검색만
-    return article_search(query)
+    return await article_search(query, orchestrator_state)
 
-def article_search(keyword: str) -> Dict:
+async def article_search(keyword: str, orchestrator_state: Optional[Dict[str, Any]] = None) -> Dict:
     """ScienceON 논문 검색(에이전트 연동, 실패 시 HTML 폴백).
 
     우선 `agent.py`의 `run_scienceon_agent`를 호출하여
@@ -1398,7 +1522,7 @@ def article_search(keyword: str) -> Dict:
     if _AGENT_AVAILABLE:
         try:
             state: Optional[ScienceONAgentState] = None
-            result_state = run_scienceon_agent(user_input=keyword, state=state)
+            result_state = await run_scienceon_agent(user_input=keyword, state=state, orchestrator_state=orchestrator_state)
             results: List[Dict[str, Any]] = result_state.get("results", [])
             summary: str = result_state.get("summary", "") or ""
 
