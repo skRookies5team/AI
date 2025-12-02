@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agents.orchestrator_v3 import get_orchestrator_graph
+from agents.redis_checkpoint import get_redis_checkpointer
 
 
 def _fmt_num(n):
@@ -151,8 +152,11 @@ async def chat_loop_async() -> None:
 	print("깐부 AI Agent 시스템 시작 (LangGraph Orchestrator)")
 	print("종료하려면 'exit' 또는 'quit' 입력\n")
 
-	# 오케스트레이터 그래프 초기화
-	graph = get_orchestrator_graph()
+	# Redis 체크포인터 초기화
+	checkpointer = get_redis_checkpointer()
+	
+	# 오케스트레이터 그래프 초기화 (Redis 체크포인터 전달)
+	graph = get_orchestrator_graph(checkpointer=checkpointer)
 	
 	# 세션 ID 생성 (대화 세션별 메모리 관리)
 	session_id = str(uuid.uuid4())
@@ -172,12 +176,14 @@ async def chat_loop_async() -> None:
 				"query": user,
 				"session_id": session_id,
 				"employee_id": 1001,  # 기본 사원 번호 (환경변수나 설정으로 변경 가능)
-				"messages": []
+				"messages": [],
+				"conversation_history": []  # 멀티턴 대화 히스토리
 			}
 			
-			# 오케스트레이터 실행
+			# 오케스트레이터 실행 (체크포인터 사용 시 thread_id 필요)
 			print("🤖 처리 중...")
-			final_state = await graph.ainvoke(input_state)
+			config = {"configurable": {"thread_id": session_id}}
+			final_state = await graph.ainvoke(input_state, config=config)
 			
 			# 결과 처리
 			messages = final_state.get("messages", [])
@@ -270,15 +276,19 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
 
     try:
-        # 오케스트레이터 그래프 초기화
-        graph = get_orchestrator_graph()
+        # Redis 체크포인터 초기화
+        checkpointer = get_redis_checkpointer()
+        
+        # 오케스트레이터 그래프 초기화 (Redis 체크포인터 전달)
+        graph = get_orchestrator_graph(checkpointer=checkpointer)
         
         # Initial State
         input_state = {
             "query": normalized,
             "session_id": session_id,
             "employee_id": 1001,  # 기본 사원 번호 (요청에서 받을 수도 있음)
-            "messages": []
+            "messages": [],
+            "conversation_history": []  # 멀티턴 대화 히스토리
         }
         
         # 예약 정보가 있으면 상태에 추가
@@ -290,8 +300,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
         if request.context:
             input_state.update(request.context)
         
-        # 오케스트레이터 실행
-        final_state = await graph.ainvoke(input_state)
+        # 오케스트레이터 실행 (체크포인터 사용 시 thread_id 필요)
+        # session_id가 없으면 자동 생성
+        if not session_id:
+            session_id = str(uuid.uuid4())
+        
+        config = {"configurable": {"thread_id": session_id}}
+        final_state = await graph.ainvoke(input_state, config=config)
         
         # 결과 처리
         messages = final_state.get("messages", [])

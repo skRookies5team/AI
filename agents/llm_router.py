@@ -1,8 +1,9 @@
-# llm_router.py — LLM 기반 의도 분류 및 라우팅
+# llm_router.py — LLM 기반 의도 분류 및 라우팅 (YAML 기반 프롬프트)
 from __future__ import annotations
 
 import os
-from typing import Literal, Optional
+from pathlib import Path
+from typing import Literal, Optional, Dict, Any
 
 try:
 	from langchain_openai import ChatOpenAI
@@ -10,6 +11,12 @@ try:
 	LLM_AVAILABLE = True
 except ImportError:
 	LLM_AVAILABLE = False
+
+try:
+	import yaml
+	YAML_AVAILABLE = True
+except ImportError:
+	YAML_AVAILABLE = False
 
 
 # ───────────────────────────────────────────────────────────
@@ -45,6 +52,165 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 # ───────────────────────────────────────────────────────────
+# YAML 프롬프트 로드
+# ───────────────────────────────────────────────────────────
+_agent_prompts: Optional[Dict[str, Any]] = None
+
+
+def load_agent_prompts() -> Dict[str, Any]:
+	"""agent_prompts.yaml 파일을 로드합니다.
+	
+	Returns:
+		YAML 파일의 내용을 딕셔너리로 반환
+	"""
+	global _agent_prompts
+	
+	if _agent_prompts is not None:
+		return _agent_prompts
+	
+	if not YAML_AVAILABLE:
+		print("⚠️ YAML 패키지가 설치되지 않았습니다. 기본 프롬프트를 사용합니다.")
+		return {}
+	
+	try:
+		# agents 디렉토리 기준으로 YAML 파일 경로 찾기
+		current_dir = Path(__file__).parent
+		yaml_path = current_dir / "agent_prompts.yaml"
+		
+		if not yaml_path.exists():
+			print(f"⚠️ agent_prompts.yaml 파일을 찾을 수 없습니다: {yaml_path}")
+			return {}
+		
+		with open(yaml_path, "r", encoding="utf-8") as f:
+			_agent_prompts = yaml.safe_load(f)
+		
+		print(f"✅ Agent 프롬프트 로드 완료: {yaml_path}")
+		return _agent_prompts
+		
+	except Exception as e:
+		print(f"⚠️ YAML 파일 로드 실패: {e}. 기본 프롬프트를 사용합니다.")
+		return {}
+
+
+def build_prompt_from_yaml(route_type: str, query: str, context_info: str = "") -> str:
+	"""YAML에서 프롬프트를 빌드합니다.
+	
+	Args:
+		route_type: 라우팅 타입 ("supervisor", "qa", "schedule", "document", "tech", "email")
+		query: 사용자 질의
+		context_info: 추가 컨텍스트 정보
+	
+	Returns:
+		생성된 프롬프트 텍스트
+	"""
+	prompts_data = load_agent_prompts()
+	
+	if not prompts_data or route_type not in prompts_data:
+		# YAML 로드 실패 시 기본 프롬프트 사용
+		return _get_default_prompt(route_type, query, context_info)
+	
+	route_config = prompts_data[route_type]
+	
+	# 기본 프롬프트 구조 생성
+	prompt_parts = []
+	
+	# 설명 추가
+	if "description" in route_config:
+		prompt_parts.append(f"{route_config['description']}\n")
+	
+	# 아키텍처 기능 추가 (supervisor의 경우)
+	if "architecture_features" in route_config:
+		prompt_parts.append("\n[시스템 아키텍처 기능]")
+		prompt_parts.append(route_config["architecture_features"])
+	
+	# 기능 설명 추가 (각 도메인별)
+	if "features" in route_config:
+		prompt_parts.append("\n[주요 기능]")
+		prompt_parts.append(route_config["features"])
+	
+	# 분류 기준 추가
+	if "classification_criteria" in route_config:
+		prompt_parts.append("\n[분류 기준]")
+		prompt_parts.append(route_config["classification_criteria"])
+	
+	# 서브 에이전트 정보 추가 (sub_agents가 있는 경우)
+	if "sub_agents" in route_config:
+		prompt_parts.append("\n[서브 에이전트 정보]")
+		for sub_agent_name, sub_agent_config in route_config["sub_agents"].items():
+			prompt_parts.append(f"\n{sub_agent_name}:")
+			if "description" in sub_agent_config:
+				prompt_parts.append(f"  설명: {sub_agent_config['description']}")
+			if "features" in sub_agent_config:
+				prompt_parts.append(f"  기능: {sub_agent_config['features']}")
+			if "capabilities" in sub_agent_config:
+				prompt_parts.append("  가능한 작업:")
+				for capability in sub_agent_config["capabilities"]:
+					prompt_parts.append(f"    - {capability}")
+			if "keywords" in sub_agent_config:
+				positive = sub_agent_config["keywords"].get("positive", [])
+				if positive:
+					prompt_parts.append(f"  키워드: {', '.join(positive)}")
+			if "examples" in sub_agent_config:
+				prompt_parts.append("  예시:")
+				for example in sub_agent_config["examples"]:
+					prompt_parts.append(f"    - {example}")
+	
+	# 예시 추가 (서브 에이전트가 없는 경우 또는 추가 예시)
+	if "examples" in route_config:
+		prompt_parts.append("\n[예시]")
+		for category, examples in route_config["examples"].items():
+			if isinstance(examples, list):
+				prompt_parts.append(f"\n{category}:")
+				for example in examples:
+					prompt_parts.append(f"  - {example}")
+	
+	# 중요 규칙 추가
+	if "important_rules" in route_config:
+		prompt_parts.append("\n[중요 규칙]")
+		for rule in route_config["important_rules"]:
+			prompt_parts.append(f"  - {rule}")
+	
+	# 출력 형식 추가
+	if "output_format" in route_config:
+		prompt_parts.append(f"\n[출력 형식]")
+		prompt_parts.append(route_config["output_format"])
+	
+	# 사용자 질의 추가
+	prompt_parts.append(f"\n[사용자 질의]")
+	prompt_parts.append(f"{query}")
+	
+	# 컨텍스트 정보 추가
+	if context_info:
+		prompt_parts.append(context_info)
+	
+	# 최종 프롬프트 조합
+	prompt_text = "\n".join(prompt_parts)
+	
+	return prompt_text
+
+
+def _get_default_prompt(route_type: str, query: str, context_info: str = "") -> str:
+	"""기본 프롬프트 (YAML 로드 실패 시 사용)."""
+	# 기존 하드코딩된 프롬프트 유지
+	base_prompts = {
+		"supervisor": """사용자 질의를 분석하여 다음 중 하나로 분류하세요:
+- schedule: 연차/반차/병가/경조사 신청, 회의실 예약, 일정 관리, 스케줄 조회 등 구체적인 액션 요청
+- document: 문서 작성, 보고서 작성, 템플릿 생성 등 문서 생성 관련
+- qa: Q&A, 질문, 문의, 메뉴얼, 복리후생 정책, 휴가규정, 근무제도, 급여 외 혜택, 회사 복지, 보험, 수당, 식단, 메뉴, 구내식당 관련
+- email: 이메일 검색, 이메일 답장문 생성 관련
+- tech: 특허, 논문, KISTI, ScienceON 관련
+
+질의: {query}
+
+JSON 형식으로 응답하세요: {{"route": "schedule|document|qa|email|tech|unknown"}}""",
+		# 기타 기본 프롬프트들...
+	}
+	
+	base_prompt = base_prompts.get(route_type, base_prompts.get("supervisor", ""))
+	return base_prompt.format(query=query) + context_info
+
+
+# ───────────────────────────────────────────────────────────
 # LLM 기반 의도 분류
 # ───────────────────────────────────────────────────────────
 def classify_intent_with_llm(
@@ -72,89 +238,9 @@ def classify_intent_with_llm(
 		return fallback_route or "unknown"
 	
 	try:
-		# 라우팅 타입별 프롬프트 정의
-		prompts = {
-			"supervisor": """사용자 질의를 분석하여 다음 중 하나로 분류하세요:
-- schedule: 연차/반차/병가/경조사 신청, 회의실 예약, 일정 관리, 스케줄 조회 등 구체적인 액션 요청
-- document: 문서 작성, 보고서 작성, 템플릿 생성 등 문서 생성 관련
-  (중요: "이메일 자동응답", "메일 자동응답" 같은 이메일 답장문 생성은 email로 분류)
-- qa: Q&A, 질문, 문의, 메뉴얼, 복리후생 정책, 휴가규정, 근무제도, 급여 외 혜택, 회사 복지, 보험, 수당, 식단, 메뉴, 구내식당 관련
-  (중요: "휴가·근무제도에 대해 알려줘", "급여 외 혜택에 대해 알려줘" 같은 정책/제도 질문은 qa로 분류)
-  (중요: "이메일에서 ... 찾아줘", "메일에서 ... 찾아줘" 같은 이메일 검색은 email로 분류)
-- email: 이메일 검색, 이메일 답장문 생성 관련
-  (중요: "이메일에서 ... 찾아줘", "메일에서 ... 찾아줘", "이메일 찾아줘" 같은 이메일 검색은 email로 분류)
-  (중요: "이메일 자동응답", "메일 자동응답", "답장 작성" 같은 이메일 답장문 생성은 email로 분류)
-  (매우 중요: 숫자로 시작하는 질문은 이메일 검색 결과의 상세 요청일 가능성이 매우 높습니다.
-   예: "938. [고용보험]육아휴직...에 대해 알려줘", "626. 육아휴직 연장 안내의 건에 대해 알려줘" 같은 패턴은
-   복리후생 키워드가 포함되어 있어도 이메일 상세 요청이므로 email로 분류하세요)
-- tech: 특허, 논문, KISTI, ScienceON 관련
-- unknown: 위 카테고리에 해당하지 않는 경우
-
-질의: {query}
-
-JSON 형식으로 응답하세요: {{"route": "schedule|document|qa|email|tech|unknown"}}""",
-
-			"qa": """사용자 질의를 분석하여 다음 QA 서브 에이전트 중 하나로 분류하세요:
-- email: 이메일/메일 검색, 찾기 관련
-  (매우 중요: 숫자로 시작하는 질문은 이메일 검색 결과의 상세 요청일 가능성이 매우 높습니다.
-   예: "938. [고용보험]육아휴직...에 대해 알려줘", "626. 육아휴직 연장 안내의 건에 대해 알려줘",
-   "355. 제목에 대해 자세히", "355번 상세", "355번에 대해 알려줘" 같은 패턴은
-   복리후생 키워드("보험", "육아휴직" 등)가 포함되어 있어도 이메일 상세 요청이므로 email로 분류하세요)
-  (패턴: "숫자. 제목에 대해 알려줘", "숫자번 상세", "숫자번에 대해" 같은 형식은 모두 email로 분류)
-- benefit: 복리후생, 휴가규정, 근무제도, 급여 외 혜택, 복지, 보험, 수당, 퇴직연금, 회사 복지 정책 관련
-  (주의: 숫자로 시작하는 질문이면 이메일 상세 요청일 가능성이 매우 높으므로 email로 분류하세요)
-  (주의: "에 대해 알려줘", "자세히", "상세히" 같은 키워드가 있고 숫자로 시작하면 email로 분류)
-- cafeteria: 식단, 메뉴, 구내식당, 점심, 저녁 관련
-- manual: 메뉴얼, Q&A, 질문, 문의 관련 (위 카테고리에 해당하지 않는 경우)
-
-질의: {query}
-
-JSON 형식으로 응답하세요: {{"intent": "email|benefit|cafeteria|manual"}}""",
-			
-			"schedule": """사용자 질의를 분석하여 다음 스케줄 서브 에이전트 중 하나로 분류하세요:
-- leave: 연차, 반차, 병가, 경조사, 휴가 관련
-- meeting: 회의실, 예약 관련
-- schedule: 일정, 캘린더, 스케줄 관련
-
-질의: {query}
-
-JSON 형식으로 응답하세요: {{"intent": "leave|meeting|schedule"}}""",
-
-			"document": """사용자 질의를 분석하여 다음 문서 서브 에이전트 중 하나로 분류하세요:
-- email_auto_reply: 이메일, 메일, 자동응답 관련
-- doc_generate: 문서, 보고서, 작성, 템플릿 관련
-
-질의: {query}
-
-JSON 형식으로 응답하세요: {{"intent": "email_auto_reply|doc_generate"}}""",
-			
-			"tech": """사용자 질의를 분석하여 다음 기술 서브 에이전트 중 하나로 분류하세요:
-- patent: 특허, Patent 관련
-- article: 논문, Article, paper, 학술 관련
-
-질의: {query}
-
-JSON 형식으로 응답하세요: {{"intent": "patent|article"}}""",
-
-			"email": """사용자 질의를 분석하여 다음 이메일 서브 에이전트 중 하나로 분류하세요:
-- search: 이메일/메일 검색, 찾기 관련
-  (중요: "이메일에서 ... 찾아줘", "메일에서 ... 찾아줘", "이메일 찾아줘" 같은 패턴은 search로 분류)
-  (매우 중요: 숫자로 시작하는 질문은 이메일 검색 결과의 상세 요청일 가능성이 매우 높습니다.
-   예: "938. [고용보험]육아휴직...에 대해 알려줘", "626. 육아휴직 연장 안내의 건에 대해 알려줘",
-   "355. 제목에 대해 자세히", "355번 상세", "355번에 대해 알려줘" 같은 패턴은 모두 search로 분류)
-  (패턴: "숫자. 제목에 대해 알려줘", "숫자번 상세", "숫자번에 대해" 같은 형식은 모두 search로 분류)
-- auto_reply: 이메일 답장문 생성, 자동응답 생성 관련
-  (중요: "이메일 자동응답", "메일 자동응답", "답장 작성", "응답 작성", "회신 작성" 같은 패턴은 auto_reply로 분류)
-  (주의: "이메일에서 ... 찾아줘" 같은 검색 의도는 search로 분류하세요)
-
-질의: {query}
-
-JSON 형식으로 응답하세요: {{"intent": "search|auto_reply"}}""",
-		}
-		
-		# 이전 검색 결과 컨텍스트 추가 (qa, supervisor, email의 경우)
+		# 이전 검색 결과 컨텍스트 추가 (Redis 기반 멀티턴 대화 지원)
 		context_info = ""
-		if route_type in ["qa", "supervisor", "email"]:
+		if route_type in ["qa", "supervisor", "email", "tech", "schedule", "document"]:
 			try:
 				from agents.master_graphs.email.email_search_agent import has_pending_email_results
 				from agents.master_graphs.tech.tech_patent_agent import has_pending_patent_results
@@ -165,17 +251,25 @@ JSON 형식으로 응답하세요: {{"intent": "search|auto_reply"}}""",
 				has_article = has_pending_article_results(session_id) if session_id else False
 
 				if has_email or has_patent or has_article:
-					context_info = "\n\n[중요 컨텍스트 정보]\n"
+					context_info = "\n\n[Redis 기반 이전 대화 컨텍스트]\n"
+					context_info += "시스템은 Redis를 통해 이전 대화 내용을 기억하고 있습니다.\n"
 					if has_email:
 						context_info += "- 이전에 이메일 검색을 수행했습니다. 숫자로 시작하는 질문은 이메일 상세 요청일 가능성이 매우 높습니다.\n"
+						context_info += "- '더 찾아줘' 같은 요청은 이전 검색의 연속 검색으로 처리해야 합니다.\n"
 					if has_patent:
-						context_info += "- 이전에 특허 검색을 수행했습니다.\n"
+						context_info += "- 이전에 특허 검색을 수행했습니다. '웹 검색', '사내 검색' 같은 단순 응답은 이전 검색의 연속으로 처리해야 합니다.\n"
 					if has_article:
-						context_info += "- 이전에 논문 검색을 수행했습니다.\n"
+						context_info += "- 이전에 논문 검색을 수행했습니다. '웹 검색', '사내 검색' 같은 단순 응답은 이전 검색의 연속으로 처리해야 합니다.\n"
+					
+					# Human-in-the-loop 관련 컨텍스트
+					context_info += "\n[Human-in-the-loop 주의사항]\n"
+					context_info += "- '승인', '확인', '네', '예' 같은 응답은 이전에 요청한 작업(연차 신청, 회의실 예약, 결재 요청 등)의 승인일 수 있습니다.\n"
+					context_info += "- '취소', '아니오' 같은 응답은 이전 작업의 취소일 수 있습니다.\n"
 			except Exception:
 				pass
 
-		prompt_text = prompts.get(route_type, prompts["supervisor"]).format(query=query) + context_info
+		# YAML 기반 프롬프트 빌드
+		prompt_text = build_prompt_from_yaml(route_type, query, context_info)
 
 		llm = ChatOpenAI(
 			model="gpt-4o-mini",

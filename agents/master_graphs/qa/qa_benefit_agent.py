@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import TypedDict, List, Dict, Optional
+from typing import TypedDict, List, Dict, Optional, Any
 from collections import Counter
 
 try:
@@ -15,6 +15,7 @@ except ImportError:
 
 try:
 	from sentence_transformers import SentenceTransformer
+	from agents.embedding_utils import get_embedding_generator
 	SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
 	SENTENCE_TRANSFORMERS_AVAILABLE = False
@@ -62,15 +63,25 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 # ───────────────────────────────────────────────────────────
-# Milvus 연결 설정
+# Milvus 연결 설정 (.env 파일에서 읽기)
 # ───────────────────────────────────────────────────────────
-MILVUS_HOST = _get_env("HOST")
-MILVUS_PORT = _get_env("MILVUS_PORT")
-COLLECTION_NAME = _get_env("MILVUS_COLLECTION_NAME") or "Employee_Benefits_embeddings"
+def _get_env_trimmed(key: str, default: Optional[str] = None) -> Optional[str]:
+    """환경 변수 조회 (공백 제거)."""
+    value = os.environ.get(key, default)
+    return value.strip() if value and isinstance(value, str) else (default if value is None else value)
+
+MILVUS_HOST = _get_env_trimmed("HOST") or _get_env_trimmed("MILVUS_HOST") or "175.114.229.152"
+MILVUS_PORT_STR = _get_env_trimmed("MILVUS_PORT") or "19530"
+MILVUS_PORT = int(MILVUS_PORT_STR.strip()) if MILVUS_PORT_STR else 19530
+COLLECTION_NAME = (
+    _get_env_trimmed("BENEFIT_COLLECTION") or
+    _get_env_trimmed("MILVUS_COLLECTION_NAME") or
+    "Employee_Benefits_embeddings"
+)
 
 # 전역 변수 (지연 초기화)
 _collection: Optional[Collection] = None
-_embedding_model: Optional[SentenceTransformer] = None
+_embedding_model = None  # OpenAIEmbeddingGenerator 인스턴스
 _rag_graph = None
 
 
@@ -83,9 +94,6 @@ def _initialize_connections() -> None:
 	
 	if not MILVUS_AVAILABLE:
 		raise ImportError("pymilvus가 설치되지 않았습니다. pip install pymilvus")
-	
-	if not SENTENCE_TRANSFORMERS_AVAILABLE:
-		raise ImportError("sentence-transformers가 설치되지 않았습니다. pip install sentence-transformers")
 	
 	if _collection is None:
 		try:
@@ -115,7 +123,7 @@ def _initialize_connections() -> None:
 	
 	if _embedding_model is None:
 		try:
-			_embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+			_embedding_model = get_embedding_generator()
 		except Exception as e:
 			raise RuntimeError(f"임베딩 모델 로딩 실패: {e}")
 
@@ -133,6 +141,7 @@ class BenefitState(TypedDict, total=False):
 	retrieved_contexts: List[str]
 	answer: str
 	timings: Dict[str, float]
+	conversation_history: Optional[List[Dict[str, str]]]  # 이전 대화 히스토리 (Redis 숏텀 메모리)
 
 
 # ───────────────────────────────────────────────────────────
@@ -158,7 +167,7 @@ def analyze_query(state: BenefitState) -> BenefitState:
 	_initialize_connections()
 	
 	# 임베딩 생성
-	query_embedding = _embedding_model.encode([question])[0].tolist()
+	query_embedding = _embedding_model.embed(question)
 	
 	# 키워드 추출
 	query_keywords = extract_keywords(question)
@@ -365,14 +374,27 @@ def generate_answer(state: BenefitState) -> BenefitState:
 		}
 	
 	context_text = "\n\n".join([f"[문서 {i+1}]\n{ctx}" for i, ctx in enumerate(contexts)])
+	conversation_history = state.get("conversation_history")
 	
-	prompt_template = ChatPromptTemplate.from_messages([
+	# 이전 대화 히스토리 구성
+	messages = [
 		("system", """당신은 회사의 복리후생(Benefits) 정책을 안내하는 전문 AI 어시스턴트입니다.
 제공된 복리후생 관련 문서를 기반으로 직원들의 복리후생 혜택, 휴가, 건강보험, 연금, 각종 보상 및 복지 제도에 대해 정확하고 상세한 답변을 제공하세요.
 답변할 때는 문서의 내용을 직접 인용하거나 참고하여 답변하며, 구체적인 절차, 자격요건, 신청방법 등을 명확히 안내하세요.
 만약 문서에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.
+이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변하세요.
 주의: 답변에는 "[참고 문서]" 섹션을 포함하지 마세요. 답변 내용만 제공하세요."""),
-		("user", """다음은 회사의 복리후생 정책 문서에서 검색된 관련 내용입니다:
+	]
+	
+	# 이전 대화 히스토리 추가 (최근 5개)
+	if conversation_history:
+		for msg in conversation_history[-5:]:
+			role = msg.get("role", "")
+			content = msg.get("content", "")
+			if role and content:
+				messages.append((role, content))
+	
+	messages.append(("user", """다음은 회사의 복리후생 정책 문서에서 검색된 관련 내용입니다:
 
 {context}
 
@@ -380,8 +402,10 @@ def generate_answer(state: BenefitState) -> BenefitState:
 
 위 문서들을 참고하여 복리후생 관련 질문에 대한 상세하고 실용적인 답변을 한국어로 제공해주세요.
 답변에는 가능한 한 구체적인 절차, 자격요건, 신청방법, 문의처 등을 포함해주세요.
-주의: 답변 끝에 "[참고 문서]" 섹션을 추가하지 마세요.""")
-	])
+이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요.
+주의: 답변 끝에 "[참고 문서]" 섹션을 추가하지 마세요."""))
+	
+	prompt_template = ChatPromptTemplate.from_messages(messages)
 	
 	llm = ChatOpenAI(
 		model="gpt-4o-mini",
@@ -432,11 +456,15 @@ def _create_rag_graph():
 # ───────────────────────────────────────────────────────────
 # 메인 함수
 # ───────────────────────────────────────────────────────────
-def benefit_rag(user_query: str) -> Dict:
+async def benefit_rag(
+	user_query: str,
+	orchestrator_state: Optional[Dict[str, Any]] = None,
+) -> Dict:
 	"""복리후생 RAG 에이전트 메인 함수.
 	
 	Args:
 		user_query: 사용자 질의
+		orchestrator_state: OrchestratorState 딕셔너리 (Redis 숏텀 메모리용)
 		
 	Returns:
 		에이전트 실행 결과 딕셔너리
@@ -447,6 +475,21 @@ def benefit_rag(user_query: str) -> Dict:
 		if _rag_graph is None:
 			_rag_graph = _create_rag_graph()
 		
+		# conversation_history 추출
+		conversation_history = None
+		if orchestrator_state:
+			conv_history = orchestrator_state.get("conversation_history", [])
+			if conv_history:
+				# Message 객체를 dict로 변환
+				conversation_history = [
+					{
+						"role": msg.get("role", ""),
+						"content": msg.get("content", ""),
+					}
+					for msg in conv_history
+					if isinstance(msg, dict) and msg.get("role") and msg.get("content")
+				]
+		
 		# 초기 상태 설정
 		initial_state = {
 			"question": user_query,
@@ -456,11 +499,22 @@ def benefit_rag(user_query: str) -> Dict:
 			"keyword_search_results": [],
 			"retrieved_contexts": [],
 			"answer": "",
-			"timings": {}
+			"timings": {},
+			"conversation_history": conversation_history,
 		}
 		
 		# 그래프 실행
-		result = _rag_graph.invoke(initial_state)
+		result = await _rag_graph.ainvoke(initial_state)
+		
+		# Redis에 검색 컨텍스트 저장
+		if orchestrator_state is not None:
+			if "qa_search_context" not in orchestrator_state:
+				orchestrator_state["qa_search_context"] = {}
+			orchestrator_state["qa_search_context"]["benefit"] = {
+				"last_query": user_query,
+				"last_answer": result.get("answer", ""),
+				"retrieved_contexts": result.get("retrieved_contexts", []),
+			}
 		
 		# 결과 반환
 		return {

@@ -87,9 +87,22 @@ class HybridSearchConfig(BaseModel):
 
 class MilvusConfig(BaseModel):
     """MilvusDB 설정"""
-    host: str = Field(default="175.120.35.228", description="Milvus 호스트")
-    port: int = Field(default=19530, description="Milvus 포트")
-    collection_name: str = Field(default="test_embeddings_docling_yj", description="컬렉션 이름")
+    host: str = Field(
+        default_factory=lambda: (
+            (os.getenv("HOST", "")).strip()
+        ),
+        description="Milvus 호스트 (환경변수: HOST 또는 MILVUS_HOST)"
+    )
+    port: int = Field(
+        default_factory=lambda: int((os.getenv("MILVUS_PORT", "")).strip()),
+        description="Milvus 포트 (환경변수: MILVUS_PORT)"
+    )
+    collection_name: str = Field(
+        default_factory=lambda: (
+            (os.getenv("MENUAL_COLLECTION", "")).strip()
+        ),
+        description="컬렉션 이름 (환경변수: MENUAL_COLLECTION)"
+    )
     dimension: int = Field(default=1536, description="벡터 차원")
     top_k: int = Field(default=5, description="상위 k개 문서 추출")
     embedding_field: str = Field(default="embedding", description="벡터 필드명")
@@ -127,46 +140,68 @@ class ManualSearchConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> "ManualSearchConfig":
-        """환경 변수에서 설정 로드"""
+        """환경 변수에서 설정 로드 (공백 제거 및 기본값 처리)."""
+        
+        def get_env(key: str, default: Optional[str] = None) -> Optional[str]:
+            """환경 변수 조회 (공백 제거)."""
+            value = os.getenv(key, default)
+            return value.strip() if value else default
+        
+        # 임베딩 설정
+        embedding_model = get_env("EMBEDDING_MODEL") 
         embedding_config = EmbeddingConfig(
-            openai_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
-            api_key=os.getenv("OPENAI_API_KEY", ""),
+            openai_model=embedding_model,
+            api_key=get_env("OPENAI_API_KEY", ""),
         )
 
         default_dimension = 1536
-        milvus_dimension = int(os.getenv("MILVUS_DIMENSION", str(default_dimension)))
+        milvus_dimension = int(get_env("MILVUS_DIMENSION") or str(default_dimension))
 
+        # 하이브리드 검색 설정
         hybrid_search_config = HybridSearchConfig(
-            enabled=os.getenv("HYBRID_SEARCH_ENABLED", "false").lower() == "true",
-            vector_weight=float(os.getenv("HYBRID_SEARCH_VECTOR_WEIGHT", "0.5")),
-            keyword_weight=float(os.getenv("HYBRID_SEARCH_KEYWORD_WEIGHT", "0.5")),
-            use_rrf=os.getenv("HYBRID_SEARCH_USE_RRF", "false").lower() == "true",
-            rrf_k=int(os.getenv("HYBRID_SEARCH_RRF_K", "60")),
-            vector_expansion_factor=float(os.getenv("HYBRID_SEARCH_VECTOR_EXPANSION_FACTOR", "5.0")),
-            keyword_expansion_factor=float(os.getenv("HYBRID_SEARCH_KEYWORD_EXPANSION_FACTOR", "2.0")),
-            min_score_threshold=float(os.getenv("HYBRID_SEARCH_MIN_SCORE_THRESHOLD", "0.3")),
-            core_keyword_bonus_per_match=float(os.getenv("HYBRID_SEARCH_CORE_KEYWORD_BONUS", "2.0")),
-            core_keyword_penalty_ratio=float(os.getenv("HYBRID_SEARCH_CORE_KEYWORD_PENALTY", "0.5")),
+            enabled=(get_env("HYBRID_SEARCH_ENABLED", "true") or "true").lower() == "true",
+            vector_weight=float(get_env("HYBRID_SEARCH_VECTOR_WEIGHT", "0.5") or "0.5"),
+            keyword_weight=float(get_env("HYBRID_SEARCH_KEYWORD_WEIGHT", "0.5") or "0.5"),
+            use_rrf=(get_env("HYBRID_SEARCH_USE_RRF", "false") or "false").lower() == "true",
+            rrf_k=int(get_env("HYBRID_SEARCH_RRF_K", "60") or "60"),
+            vector_expansion_factor=float(get_env("HYBRID_SEARCH_VECTOR_EXPANSION_FACTOR", "5.0") or "5.0"),
+            keyword_expansion_factor=float(get_env("HYBRID_SEARCH_KEYWORD_EXPANSION_FACTOR", "2.0") or "2.0"),
+            min_score_threshold=float(get_env("HYBRID_SEARCH_MIN_SCORE_THRESHOLD", "0.3") or "0.3"),
+            core_keyword_bonus_per_match=float(get_env("HYBRID_SEARCH_CORE_KEYWORD_BONUS", "2.0") or "2.0"),
+            core_keyword_penalty_ratio=float(get_env("HYBRID_SEARCH_CORE_KEYWORD_PENALTY", "0.5") or "0.5"),
         )
 
+        # 컬렉션 이름: MENUAL_COLLECTION 우선, 그 다음 MANUAL_COLLECTION, MILVUS_COLLECTION_NAME_MANUAL, 마지막으로 기본값
+        collection_name = (
+            get_env("MENUAL_COLLECTION") 
+        )
+        
+        # Milvus 호스트 및 포트 (공백 제거 및 기본값 제공)
+        milvus_host = get_env("HOST")
+        milvus_port = int(get_env("MILVUS_PORT"))
+        
+        # LLM 설정
+        openai_api_key = get_env("OPENAI_API_KEY")
+        openai_model = get_env("OPENAI_MODEL")
+        
         return cls(
             milvus=MilvusConfig(
-                host=os.getenv("HOST"),
-                port=int(os.getenv("MILVUS_PORT", "19530")),
-                collection_name=os.getenv("MILVUS_COLLECTION_NAME_MANUAL", "test_embeddings_docling_yj"),
+                host=milvus_host,
+                port=milvus_port,
+                collection_name=collection_name,
                 dimension=milvus_dimension,
-                top_k=int(os.getenv("MILVUS_TOP_K", "5")),
-                embedding_field=os.getenv("MILVUS_EMBEDDING_FIELD", "embedding"),
-                document_field=os.getenv("MILVUS_DOCUMENT_FIELD", "content"),
-                metadata_field=os.getenv("MILVUS_METADATA_FIELD", "metadata"),
-                metric_type=os.getenv("MILVUS_METRIC_TYPE", "L2"),
+                top_k=int(get_env("MILVUS_TOP_K", "10") or "10"),  # 기본값 5 → 10으로 증가
+                embedding_field=get_env("MILVUS_EMBEDDING_FIELD", "embedding") or "embedding",
+                document_field=get_env("MILVUS_DOCUMENT_FIELD", "content") or "content",
+                metadata_field=get_env("MILVUS_METADATA_FIELD", "metadata") or "metadata",
+                metric_type=get_env("MILVUS_METRIC_TYPE", "L2") or "L2",
                 hybrid_search=hybrid_search_config,
             ),
             llm=LLMConfig(
-                api_key=os.getenv("OPENAI_API_KEY", ""),
-                model=os.getenv("OPENAI_MODEL"),
-                temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
-                max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "1000")),
+                api_key=openai_api_key,
+                model=openai_model,
+                temperature=float(get_env("OPENAI_TEMPERATURE", "0.7") or "0.7"),
+                max_tokens=int(get_env("OPENAI_MAX_TOKENS", "1000") or "1000"),
             ),
             embedding=embedding_config,
         )
@@ -258,7 +293,17 @@ class KeywordSearcher:
         if not text:
             return []
 
-        tokens = re.findall(r'\b\w+\b', text.lower())
+        # 한국어 단어(가-힣)와 영어/숫자 단어를 모두 추출
+        # 한국어는 2글자 이상, 영어/숫자는 \b 경계 사용
+        tokens = []
+        # 한글 추출 (2글자 이상)
+        korean_tokens = re.findall(r'[가-힣]{2,}', text)
+        tokens.extend([t.lower() for t in korean_tokens])
+        
+        # 영어/숫자 단어 추출
+        english_tokens = re.findall(r'\b[a-zA-Z0-9]+\b', text.lower())
+        tokens.extend(english_tokens)
+        
         return tokens
 
     @staticmethod
@@ -332,12 +377,14 @@ class AnswerGenerator:
         self,
         query: str,
         documents: List[Dict[str, Any]],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         """프롬프트 생성
 
         Args:
             query: 사용자 질의
             documents: 검색된 문서 리스트
+            conversation_history: 이전 대화 히스토리 (선택적)
 
         Returns:
             생성된 프롬프트
@@ -360,24 +407,46 @@ class AnswerGenerator:
             정중하게 관련 문서가 없다고 알려주세요."""
 
         documents_section = "\n\n".join(document_texts)
+        
+        # 이전 대화 히스토리 추가
+        history_section = ""
+        if conversation_history:
+            history_messages = []
+            for msg in conversation_history[-5:]:  # 최근 5개 메시지만 사용
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role and content:
+                    role_kr = "사용자" if role == "user" else "어시스턴트"
+                    history_messages.append(f"{role_kr}: {content}")
+            if history_messages:
+                history_section = f"""
+
+        **이전 대화 내용:**
+        {chr(10).join(history_messages)}
+
+        **현재 질문:** {query}
+
+        위 이전 대화 내용을 참고하여 자연스럽고 대화하듯이 답변하세요. 사용자가 이전에 언급한 내용을 기억하고 있다는 것을 보여주세요."""
 
         prompt = f"""당신은 실무형 고성능 AI 어시스턴트입니다.
 
         **역할:**
         - 인사 정책 매뉴얼 문서를 참고해 사용자에게 유용한 답변을 제공합니다.
+        - 이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변합니다.
 
         **참고 문서:**
         {documents_section}
-
-        **사용자 질문:** {query}
+        {history_section if history_section else f"**사용자 질문:** {query}"}
 
         **답변 작성 지침:**
-        1) 답변은 2~3줄 핵심 요약 후, 필요 시 단계별 설명을 제공합니다.
-        2) 문서 내용의 맥락과 문맥을 고려하여 답변하세요.
-        3) 구체적인 숫자, 날짜, 기간, 수량을 묻는 질문이 포함되어 있으면 문서에서 구체적인 숫자나 날짜를 찾아 명확히 답변하세요.
-        4) 문서에 구체적인 숫자가 없으면 "제공된 문서에는 구체적인 일수 정보가 없습니다"라고 명확히 말하세요.
-        5) 답변에 추가 정보가 필요하면 사용자에게 추가 정보를 요청하는 질문을 하세요.
+        1) 제공된 문서에서 질문과 관련된 내용을 찾아 답변하세요. 문서 내용을 최대한 활용하세요.
+        2) 질문의 핵심 키워드(예: "출근", "연차", "휴가" 등)가 문서에 언급되어 있으면, 그 내용을 바탕으로 답변하세요.
+        3) 문서 내용이 질문과 직접적으로 관련이 없어도, 간접적으로 관련이 있거나 유사한 내용이 있으면 그 내용을 참고하여 답변하세요.
+        4) 문서에서 구체적인 정보(숫자, 날짜, 절차 등)를 찾을 수 있으면 반드시 포함하세요.
+        5) 문서 내용을 기반으로 답변할 수 없을 때만 "제공된 문서에는 관련 내용이 없습니다"라고 말하세요.
         6) 여러 문서가 제공되었을 때, 질문과 가장 직접적으로 관련된 문서의 내용을 우선적으로 사용하세요.
+        7) 문서의 전체 내용을 검토하여, 부분적으로라도 관련 있는 정보가 있으면 활용하세요.
+        8) 이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요.
 
 
         **답변:**"""
@@ -388,34 +457,52 @@ class AnswerGenerator:
         self,
         query: str,
         documents: List[Dict[str, Any]],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         """답변 생성
 
         Args:
             query: 사용자 질의
             documents: 검색된 문서 리스트
+            conversation_history: 이전 대화 히스토리 (선택적)
 
         Returns:
             생성된 답변
         """
-        prompt = self.generate_prompt(query, documents)
+        prompt = self.generate_prompt(query, documents, conversation_history)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=[
+            # conversation_history를 messages에 포함
+            messages = [
                     {
                         "role": "system",
                         "content":  f"""당신은 인사 정책 및 절차 매뉴얼을 도와주는 AI 어시스턴트입니다.
                         제공된 문서를 기반으로 정확하고 상세한 답변을 제공하세요.
                         답변할 때는 문서의 내용을 직접 인용하거나 참고하여 답변하세요.
-                        만약 문서에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.""",
+                    만약 문서에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.
+                    이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변하세요.""",
                     },
-                    {
+            ]
+            
+            # 이전 대화 히스토리 추가 (최근 5개)
+            if conversation_history:
+                for msg in conversation_history[-5:]:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role and content:
+                        messages.append({
+                            "role": role,
+                            "content": content
+                        })
+            
+            messages.append({
                         "role": "user",
                         "content": prompt,
-                    },
-                ],
+            })
+            
+            response = self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
             )
@@ -464,10 +551,24 @@ class DocumentRetriever:
             if utility.has_collection(self.config.collection_name):
                 self.collection = Collection(self.config.collection_name)
                 self.collection.load()
+                logger.info(f"✅ 컬렉션 로드 완료: {self.config.collection_name}")
             else:
-                raise ValueError(f"컬렉션 '{self.config.collection_name}'이 존재하지 않습니다.")
+                # 사용 가능한 컬렉션 목록 조회
+                available_collections = utility.list_collections()
+                error_msg = (
+                    f"컬렉션 '{self.config.collection_name}'이 존재하지 않습니다.\n"
+                    f"사용 가능한 컬렉션: {', '.join(available_collections) if available_collections else '없음'}\n"
+                    f"환경변수 MENUAL_COLLECTION, MANUAL_COLLECTION, 또는 MILVUS_COLLECTION_NAME_MANUAL을 확인하세요."
+                )
+                logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+        except ValueError:
+            # ValueError는 그대로 전달 (이미 포맷된 메시지)
+            raise
         except Exception as e:
-            raise ValueError(f"컬렉션 로드 실패: {e}")
+            error_msg = f"컬렉션 로드 실패: {e}"
+            logger.error(f"❌ {error_msg}")
+            raise ValueError(error_msg)
 
     def search(
         self,
@@ -526,6 +627,13 @@ class DocumentRetriever:
 
         documents = []
         for hit in results[0]:
+            # 거리가 너무 큰 결과는 필터링 (임계값: 2.5)
+            # L2 distance의 경우, 거리가 클수록 유사도가 낮음
+            # 하지만 너무 엄격한 필터링은 피해야 함
+            if hit.distance > 2.5:
+                logger.debug(f"[DocumentRetriever] 거리 {hit.distance:.4f}가 너무 커서 필터링됨")
+                continue
+            
             if self.config.metadata_field in output_fields:
                 metadata_str = hit.entity.get(self.config.metadata_field, "{}")
                 try:
@@ -550,6 +658,7 @@ class DocumentRetriever:
             }
             documents.append(doc)
 
+        logger.info(f"[DocumentRetriever] 검색 완료: {len(documents)}개 유효한 문서 (전체 결과: {len(results[0])}개)")
         return documents
 
     def hybrid_search(
@@ -577,8 +686,10 @@ class DocumentRetriever:
 
         vector_expansion = int(top_k * self.config.hybrid_search.vector_expansion_factor)
         vector_results = self.search(query_vector, vector_expansion, filter_expr)
+        logger.info(f"[Hybrid Search] 벡터 검색 결과: {len(vector_results)}개")
 
         if not vector_results:
+            logger.warning("[Hybrid Search] 벡터 검색 결과가 없어 하이브리드 검색 중단")
             return []
 
         documents = [doc["document"] for doc in vector_results]
@@ -587,6 +698,7 @@ class DocumentRetriever:
         keyword_searcher = KeywordSearcher(documents, doc_ids)
         keyword_expansion = int(top_k * self.config.hybrid_search.keyword_expansion_factor)
         keyword_results = keyword_searcher.search(query_text, keyword_expansion)
+        logger.info(f"[Hybrid Search] 키워드 검색 결과: {len(keyword_results)}개 (쿼리: '{query_text}')")
 
         core_keywords = self._extract_core_keywords(query_text)
 
@@ -603,7 +715,8 @@ class DocumentRetriever:
                 self.config.hybrid_search.vector_weight,
                 self.config.hybrid_search.keyword_weight,
             )
-
+        
+        logger.info(f"[Hybrid Search] 최종 통합 결과: {len(combined_results)}개 문서")
         return combined_results
 
     def _combine_with_rrf(
@@ -852,6 +965,10 @@ class ManualSearchState(BaseModel):
         default=None,
         description="그래프 최종 출력",
     )
+    conversation_history: Optional[List[Dict[str, str]]] = Field(
+        default=None,
+        description="이전 대화 히스토리 (Redis 숏텀 메모리)",
+    )
 
     model_config = {
         "arbitrary_types_allowed": True,
@@ -942,16 +1059,33 @@ class RetrievalNode(RunnableLambda):
             self._retriever.config.hybrid_search
             and self._retriever.config.hybrid_search.enabled
         ):
+            logger.info(f"[Manual Search] 하이브리드 검색 실행: '{query_text}'")
             results = self._retriever.hybrid_search(
                 embedding.vector,
                 query_text,
                 top_k=self._top_k,
             )
         else:
+            logger.info(f"[Manual Search] 벡터 검색 실행: '{query_text}'")
             results = self._retriever.search(
                 embedding.vector,
                 top_k=self._top_k,
             )
+
+        # 검색 결과 로깅 (더 상세히)
+        logger.info(f"[Manual Search] 검색 완료: {len(results)}개 문서 발견")
+        if results:
+            for i, doc in enumerate(results[:5], 1):  # 상위 5개 로깅
+                doc_text = doc.get("document", "") or ""
+                # 문서 전체 내용 로깅 (너무 길면 앞부분만)
+                preview_text = doc_text[:300] if len(doc_text) > 300 else doc_text
+                metadata = doc.get("metadata", {})
+                file_name = metadata.get("file_name", "Unknown")
+                logger.info(f"  [{i}] Score: {doc.get('score', 0):.4f}, Distance: {doc.get('distance', 0):.4f}, "
+                           f"File: {file_name}")
+                logger.info(f"      Content: {preview_text}{'...' if len(doc_text) > 300 else ''}")
+        else:
+            logger.warning(f"[Manual Search] ⚠️ 검색 결과가 없습니다! 쿼리: '{query_text}'")
 
         state.documents = [
             RetrievedDocument(
@@ -975,13 +1109,31 @@ class GenerateAnswerNode(RunnableLambda):
     def _run(self, state: ManualSearchState) -> ManualSearchState:
         documents = state.documents
         if not documents:
+            logger.error(f"[Answer Generation] 검색된 문서가 없습니다. 쿼리: '{state.query.text}'")
             raise ValueError("검색된 문서가 없습니다.")
 
         query_text = state.query.text
         document_payloads = [doc.model_dump() for doc in documents]
-
-        prompt = self._generator.generate_prompt(query_text, document_payloads)
-        answer_text = self._generator.generate(query_text, document_payloads)
+        conversation_history = state.conversation_history
+        
+        logger.info(f"[Answer Generation] {len(documents)}개 문서로 답변 생성 중: '{query_text}'")
+        if conversation_history:
+            logger.info(f"[Answer Generation] 이전 대화 히스토리 {len(conversation_history)}개 메시지 활용")
+        
+        # 검색된 문서 내용 상세 로깅
+        for i, doc in enumerate(documents[:3], 1):
+            doc_preview = doc.document[:200] if doc.document else ""
+            logger.info(f"[Answer Generation] 문서 {i} (Score: {doc.score:.4f}): {doc_preview}...")
+        
+        prompt = self._generator.generate_prompt(query_text, document_payloads, conversation_history)
+        
+        # 프롬프트도 로깅 (디버깅용, 첫 500자만)
+        logger.debug(f"[Answer Generation] 프롬프트 (첫 500자): {prompt[:500]}...")
+        
+        answer_text = self._generator.generate(query_text, document_payloads, conversation_history)
+        
+        logger.info(f"[Answer Generation] 답변 생성 완료 (길이: {len(answer_text)}자)")
+        logger.info(f"[Answer Generation] 생성된 답변: {answer_text[:300]}{'...' if len(answer_text) > 300 else ''}")
 
         state.answer = AnswerPayload(
             text=answer_text,
@@ -1035,13 +1187,14 @@ def build_manual_search_graph(
     return graph.compile()
 
 
-def run_manual_search(
+async def run_manual_search(
     query: str,
     embedder: Embedder,
     retriever: DocumentRetriever,
     answer_generator: AnswerGenerator,
     *,
     top_k: Optional[int] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> ManualSearchOutput:
     """LangGraph 파이프라인을 실행하고 최종 결과를 반환."""
     compiled_graph = build_manual_search_graph(
@@ -1050,8 +1203,11 @@ def run_manual_search(
         answer_generator=answer_generator,
         top_k=top_k,
     )
-    initial_state = ManualSearchState(query=QueryPayload(text=query))
-    result = compiled_graph.invoke(initial_state)
+    initial_state = ManualSearchState(
+        query=QueryPayload(text=query),
+        conversation_history=conversation_history,
+    )
+    result = await compiled_graph.ainvoke(initial_state)
 
     if isinstance(result, dict):
         final_state = ManualSearchState(**result)
@@ -1114,11 +1270,15 @@ def _initialize_components() -> tuple[Embedder, DocumentRetriever, AnswerGenerat
 # Agent 메인 함수
 # ============================================================================
 
-def manual_search(user_text: str) -> Dict:
+async def manual_search(
+    user_text: str,
+    orchestrator_state: Optional[Dict[str, Any]] = None,
+) -> Dict:
     """메뉴얼 검색 Agent 메인 함수
     
     Args:
         user_text: 사용자 질의 텍스트
+        orchestrator_state: OrchestratorState 딕셔너리 (Redis 숏텀 메모리용)
         
     Returns:
         검색 결과 딕셔너리
@@ -1126,13 +1286,39 @@ def manual_search(user_text: str) -> Dict:
     try:
         embedder, retriever, answer_generator, config = _initialize_components()
         
-        result = run_manual_search(
+        # conversation_history 추출
+        conversation_history = None
+        if orchestrator_state:
+            conv_history = orchestrator_state.get("conversation_history", [])
+            if conv_history:
+                # Message 객체를 dict로 변환
+                conversation_history = [
+                    {
+                        "role": msg.get("role", ""),
+                        "content": msg.get("content", ""),
+                    }
+                    for msg in conv_history
+                    if isinstance(msg, dict) and msg.get("role") and msg.get("content")
+                ]
+        
+        result = await run_manual_search(
             query=user_text,
             embedder=embedder,
             retriever=retriever,
             answer_generator=answer_generator,
             top_k=config.milvus.top_k,
+            conversation_history=conversation_history,
         )
+        
+        # Redis에 검색 컨텍스트 저장
+        if orchestrator_state is not None:
+            if "qa_search_context" not in orchestrator_state:
+                orchestrator_state["qa_search_context"] = {}
+            orchestrator_state["qa_search_context"]["manual"] = {
+                "last_query": user_text,
+                "last_answer": result.answer.text if result.answer and result.answer.text else "",
+                "retrieved_contexts": [doc.document for doc in result.sources][:3],
+            }
         
         return {
             "ok": True,

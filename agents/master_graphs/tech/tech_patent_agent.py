@@ -42,6 +42,9 @@ try:
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
+# OpenAI 임베딩 사용
+from agents.embedding_utils import get_embedding_generator
+
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     TEXT_SPLITTER_AVAILABLE = True
@@ -149,21 +152,38 @@ def _set_session_id(session_id: Optional[str] = None) -> str:
     return _PATENT_SESSION_ID
 
 
-def _get_search_results(session_id: Optional[str] = None) -> List[Dict]:
-    """캐시된 검색 결과 가져오기."""
+def _get_search_results(session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> List[Dict]:
+    """캐시된 검색 결과 가져오기 (Redis 숏텀 메모리 우선)."""
+    # Redis 숏텀 메모리에서 가져오기 (우선)
+    if orchestrator_state and "tech_search_context" in orchestrator_state:
+        patent_context = orchestrator_state["tech_search_context"].get("patent", {})
+        if patent_context.get("results"):
+            return patent_context.get("results", [])
+    
+    # 하위 호환성: 로컬 캐시 사용
     sid = _set_session_id(session_id)
     return _PATENT_SEARCH_CACHE.get(sid, [])
 
 
-def _save_search_results(results: List[Dict], session_id: Optional[str] = None) -> None:
-    """검색 결과 캐시에 저장."""
+def _save_search_results(results: List[Dict], session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> None:
+    """검색 결과 캐시에 저장 (Redis 숏텀 메모리 우선)."""
+    # Redis 숏텀 메모리에 저장 (우선)
+    if orchestrator_state is not None:
+        if "tech_search_context" not in orchestrator_state:
+            orchestrator_state["tech_search_context"] = {}
+        if "patent" not in orchestrator_state["tech_search_context"]:
+            orchestrator_state["tech_search_context"]["patent"] = {}
+        
+        orchestrator_state["tech_search_context"]["patent"]["results"] = results
+    
+    # 하위 호환성: 로컬 캐시에도 저장
     sid = _set_session_id(session_id)
     _PATENT_SEARCH_CACHE[sid] = results
 
 
-def has_pending_patent_results(session_id: Optional[str] = None) -> bool:
-    """대기 중인 특허 검색 결과가 있는지 확인."""
-    return len(_get_search_results(session_id)) > 0
+def has_pending_patent_results(session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> bool:
+    """대기 중인 특허 검색 결과가 있는지 확인 (Redis 숏텀 메모리 우선)."""
+    return len(_get_search_results(session_id, orchestrator_state)) > 0
 
 
 def is_waiting_for_search_mode(session_id: Optional[str] = None) -> bool:
@@ -219,7 +239,7 @@ def parse_search_mode_from_input(user_input: str) -> Optional[Literal["server", 
         return "server"
 
     # 웹 검색 관련 키워드
-    web_keywords = ["웹", "web", "kipris", "인터넷", "온라인", "웹 검색", "웹검색", "온라인 검색", "온라인검색"]
+    web_keywords = ["웹", "web", "kipris", "인터넷", "온라인", "웹 검색", "웹검색", "온라인 검색", "온라인검색", "웹에서", "웹에서 검색"]
     if any(k in t for k in web_keywords):
         return "web"
 
@@ -445,7 +465,7 @@ def get_full_text_from_file(application_number: str) -> str:
 # ───────────────────────────────────────────────────────────
 # 임베딩 모델 및 벡터DB 초기화 (지연 로딩)
 # ───────────────────────────────────────────────────────────
-_embedding_model: Optional[SentenceTransformer] = None
+_embedding_model = None  # OpenAIEmbeddingGenerator 인스턴스
 _splitter: Optional[RecursiveCharacterTextSplitter] = None
 
 
@@ -453,15 +473,12 @@ def _initialize_models() -> None:
     """임베딩 모델 및 텍스트 스플리터 초기화."""
     global _embedding_model, _splitter
     
-    if not SENTENCE_TRANSFORMERS_AVAILABLE:
-        raise ImportError("sentence-transformers가 설치되지 않았습니다. pip install sentence-transformers")
-    
     if not TEXT_SPLITTER_AVAILABLE:
         raise ImportError("langchain_text_splitters가 설치되지 않았습니다. pip install langchain-text-splitters")
     
     if _embedding_model is None:
         try:
-            _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+            _embedding_model = get_embedding_generator()
         except Exception as e:
             raise RuntimeError(f"임베딩 모델 로딩 실패: {e}")
     
@@ -477,9 +494,10 @@ def _initialize_milvus() -> None:
     if not MILVUS_AVAILABLE:
         raise ImportError("pymilvus가 설치되지 않았습니다. pip install pymilvus")
 
-    # 공용 서버 주소 (환경 변수로 오버라이드 가능)
-    milvus_host = _get_env("HOST", "175.120.35.228")
-    milvus_port = _get_env("MILVUS_PORT", "19530")
+    # 공용 서버 주소 (.env 파일에서 환경 변수 읽기)
+    milvus_host = _get_env("HOST") or _get_env("MILVUS_HOST") or "175.114.229.152"
+    milvus_port_str = _get_env("MILVUS_PORT") or "19530"
+    milvus_port = int(milvus_port_str.strip()) if milvus_port_str else 19530
     
     try:
         connections.connect("default", host=milvus_host, port=milvus_port)
@@ -664,6 +682,10 @@ def get_collection_name(keyword: str) -> str:
 
 
 def get_or_create_collection(collection_name: str) -> Collection:
+    """컬렉션 가져오기 또는 생성 (임베딩 모델 초기화 확인)."""
+    # 임베딩 모델 초기화 확인
+    if _embedding_model is None:
+        _initialize_models()
     """컬렉션 가져오기 또는 생성."""
     _initialize_milvus()
     
@@ -691,7 +713,7 @@ def get_or_create_collection(collection_name: str) -> Collection:
         FieldSchema(name="abstract", dtype=DataType.VARCHAR, max_length=2000),
         FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=2000),
         FieldSchema(name="patent_keyword", dtype=DataType.VARCHAR, max_length=128),  # 특허_키워드 형식
-        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),
+        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=_embedding_model.dimension),
     ]
     schema = CollectionSchema(fields, description=f"KIPRIS 특허 임베딩 데이터 - {collection_name}")
     
@@ -749,7 +771,7 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         field_names = [field.name for field in schema.fields]
         has_patent_keyword = "patent_keyword" in field_names
 
-        query_vec = _embedding_model.encode([query])[0].tolist()  # type: ignore
+        query_vec = _embedding_model.embed(query)
 
         # 필터링 조건 설정 (patent_keyword 필드가 있을 때만)
         expr = None
@@ -865,7 +887,13 @@ def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Pa
         has_patent_keyword = "patent_keyword" in field_names
 
         chunks = _splitter.split_text(text)  # type: ignore
-        embeddings = _embedding_model.encode(chunks, show_progress_bar=False)  # type: ignore
+        embeddings = _embedding_model.embed_batch(chunks)
+        
+        # embeddings가 numpy 배열이면 tolist() 호출, 이미 리스트면 그대로 사용
+        if hasattr(embeddings, 'tolist'):
+            embeddings_list = embeddings.tolist()
+        else:
+            embeddings_list = embeddings
         
         app_nos = [app_no] * len(chunks)
         titles = [title] * len(chunks)
@@ -874,10 +902,10 @@ def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Pa
         # patent_keyword 필드가 있을 때만 포함
         if has_patent_keyword:
             patent_keywords = [patent_keyword] * len(chunks)  # 특허_키워드 필드
-            data = [app_nos, titles, abstracts, chunks, patent_keywords, embeddings.tolist()]
+            data = [app_nos, titles, abstracts, chunks, patent_keywords, embeddings_list]
         else:
             # 기존 컬렉션 (patent_keyword 필드 없음)
-            data = [app_nos, titles, abstracts, chunks, embeddings.tolist()]
+            data = [app_nos, titles, abstracts, chunks, embeddings_list]
 
         target_collection.insert(data)
         target_collection.flush()
@@ -919,14 +947,19 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
     # 검색 모드가 설정되지 않았고, 사용자가 명시적으로 선택하지 않은 경우 질문
     # 단, 이미 검색 모드가 설정되어 있으면 질문하지 않음
     current_search_mode = state.get("search_mode")
-    if current_search_mode is None and state.get("use_server_first") is True:
+    use_server_first = state.get("use_server_first", True)
+    print(f"🔍 [DEBUG] check_db_node: current_search_mode={current_search_mode}, use_server_first={use_server_first}")
+    
+    if current_search_mode is None and use_server_first is True:
         # 첫 검색 시 검색 모드 선택 질문
+        print(f"🔍 [DEBUG] check_db_node: 검색 모드 선택 질문으로 라우팅")
         state["progress_status"] = "❓ 검색 방식을 선택해주세요."
         state["next_action"] = "ask_search_mode"
         return state
 
     # 검색 모드가 "web"이면 바로 웹 검색으로
     if current_search_mode == "web":
+        print(f"🔍 [DEBUG] check_db_node: 웹 검색 모드로 라우팅")
         state["progress_status"] = "🌐 웹 검색 모드로 전환합니다..."
         _notify_progress(state["progress_status"])
         state["next_action"] = "search_kipris"
@@ -1028,26 +1061,40 @@ def ask_web_search_node(state: PatentSearchState) -> PatentSearchState:
 
 def search_kipris_node(state: PatentSearchState) -> PatentSearchState:
     """KIPRIS API로 특허 검색."""
-    query = state.get("keyword") or state["user_query"]
-    state["progress_status"] = "🌐 KIPRIS 웹 API에서 특허를 검색 중입니다..."
+    # keyword가 있으면 사용, 없으면 user_query에서 추출
+    query = state.get("keyword")
+    if not query:
+        query = _extract_keyword(state["user_query"])
+        state["keyword"] = query
+        
+    state["progress_status"] = f"🌐 KIPRIS 웹 API에서 특허를 검색 중입니다... (검색어: {query})"
     _notify_progress(state["progress_status"])
+    print(f"🔍 [DEBUG] KIPRIS 검색 시도: query='{query}'")
 
     try:
+        print(f"🔍 [DEBUG] KIPRIS API 호출: query='{query}', rows=10")
         data = kipris_search(query, rows=10)
 
         if not data or not isinstance(data, dict):
+            print(f"⚠️ [DEBUG] KIPRIS API 응답이 비어있거나 dict가 아님: {data}")
             state["search_results"] = []
             state["next_action"] = "end"
             return state
 
         response = data.get("response", {})
+        header = response.get("header", {})
+        result_msg = header.get("resultMsg", "")
+        print(f"🔍 [DEBUG] KIPRIS API 응답 헤더: {header}")
+
         if not response or not isinstance(response, dict):
+            print(f"⚠️ [DEBUG] response 필드 없음")
             state["search_results"] = []
             state["next_action"] = "end"
             return state
 
         body = response.get("body", {})
         if not body or not isinstance(body, dict):
+            print(f"⚠️ [DEBUG] body 필드 없음")
             state["search_results"] = []
             state["next_action"] = "end"
             return state
@@ -1103,11 +1150,13 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
     state["progress_status"] = f"📥 특허 PDF 다운로드 중: {app_no}"
     _notify_progress(state["progress_status"])
 
-    base_dir = Path(__file__).resolve().parent.parent
-    data_root = base_dir / "data"
-    pdf_dir = data_root / "pdf"
-    text_dir = data_root / "text"
-    meta_dir = data_root / "meta"
+    # 임시 디렉토리 사용 (처리 후 삭제)
+    import tempfile
+    import shutil
+    temp_dir = Path(tempfile.mkdtemp(prefix="patent_"))
+    pdf_dir = temp_dir / "pdf"
+    text_dir = temp_dir / "text"
+    meta_dir = temp_dir / "meta"
     
     try:
         pdf_path, download_info = kipris_download_pdf(app_no, pdf_dir)
@@ -1135,6 +1184,7 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
                 # 특허_키워드 형식으로 저장
                 keyword = state.get("keyword", extract_keyword_from_text(f"{title} {abstract}"))
                 patent_keyword = f"특허_{keyword}"
+                print(f"🔍 [DEBUG] download_pdf_node: 사용할 키워드='{keyword}', 컬렉션 예상 이름='{get_collection_name(keyword)}'")
 
                 state["progress_status"] = "💾 벡터DB에 특허 정보 저장 중..."
                 _notify_progress(state["progress_status"])
@@ -1168,6 +1218,31 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
             state["pdf_content"] = body
             state["pdf_link"] = download_info.get("download_url", "") if isinstance(download_info, dict) else ""
             state["next_action"] = "rag_answer"
+            
+            # Milvus 임베딩 저장 확인
+            try:
+                keyword = state.get("keyword", extract_keyword_from_text(f"{title} {abstract}"))
+                collection_name = get_collection_name(keyword)
+                from pymilvus import Collection, utility
+                
+                if utility.has_collection(collection_name):
+                    collection = Collection(collection_name)
+                    collection.load()
+                    num_entities = collection.num_entities
+                    print(f"✅ Milvus 임베딩 저장 확인: 컬렉션 '{collection_name}'에 {num_entities}개 엔티티 저장됨")
+                    print(f"✅ 특허 '{app_no}' 임베딩 저장 완료: {chunks_count}개 청크 저장됨")
+                else:
+                    print(f"⚠️ Milvus 컬렉션 '{collection_name}'이 존재하지 않습니다.")
+            except Exception as e:
+                print(f"⚠️ Milvus 임베딩 저장 확인 오류: {e}")
+            
+            # 임시 파일 삭제 (PDF, 텍스트, 메타데이터)
+            try:
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir)
+                    print(f"✅ 임시 파일 삭제 완료: {temp_dir}")
+            except Exception as e:
+                print(f"⚠️ 임시 파일 삭제 오류 (무시): {e}")
 
         except Exception as e:
             error_msg = str(e)
@@ -1175,6 +1250,13 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
             state["pdf_content"] = f"텍스트 추출 실패: {error_msg}"
             state["pdf_link"] = download_info.get("download_url", "") if isinstance(download_info, dict) else ""
             state["next_action"] = "end"
+            
+            # 오류 발생 시에도 임시 파일 삭제
+            try:
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir)
+            except Exception:
+                pass
 
     except Exception as e:
         error_msg = str(e)
@@ -1182,6 +1264,13 @@ def download_pdf_node(state: PatentSearchState) -> PatentSearchState:
         state["pdf_content"] = f"PDF 다운로드 실패: {error_msg}"
         state["pdf_link"] = ""
         state["next_action"] = "end"
+        
+        # 오류 발생 시에도 임시 파일 삭제
+        try:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+        except Exception:
+            pass
     
     return state
 
@@ -1231,7 +1320,7 @@ def rag_answer_node(state: PatentSearchState) -> PatentSearchState:
 
     # 임베딩 모델로 쿼리 벡터 생성
     try:
-        query_embedding = _embedding_model.encode([user_query])[0]  # type: ignore
+        query_embedding = _embedding_model.embed(user_query)
     except Exception:
         query_embedding = None
 
@@ -1242,7 +1331,7 @@ def rag_answer_node(state: PatentSearchState) -> PatentSearchState:
         similarity = 0.0
         if query_embedding is not None:
             try:
-                golden_embedding = _embedding_model.encode([golden_query])[0]  # type: ignore
+                golden_embedding = _embedding_model.embed(golden_query)
                 # 코사인 유사도 계산
                 if not NUMPY_AVAILABLE:
                     raise ImportError("numpy가 필요합니다")
@@ -1309,8 +1398,8 @@ def rag_answer_node(state: PatentSearchState) -> PatentSearchState:
         # 임베딩 기반 유사도 체크로 개선
         answer_similarity = 0.0
         try:
-            answer_embedding = _embedding_model.encode([answer])[0]  # type: ignore
-            golden_embedding = _embedding_model.encode([golden_answer])[0]  # type: ignore
+            answer_embedding = _embedding_model.embed(answer)
+            golden_embedding = _embedding_model.embed(golden_answer)
             if not NUMPY_AVAILABLE:
                 raise ImportError("numpy가 필요합니다")
             dot_product = np.dot(answer_embedding, golden_embedding)
@@ -1431,7 +1520,9 @@ def _get_workflow() -> Any:
         workflow.add_edge("ask_web_search", END)
         workflow.add_edge("ask_search_mode", END)
 
-        _workflow = workflow.compile()
+        # checkpointer=None으로 컴파일 (직렬화 불가능한 객체 방지)
+        # 실제 상태는 OrchestratorState.tech_search_context를 통해 Redis에 저장됨
+        _workflow = workflow.compile(checkpointer=None)
     
     return _workflow
 
@@ -1517,7 +1608,7 @@ def _parse_selection_numbers(user_text: str) -> Optional[List[int]]:
     return None
 
 
-def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: Optional[Literal["server", "web"]] = None, use_server_first: bool = True) -> Dict[str, Any]:
+async def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: Optional[Literal["server", "web"]] = None, use_server_first: bool = True, orchestrator_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """특허 검색 메인 함수 (기존 인터페이스 유지).
     
     Args:
@@ -1529,6 +1620,82 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
     Returns:
         검색 결과 또는 상세 정보
     """
+    # 사용자 입력에서 검색 모드 자동 파싱 (처음 요청 시)
+    # search_mode가 None이고, 사용자 입력에 "웹", "서버" 등의 키워드가 있으면 자동으로 파싱
+    if search_mode is None:
+        parsed_mode = parse_search_mode_from_input(keyword)
+        if parsed_mode:
+            print(f"🔍 [DEBUG] 사용자 입력에서 검색 모드 자동 파싱: keyword={keyword}, mode={parsed_mode}")
+            search_mode = parsed_mode
+    
+    # Redis 숏텀 메모리에서 이전 상태 확인 (검색 모드 선택 대기 등) - 우선순위 최상
+    if orchestrator_state and "tech_search_context" in orchestrator_state:
+        tech_context = orchestrator_state.get("tech_search_context") or {}
+        patent_context = tech_context.get("patent", {})
+        # ask_source 상태였거나, 이전 쿼리가 있는 경우 확인
+        last_intent = patent_context.get("intent")
+        last_query = patent_context.get("query")
+        previous_results = patent_context.get("results", [])
+        
+        print(f"🔍 [DEBUG] orchestrator_state 확인: last_intent={last_intent}, last_query={last_query}, keyword={keyword}, results_count={len(previous_results) if previous_results else 0}")
+        
+        # 사용자 입력이 질문 형태이고, 이전 검색 결과가 있으면 대화식으로 답변
+        user_input_lower = keyword.strip().lower()
+        question_keywords = ["요청한적", "요청한 적", "찾아달라고", "찾아달라고 했", "검색한적", "검색한 적", "이전에", "전에", "했어", "했어?", "했나", "했나?", "요청했", "요청했어", "요청했나"]
+        is_question = any(qk in user_input_lower for qk in question_keywords) or user_input_lower.endswith("?") or user_input_lower.endswith("요?")
+        
+        # last_query가 없으면 last_keyword를 사용하거나, results가 있으면 질문에 답변
+        display_query = last_query or patent_context.get("last_keyword", "특허")
+        
+        if is_question and previous_results:
+            # 이전 검색 결과가 있으면 대화식으로 답변
+            results_count = len(previous_results)
+            print(f"🔍 [DEBUG] 질문 감지 및 이전 결과 확인: is_question={is_question}, results_count={results_count}, display_query={display_query}")
+            message = f"네, '{display_query}'에 대한 특허 검색을 요청하셨고, {results_count}개의 특허를 찾았습니다.\n\n"
+            message += "찾은 특허 목록:\n"
+            for idx, patent in enumerate(previous_results[:5], 1):  # 최대 5개만 표시
+                message += f"{idx}. [{patent.get('application_number', 'N/A')}] {patent.get('title', '제목 없음')}\n"
+            if results_count > 5:
+                message += f"\n... 외 {results_count - 5}개 더 있습니다."
+            message += "\n\n자세히 보고 싶은 특허 번호를 선택해주세요."
+            
+            return {
+                "ok": True,
+                "message": message,
+                "items": [{"index": idx, "application_number": p.get("application_number"), "title": p.get("title"), "abstract": p.get("abstract", "")[:200]} for idx, p in enumerate(previous_results, 1)],
+                "search_results": previous_results,
+            }
+        
+        # 사용자가 "웹 검색", "서버 검색" 등으로 답한 경우, 이전 쿼리를 사용하여 검색
+        # 단, 재귀 호출 시에는 이 체크를 건너뛰어야 함 (last_intent가 "search"인 경우)
+        if last_intent == "ask_search_mode" and last_query:
+             # 검색 모드 파싱
+            parsed_mode = parse_search_mode_from_input(keyword)
+            print(f"🔍 [DEBUG] 검색 모드 파싱: keyword={keyword}, parsed_mode={parsed_mode}")
+            if parsed_mode:
+                print(f"🔍 [DEBUG] 이전 쿼리 복원: '{last_query}', 모드: {parsed_mode}")
+                # 재귀 호출 전에 orchestrator_state의 intent를 "search"로 변경하여 무한 재귀 방지
+                if orchestrator_state is not None:
+                    if "tech_search_context" not in orchestrator_state:
+                        orchestrator_state["tech_search_context"] = {}
+                    if "patent" not in orchestrator_state["tech_search_context"]:
+                        orchestrator_state["tech_search_context"]["patent"] = {}
+                    # intent를 "search"로 변경하여 재귀 호출 시 다시 ask_search_mode로 인식되지 않도록 함
+                    orchestrator_state["tech_search_context"]["patent"]["intent"] = "search"
+                    orchestrator_state["tech_search_context"]["patent"]["query"] = last_query
+                
+                # 재귀 호출로 검색 진행 (이전 쿼리 + 파싱된 모드)
+                # use_server_first=False로 설정하여 검색 모드 선택 질문을 다시 하지 않음
+                # orchestrator_state를 전달하여 재귀 호출 시 다시 ask_search_mode로 인식되지 않도록 함
+                # is_waiting_for_search_mode 상태도 초기화하여 재귀 호출 시 다른 경로로 빠지지 않도록 함
+                if session_id:
+                    set_waiting_for_search_mode(session_id, False)
+                result = await patent_search(last_query, session_id=session_id, search_mode=parsed_mode, use_server_first=False, orchestrator_state=orchestrator_state)
+                print(f"🔍 [DEBUG] 재귀 호출 결과: ok={result.get('ok')}, message={result.get('message', '')[:100] if result.get('message') else 'None'}, error={result.get('error', 'None')[:100] if result.get('error') else 'None'}")
+                # 재귀 호출 결과가 있으면 반환 (ok=False여도 반환)
+                if result:
+                    return result
+
     # 웹 검색 여부 대기 중이면 사용자 입력을 파싱
     sid = _set_session_id(session_id)
     if _WAITING_FOR_WEB_SEARCH.get(sid, False):
@@ -1538,8 +1705,8 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
             # 원래 검색어 가져오기
             original_query = _ORIGINAL_SEARCH_KEYWORD.get(sid, keyword)
             _ORIGINAL_SEARCH_KEYWORD.pop(sid, None)  # 사용 후 삭제
-            # 웹 검색 모드로 재검색
-            return patent_search(original_query, session_id=session_id, search_mode="web", use_server_first=False)
+            # 웹 검색 모드로 재검색 (orchestrator_state 전달)
+            return await patent_search(original_query, session_id=session_id, search_mode="web", use_server_first=False, orchestrator_state=orchestrator_state)
         elif any(k in user_input_lower for k in ["아니오", "아니", "no", "n", "안해", "필요없", "괜찮", "안해도"]):
             _WAITING_FOR_WEB_SEARCH[sid] = False
             _ORIGINAL_SEARCH_KEYWORD.pop(sid, None)  # 사용하지 않으므로 삭제
@@ -1567,8 +1734,8 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
             if pending_keyword:
                 # 검색어 사용 후 삭제
                 _PENDING_SEARCH_KEYWORD.pop(_set_session_id(session_id), None)
-                # 재귀 호출로 검색 진행 (search_mode가 설정된 상태로)
-                return patent_search(pending_keyword, session_id=session_id, search_mode=search_mode, use_server_first=use_server_first)
+                # 재귀 호출로 검색 진행 (search_mode가 설정된 상태로, orchestrator_state 전달)
+                return await patent_search(pending_keyword, session_id=session_id, search_mode=search_mode, use_server_first=use_server_first, orchestrator_state=orchestrator_state)
             else:
                 return {
                     "ok": True,
@@ -1592,7 +1759,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
     patent_number_match = re.search(r'\b(\d{10,})\b', keyword)
     if patent_number_match:
         app_no = patent_number_match.group(1)
-        cached_results = _get_search_results(session_id)
+        cached_results = _get_search_results(session_id, orchestrator_state)
 
         # 캐시된 결과에서 해당 특허 번호 찾기
         selected_patent = None
@@ -1628,13 +1795,29 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
 
         # 특허를 찾았으면 상세 처리
         if selected_patent:
+            # 이전 검색 키워드를 orchestrator_state에서 가져오기
+            previous_search_keyword = None
+            if orchestrator_state and "tech_search_context" in orchestrator_state:
+                tech_context = orchestrator_state.get("tech_search_context") or {}
+                patent_context = tech_context.get("patent", {})
+                previous_search_keyword = patent_context.get("last_keyword") or patent_context.get("query")
+                if previous_search_keyword:
+                    # query에서 키워드 추출 (예: "디스플레이 관련 특허 웹에서 찾아줘" -> "디스플레이")
+                    previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
+                    print(f"🔍 [DEBUG] 이전 검색 키워드 복원: '{previous_search_keyword}' (특허 번호: {app_no})")
+            
+            # 이전 검색 키워드가 없으면 특허 제목/초록에서 추출
+            if not previous_search_keyword:
+                previous_search_keyword = extract_keyword_from_text(f"{selected_patent.get('title', '')} {selected_patent.get('abstract', '')}")
+                print(f"🔍 [DEBUG] 특허 제목/초록에서 키워드 추출: '{previous_search_keyword}'")
+            
             if LANGCHAIN_AVAILABLE:
                 try:
                     workflow = _get_workflow()
                     if workflow:
                         initial_state: PatentSearchState = {
                             "user_query": keyword,
-                            "keyword": app_no,
+                            "keyword": previous_search_keyword,  # 이전 검색 키워드 사용
                             "search_results": cached_results if cached_results else [selected_patent],
                             "selected_patent": selected_patent,
                             "selected_indices": [],
@@ -1720,7 +1903,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
     selection_indices = _parse_selection_numbers(keyword)
     if selection_indices is not None and len(selection_indices) > 0:
         # 여러 특허 선택 처리
-        cached_results = _get_search_results(session_id)
+        cached_results = _get_search_results(session_id, orchestrator_state)
         if not cached_results:
             return {
                 "ok": False,
@@ -1735,6 +1918,21 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                 "error": f"선택한 번호가 검색 결과 범위를 벗어났습니다. (1-{len(cached_results)}번 중 선택)",
             }
 
+        # 이전 검색 키워드를 orchestrator_state에서 가져오기
+        previous_search_keyword = None
+        if orchestrator_state and "tech_search_context" in orchestrator_state:
+            tech_context = orchestrator_state.get("tech_search_context") or {}
+            patent_context = tech_context.get("patent", {})
+            previous_search_keyword = patent_context.get("last_keyword") or patent_context.get("query")
+            if previous_search_keyword:
+                # query에서 키워드 추출 (예: "디스플레이 관련 특허 웹에서 찾아줘" -> "디스플레이")
+                previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
+                print(f"🔍 [DEBUG] 이전 검색 키워드 복원 (여러 특허): '{previous_search_keyword}'")
+        
+        # 이전 검색 키워드가 없으면 extracted_keyword 사용
+        if not previous_search_keyword:
+            previous_search_keyword = extracted_keyword
+        
         # 여러 특허의 상세 정보를 순차적으로 가져오기
         results = []
         for i, idx in enumerate(valid_indices, 1):
@@ -1747,7 +1945,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                     if workflow:
                         initial_state: PatentSearchState = {
                             "user_query": keyword,
-                            "keyword": extracted_keyword,
+                            "keyword": previous_search_keyword,  # 이전 검색 키워드 사용
                             "search_results": cached_results,
                             "selected_patent": selected_patent,
                             "selected_indices": [idx],
@@ -1830,10 +2028,25 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
     # 단일 선택 번호 확인 (이전 검색 결과가 있는 경우)
     selection_index = _parse_selection_number(keyword)
     if selection_index is not None:
-        cached_results = _get_search_results(session_id)
+        cached_results = _get_search_results(session_id, orchestrator_state)
         if cached_results and 0 <= selection_index < len(cached_results):
             # 선택된 특허의 상세 정보 반환
             selected_patent = cached_results[selection_index]
+            
+            # 이전 검색 키워드를 orchestrator_state에서 가져오기
+            previous_search_keyword = None
+            if orchestrator_state and "tech_search_context" in orchestrator_state:
+                tech_context = orchestrator_state.get("tech_search_context") or {}
+                patent_context = tech_context.get("patent", {})
+                previous_search_keyword = patent_context.get("last_keyword") or patent_context.get("query")
+                if previous_search_keyword:
+                    # query에서 키워드 추출 (예: "디스플레이 관련 특허 웹에서 찾아줘" -> "디스플레이")
+                    previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
+                    print(f"🔍 [DEBUG] 이전 검색 키워드 복원 (단일 특허): '{previous_search_keyword}'")
+            
+            # 이전 검색 키워드가 없으면 extracted_keyword 사용
+            if not previous_search_keyword:
+                previous_search_keyword = extracted_keyword
             
             # LangGraph 사용 가능하면 상세 처리
             if LANGCHAIN_AVAILABLE:
@@ -1842,7 +2055,7 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                     if workflow:
                         initial_state: PatentSearchState = {
                             "user_query": keyword,
-                            "keyword": extracted_keyword,
+                            "keyword": previous_search_keyword,  # 이전 검색 키워드 사용
                             "search_results": cached_results,
                             "selected_patent": selected_patent,
                             "selected_indices": [selection_index],
@@ -1947,10 +2160,23 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
 
                 _notify_progress(initial_state["progress_status"])
 
-                result = workflow.invoke(initial_state)
+                # AsyncRedisSaver를 사용하는 경우 비동기 인터페이스 사용
+                print(f"🔍 [DEBUG] LangGraph 워크플로우 실행 시작: search_mode={search_mode}, keyword={extracted_keyword}")
+                result = await workflow.ainvoke(initial_state)
+                print(f"🔍 [DEBUG] LangGraph 워크플로우 실행 완료: next_action={result.get('next_action')}, search_results={len(result.get('search_results', []))}, answer={bool(result.get('answer'))}")
                 
-                # 검색 모드 선택 질문인 경우
-                if result.get("next_action") == "end" and "검색 방식을 선택" in result.get("progress_status", ""):
+                # 검색 모드 선택 질문인 경우 (단, search_mode가 이미 설정된 경우는 제외)
+                if result.get("next_action") == "end" and "검색 방식을 선택" in result.get("progress_status", "") and search_mode is None:
+                    # 상태 저장 (ask_search_mode)
+                    if orchestrator_state is not None:
+                        if "tech_search_context" not in orchestrator_state:
+                            orchestrator_state["tech_search_context"] = {}
+                        if "patent" not in orchestrator_state["tech_search_context"]:
+                            orchestrator_state["tech_search_context"]["patent"] = {}
+                        
+                        orchestrator_state["tech_search_context"]["patent"]["intent"] = "ask_search_mode"
+                        orchestrator_state["tech_search_context"]["patent"]["query"] = keyword
+                    
                     return {
                         "ok": True,
                         "message": "검색 방식을 선택해주세요:\n1. 서버 기반 검색 (빠르지만 제한적)\n2. 웹 검색 (느리지만 광범위)",
@@ -1983,44 +2209,69 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                         "progress_status": result.get("progress_status", ""),
                     }
                 
-                # KIPRIS 검색 결과 반환
-                if result.get("search_results"):
-                    search_results = result["search_results"]
-                    _save_search_results(search_results, session_id)
-                    
-                    items = []
-                    for idx, patent in enumerate(search_results, 1):
-                        items.append({
-                            "index": idx,
-                            "application_number": patent["application_number"],
-                            "title": patent["title"],
-                            "abstract": patent["abstract"][:200] + "..." if len(patent.get("abstract", "")) > 200 else patent.get("abstract", ""),
-                        })
-                    
-                    message_lines = [
-                        f"🔍 '{extracted_keyword}' 관련 특허 {len(search_results)}개를 찾았습니다.",
-                        "",
-                        "다음 특허 중에서 자세히 보고 싶은 번호를 선택해주세요:"
-                    ]
+                # KIPRIS 검색 결과 반환 (빈 리스트여도 처리)
+                search_results = result.get("search_results", [])
+                if search_results or result.get("next_action") == "end":
+                    # search_results가 있거나, next_action이 "end"이면 결과 반환 시도
+                    if search_results:
+                        _save_search_results(search_results, session_id, orchestrator_state)
+                        
+                        # OrchestratorState에 검색 결과 저장 (Redis 숏텀 메모리)
+                        if orchestrator_state is not None:
+                            if "tech_search_context" not in orchestrator_state:
+                                orchestrator_state["tech_search_context"] = {}
+                            if "patent" not in orchestrator_state["tech_search_context"]:
+                                orchestrator_state["tech_search_context"]["patent"] = {}
+                            
+                            orchestrator_state["tech_search_context"]["patent"]["results"] = search_results
+                            orchestrator_state["tech_search_context"]["patent"]["last_keyword"] = extracted_keyword
+                            orchestrator_state["tech_search_context"]["patent"]["query"] = keyword  # 원본 쿼리 저장
+                            orchestrator_state["tech_search_context"]["patent"]["intent"] = "search"  # 검색 완료 상태 저장
+                        
+                        items = []
+                        for idx, patent in enumerate(search_results, 1):
+                            items.append({
+                                "index": idx,
+                                "application_number": patent["application_number"],
+                                "title": patent["title"],
+                                "abstract": patent["abstract"][:200] + "..." if len(patent.get("abstract", "")) > 200 else patent.get("abstract", ""),
+                            })
+                        
+                        message_lines = [
+                            f"🔍 '{extracted_keyword}' 관련 특허 {len(search_results)}개를 찾았습니다.",
+                            "",
+                            "다음 특허 중에서 자세히 보고 싶은 번호를 선택해주세요:"
+                        ]
 
-                    # 특허 목록 추가
-                    for item in items:
-                        message_lines.append(f"{item['index']}. [{item['application_number']}] {item['title']}")
-                        if item.get('abstract'):
-                            message_lines.append(f"   {item['abstract']}")
+                        # 특허 목록 추가
+                        for item in items:
+                            message_lines.append(f"{item['index']}. [{item['application_number']}] {item['title']}")
+                            if item.get('abstract'):
+                                message_lines.append(f"   {item['abstract']}")
 
-                    message_lines.append("")
-                    message_lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,3,5' 또는 '1 3 5'")
+                        message_lines.append("")
+                        message_lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,3,5' 또는 '1 3 5'")
 
-                    return {
-                        "ok": True,
-                        "message": "\n".join(message_lines),
-                        "items": items,
-                        "search_results": search_results,
-                        "progress_status": result.get("progress_status", ""),
-                    }
+                        return {
+                            "ok": True,
+                            "message": "\n".join(message_lines),
+                            "items": items,
+                            "search_results": search_results,
+                            "progress_status": result.get("progress_status", ""),
+                        }
+                    else:
+                        # search_results가 비어있지만 워크플로우가 완료된 경우
+                        print(f"⚠️ [DEBUG] KIPRIS 검색 결과가 비어있음: query={extracted_keyword}")
+                        return {
+                            "ok": False,
+                            "error": f"'{extracted_keyword}' 관련 특허를 찾을 수 없습니다. 다른 키워드로 검색해보세요.",
+                            "progress_status": result.get("progress_status", ""),
+                        }
         except Exception as e:
-            print(f"⚠️ LangGraph 실행 오류: {e}, 기본 검색으로 fallback")
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"⚠️ LangGraph 실행 오류: {e}")
+            print(f"⚠️ LangGraph 실행 오류 상세:\n{error_detail}")
     
     # 기본 KIPRIS 검색 (LangGraph 미사용 또는 오류 시)
     try:
@@ -2063,7 +2314,17 @@ def patent_search(keyword: str, session_id: Optional[str] = None, search_mode: O
                 "error": f"'{extracted_keyword}' 관련 특허를 찾을 수 없습니다.",
             }
 
-        _save_search_results(search_results, session_id)
+        _save_search_results(search_results, session_id, orchestrator_state)
+        
+        # OrchestratorState에 검색 결과 저장 (Redis 숏텀 메모리)
+        if orchestrator_state is not None:
+            if "tech_search_context" not in orchestrator_state:
+                orchestrator_state["tech_search_context"] = {}
+            if "patent" not in orchestrator_state["tech_search_context"]:
+                orchestrator_state["tech_search_context"]["patent"] = {}
+            
+            orchestrator_state["tech_search_context"]["patent"]["results"] = search_results
+            orchestrator_state["tech_search_context"]["patent"]["last_keyword"] = extracted_keyword
 
         return {
             "ok": True,

@@ -1,0 +1,430 @@
+# Agent 프롬프트 설정 파일
+# 각 마스터그래프와 하위 에이전트의 용도, 기능, 분류 기준을 정의
+
+supervisor:
+  description: "최상위 오케스트레이터 - 사용자 요청을 분석하여 적절한 도메인으로 라우팅"
+  architecture_features: |
+    - Redis 기반 멀티턴 대화 지원: 모든 도메인에서 이전 대화 컨텍스트를 Redis에 저장하여 유지
+    - Structured Output Parser: 사용자 쿼리에서 구조화된 파라미터를 추출하여 정확도 향상
+    - Human-in-the-loop: 중요한 작업(연차 신청, 회의실 예약, 결재 요청 등) 전 사용자 승인 요청
+    - 서브그래프 구조: 각 도메인별 독립적인 에이전트와 워크플로우 관리
+  classification_criteria: |
+    사용자 질의를 분석하여 다음 도메인 중 하나로 분류:
+    - schedule: 연차/반차/병가/경조사 신청, 회의실 예약, 일정 관리, 스케줄 조회 등 구체적인 액션 요청
+    - document: 문서 작성, 보고서 작성, 템플릿 생성 등 문서 생성 관련
+    - qa: Q&A, 질문, 문의, 메뉴얼, 복리후생 정책, 휴가규정, 근무제도, 급여 외 혜택, 회사 복지, 보험, 수당, 식단, 메뉴, 구내식당 관련
+    - email: 이메일 검색, 이메일 답장문 생성 관련
+    - tech: 특허, 논문, KISTI, ScienceON 관련
+  examples:
+    schedule:
+      - "내일 연차 신청하고 싶어"
+      - "3월 15일 회의실 예약해줘"
+      - "오늘 일정 알려줘"
+    document:
+      - "2024년 1분기 인사정보 요약 리포트 작성해줘"
+      - "제품 비교표 템플릿 만들어줘"
+    qa:
+      - "휴가규정에 대해 알려줘"
+      - "오늘 구내식당 메뉴 뭐야?"
+      - "육아휴직 신청 방법 알려줘"
+    email:
+      - "육아휴직 관련 이메일 찾아줘"
+      - "최근 받은 메일 알려줘"
+      - "이메일 답장 작성해줘"
+    tech:
+      - "스마트워치 특허 검색해줘"
+      - "머신러닝 논문 찾아줘"
+  important_rules:
+    - '"이메일 자동응답", "메일 자동응답" 같은 이메일 답장문 생성은 email로 분류'
+    - '"휴가·근무제도에 대해 알려줘", "급여 외 혜택에 대해 알려줘" 같은 정책/제도 질문은 qa로 분류'
+    - '"이메일에서 ... 찾아줘", "메일에서 ... 찾아줘" 같은 이메일 검색은 email로 분류'
+    - '숫자로 시작하는 질문은 이전 검색 결과의 상세 요청일 가능성이 높음 (이전 도메인 확인 필요)'
+    - '"승인", "확인", "네", "예" 같은 단순 응답은 Human-in-the-loop 승인 요청에 대한 응답일 수 있음 (이전 도메인 확인 필요)'
+    - '"웹 검색", "사내 검색" 같은 단순 응답은 이전 검색의 연속 요청일 수 있음 (이전 도메인 확인 필요)'
+    - '명시적 키워드("논문", "특허", "메일" 등)가 있으면 이전 컨텍스트보다 우선하여 새로운 요청으로 처리'
+  output_format: '{"route": "schedule|document|qa|email|tech|unknown"}'
+
+schedule:
+  description: "스케줄 도메인 - 연차/일정/회의 관리"
+  features: |
+    - Redis 기반 컨텍스트 관리: 이전 연차 조회, 신청 내역, 회의실 추천 결과 등을 Redis에 저장
+    - Structured Output Parser: 연차 신청 시 날짜, 휴가 타입, 사유 등을 구조화된 형식으로 추출
+    - Human-in-the-loop: 연차 신청 및 회의실 예약 시 사용자 승인 요청
+  sub_agents:
+    leave:
+      description: "연차/반차/병가/경조사 관리"
+      features: |
+        - Structured Output Parser 사용: 사용자 쿼리에서 action, leave_type, start_date, end_date, total_days, reason 등을 자동 추출
+        - Redis 컨텍스트: 이전 조회한 잔여 연차 정보, 신청 내역 등을 Redis에 저장하여 멀티턴 대화 지원
+        - Human-in-the-loop: 연차 신청 시 날짜 정보가 있으면 사용자에게 승인 요청 (승인/취소 처리)
+      capabilities:
+        - "연차/반차/병가/경조사 조회"
+        - "연차/반차/병가/경조사 신청 (승인 필요)"
+        - "연차 잔여일 확인"
+        - "연차 사용 내역 조회"
+        - "연차 추천 날짜 조회"
+      keywords:
+        positive:
+          - "연차"
+          - "반차"
+          - "병가"
+          - "경조사"
+          - "휴가"
+          - "신청"
+          - "잔여"
+          - "남은"
+          - "내역"
+          - "목록"
+        negative: []
+      examples:
+        - "내일 연차 신청하고 싶어"
+        - "남은 연차 알려줘"
+        - "연차 사용 내역 보여줘"
+    schedule:
+      description: "일정 관리 (일반 캘린더, 스케줄 조회/등록/취소)"
+      features: |
+        - Redis 컨텍스트: 이전 조회한 일정 필터, 검색 결과 등을 Redis에 저장하여 멀티턴 대화 지원
+      capabilities:
+        - "일정 조회"
+        - "일정 등록"
+        - "일정 취소"
+        - "일정 알림"
+        - "특정 날짜의 연차 사용자 조회"
+      keywords:
+        positive:
+          - "일정"
+          - "스케줄"
+          - "캘린더"
+          - "등록"
+          - "취소"
+          - "오늘"
+          - "내일"
+          - "이번 주"
+        negative: []
+      examples:
+        - "오늘 일정 알려줘"
+        - "다음 주 월요일 회의 일정 등록해줘"
+        - "3월 15일 일정 취소해줘"
+    meeting:
+      description: "회의실 예약 및 회의 관리"
+      features: |
+        - Redis 컨텍스트: 추천된 회의실 목록, 예약 대기 정보 등을 Redis에 저장하여 멀티턴 대화 지원
+        - Human-in-the-loop: 회의실 예약 요청 시 사용자에게 승인 요청 (승인/취소 처리)
+      capabilities:
+        - "회의실 조회"
+        - "회의실 예약 (승인 필요)"
+        - "회의실 취소"
+        - "회의실 추천"
+        - "예약 내역 조회"
+      keywords:
+        positive:
+          - "회의실"
+          - "회의"
+          - "예약"
+          - "방"
+          - "회의실 예약"
+          - "회의실 취소"
+        negative: []
+      examples:
+        - "내일 오후 2시 회의실 예약해줘"
+        - "10명 회의실 추천해줘"
+        - "3층 회의실 예약 현황 알려줘"
+        - "내일 사용가능한 회의실 알려줘"
+        - "사용 가능한 회의실 추천해줘"
+        - "빈 회의실 찾아줘"
+  classification_criteria: |
+    사용자 질의를 분석하여 다음 스케줄 서브 에이전트 중 하나로 분류:
+    - leave: 연차, 반차, 병가, 경조사, 휴가 관련
+    - meeting: 회의실 관련 (예약, 조회, 추천, 취소, 사용가능한 회의실 찾기 등)
+      (중요: "회의실"이라는 키워드가 있으면 무조건 meeting으로 분류)
+      (중요: "사용가능한 회의실", "사용 가능한 회의실", "빈 회의실", "회의실 추천" 등은 모두 meeting)
+    - schedule: 일정, 캘린더, 스케줄 관련 (회의실이 아닌 일반 일정)
+  output_format: '{"intent": "leave|meeting|schedule"}'
+
+document:
+  description: "문서 도메인 - 문서 작성/업로드/변환"
+  features: |
+    - Redis 기반 컨텍스트 관리: 생성한 문서 템플릿 타입, 변수 정보, 결재 대기 상태 등을 Redis에 저장
+    - Structured Output Parser: 문서 생성 시 template_type, variables, output_format 등을 구조화된 형식으로 추출
+    - Human-in-the-loop: PDF 변환 및 결재 요청 시 사용자 승인 요청
+  sub_agents:
+    doc_generate:
+      description: "문서 자동 작성"
+      features: |
+        - Structured Output Parser 사용: 사용자 쿼리에서 template_type, variables, output_format 등을 자동 추출
+        - Redis 컨텍스트: 생성한 문서 정보를 Redis에 저장하여 멀티턴 대화 지원
+        - Human-in-the-loop: PDF 변환 및 결재 요청 시 사용자 승인 요청
+      capabilities:
+        - "템플릿 기반 문서 생성"
+        - "인사정보 요약 리포트 작성"
+        - "제품 비교표 생성"
+        - "제품 개발 계획서 작성"
+        - "구매 발주서 작성"
+        - "월별 손익 분석 보고서 작성"
+        - "활동 기준 원가 계산서 작성"
+        - "근무 평가서 작성"
+        - "PDF 변환 (승인 필요)"
+        - "결재 요청 (승인 필요)"
+      templates:
+        - "hr_summary_report"  # 인사정보 요약 리포트
+        - "product_comparison"  # 제품 비교표
+        - "product_development_plan"  # 제품 개발 계획서
+        - "purchase_order"  # 구매 발주서
+        - "monthly_profit_analysis"  # 월별 손익 분석
+        - "activity_based_costing"  # 활동 기준 원가
+        - "work_performance_review"  # 근무 평가서
+      keywords:
+        positive:
+          - "문서"
+          - "보고서"
+          - "작성"
+          - "템플릿"
+          - "생성"
+          - "만들어"
+          - "계획서"
+          - "리포트"
+        negative:
+          - "이메일 자동응답"  # 이건 email 도메인으로
+          - "메일 자동응답"
+      examples:
+        - "2024년 1분기 인사정보 요약 리포트 작성해줘"
+        - "스마트워치 신제품 개발 계획서 만들어줘"
+        - "제품 비교표 템플릿 생성"
+    upload_knowledge:
+      description: "지식 업로드 (RAG)"
+      capabilities:
+        - "문서 업로드"
+        - "벡터 DB 저장"
+        - "RAG 지식 베이스 구축"
+      keywords:
+        positive:
+          - "업로드"
+          - "저장"
+          - "지식"
+          - "RAG"
+          - "벡터"
+        negative: []
+      examples:
+        - "이 문서를 지식 베이스에 업로드해줘"
+        - "PDF 파일을 벡터 DB에 저장"
+  classification_criteria: |
+    사용자 질의를 분석하여 다음 문서 서브 에이전트 중 하나로 분류:
+    - doc_generate: 문서, 보고서, 작성, 템플릿 관련
+    - upload_knowledge: 문서 업로드, RAG 저장 관련
+    - email_auto_reply: 이메일, 메일, 자동응답 관련 (참고: 실제로는 email 도메인으로 라우팅)
+  output_format: '{"intent": "doc_generate|upload_knowledge|email_auto_reply"}'
+
+qa:
+  description: "Q&A 도메인 - 질문 답변 및 조회"
+  features: |
+    - Redis 기반 컨텍스트 관리: 이전 검색 쿼리, 답변, 검색된 문서 컨텍스트 등을 Redis에 저장하여 멀티턴 대화 지원
+    - RAG (Retrieval-Augmented Generation): Milvus 벡터 DB를 활용한 하이브리드 검색
+    - 대화 히스토리 활용: conversation_history를 LLM 프롬프트에 포함하여 자연스러운 대화 지원
+  sub_agents:
+    manual:
+      description: "매뉴얼 검색 (RAG)"
+      capabilities:
+        - "매뉴얼 검색"
+        - "Q&A 검색"
+        - "일반 질문 답변"
+      keywords:
+        positive:
+          - "메뉴얼"
+          - "Q&A"
+          - "질문"
+          - "문의"
+          - "어떻게"
+          - "방법"
+        negative:
+          - "식단"
+          - "메뉴"
+          - "구내식당"
+          - "복리후생"
+          - "보험"
+      examples:
+        - "시스템 사용 방법 알려줘"
+        - "로그인 오류 해결 방법"
+    benefit:
+      description: "복리후생 조회"
+      capabilities:
+        - "복리후생 정책 조회"
+        - "휴가규정 안내"
+        - "근무제도 안내"
+        - "급여 외 혜택 조회"
+        - "보험 정보 조회"
+        - "수당 정보 조회"
+        - "퇴직연금 정보 조회"
+      keywords:
+        positive:
+          - "복리후생"
+          - "휴가규정"
+          - "근무제도"
+          - "급여 외 혜택"
+          - "복지"
+          - "보험"
+          - "수당"
+          - "퇴직연금"
+          - "육아휴직"
+          - "출산휴가"
+        negative:
+          - "이메일"
+          - "메일"
+          - "숫자로 시작"  # 숫자로 시작하면 이메일 상세 요청일 가능성
+      examples:
+        - "육아휴직 신청 방법 알려줘"
+        - "복리후생 정책 보여줘"
+        - "출산휴가 규정 알려줘"
+    menu:
+      description: "식단 조회"
+      capabilities:
+        - "오늘 식단 조회"
+        - "특정 날짜 식단 조회"
+        - "구내식당 메뉴 조회"
+      keywords:
+        positive:
+          - "식단"
+          - "메뉴"
+          - "구내식당"
+          - "점심"
+          - "저녁"
+          - "오늘"
+          - "내일"
+        negative: []
+      examples:
+        - "오늘 구내식당 메뉴 뭐야?"
+        - "내일 점심 식단 알려줘"
+    recommend:
+      description: "메뉴 추천"
+      capabilities:
+        - "식단 기반 메뉴 추천"
+        - "다이어트 메뉴 추천"
+        - "건강 메뉴 추천"
+      keywords:
+        positive:
+          - "추천"
+          - "다이어트"
+          - "뭐 먹을까"
+          - "먹어야"
+          - "어떻게"
+        negative: []
+      examples:
+        - "다이어트 메뉴 추천해줘"
+        - "점심에 뭐 먹을까?"
+  classification_criteria: |
+    사용자 질의를 분석하여 다음 QA 서브 에이전트 중 하나로 분류:
+    - manual: 메뉴얼, Q&A, 질문, 문의 관련 (위 카테고리에 해당하지 않는 경우)
+    - benefit: 복리후생, 휴가규정, 근무제도, 급여 외 혜택, 복지, 보험, 수당, 퇴직연금, 회사 복지 정책 관련
+    - menu: 식단, 메뉴, 구내식당, 점심, 저녁 관련
+    - recommend: 식단 추천, 다이어트 메뉴 추천 관련
+    - email: 이메일/메일 검색, 찾기 관련 (참고: 실제로는 email 도메인으로 라우팅)
+    
+    주의사항:
+    - 숫자로 시작하는 질문은 이메일 검색 결과의 상세 요청일 가능성이 매우 높음
+    - 예: "938. [고용보험]육아휴직...에 대해 알려줘" -> email로 분류
+    - '"에 대해 알려줘", "자세히", "상세히" 같은 키워드가 있고 숫자로 시작하면 email로 분류'
+  output_format: '{"intent": "manual|benefit|menu|recommend|email"}'
+
+email:
+  description: "이메일 도메인 - 이메일 검색/작성/분석"
+  features: |
+    - Redis 기반 컨텍스트 관리: 검색된 이메일 ID 목록, 배치 오프셋, 마지막 검색 키워드 등을 Redis에 저장
+    - Structured Output Parser: 이메일 검색 시 keywords, from_address, date_range 등을 구조화된 형식으로 추출
+    - 멀티턴 대화: "더 찾아줘" 요청 시 이전 검색 컨텍스트를 활용하여 연속 검색 지원
+  sub_agents:
+    search:
+      description: "이메일 검색"
+      capabilities:
+        - "키워드 기반 이메일 검색"
+        - "발신자별 이메일 검색"
+        - "날짜 범위 이메일 검색"
+        - "이메일 상세 조회"
+      keywords:
+        positive:
+          - "이메일"
+          - "메일"
+          - "찾아"
+          - "검색"
+          - "최근"
+          - "받은"
+        negative: []
+      examples:
+        - "육아휴직 관련 이메일 찾아줘"
+        - "최근 받은 메일 알려줘"
+        - "938번 이메일 상세 보여줘"
+      important_rules:
+        - '숫자로 시작하는 질문은 이메일 검색 결과의 상세 요청일 가능성이 매우 높음'
+        - '예: "938. [고용보험]육아휴직...에 대해 알려줘" -> search로 분류'
+        - '패턴: "숫자. 제목에 대해 알려줘", "숫자번 상세", "숫자번에 대해" -> 모두 search로 분류'
+    auto_reply:
+      description: "이메일 답장문 생성"
+      capabilities:
+        - "이메일 자동응답 생성"
+        - "답장 초안 작성"
+        - "회신 메시지 작성"
+      keywords:
+        positive:
+          - "이메일 자동응답"
+          - "메일 자동응답"
+          - "답장"
+          - "응답"
+          - "회신"
+          - "작성"
+        negative:
+          - "이메일에서 ... 찾아줘"  # 검색은 search로
+          - "메일에서 ... 찾아줘"
+      examples:
+        - "이메일 답장 작성해줘"
+        - "자동응답 메시지 만들어줘"
+  classification_criteria: |
+    사용자 질의를 분석하여 다음 이메일 서브 에이전트 중 하나로 분류:
+    - search: 이메일/메일 검색, 찾기 관련
+    - auto_reply: 이메일 답장문 생성, 자동응답 생성 관련
+  output_format: '{"intent": "search|auto_reply"}'
+
+tech:
+  description: "기술 도메인 - 특허/논문 검색"
+  features: |
+    - Redis 기반 컨텍스트 관리: 검색 결과, 마지막 검색 키워드, 표시된 결과 개수 등을 Redis에 저장하여 멀티턴 대화 지원
+    - 검색 소스 선택: 웹 검색 또는 사내 서버 검색 선택 지원
+    - 대화식 응답: 이전 검색 결과에 대한 질문 시 새로운 검색 없이 대화식으로 응답
+  sub_agents:
+    patent:
+      description: "특허 검색"
+      capabilities:
+        - "특허 검색"
+        - "특허 상세 정보 조회"
+        - "특허 벡터화 (선택적)"
+      keywords:
+        positive:
+          - "특허"
+          - "patent"
+          - "Patent"
+        negative: []
+      examples:
+        - "스마트워치 특허 검색해줘"
+        - "AI 관련 특허 찾아줘"
+    article:
+      description: "논문 검색"
+      capabilities:
+        - "논문 검색 (ScienceON, KISTI)"
+        - "논문 상세 정보 조회"
+        - "논문 PDF 다운로드"
+        - "논문 벡터화 (선택적)"
+      keywords:
+        positive:
+          - "논문"
+          - "paper"
+          - "학술"
+          - "ScienceON"
+          - "KISTI"
+          - "Article"
+        negative: []
+      examples:
+        - "머신러닝 논문 찾아줘"
+        - "ScienceON에서 AI 논문 검색"
+  classification_criteria: |
+    사용자 질의를 분석하여 다음 기술 서브 에이전트 중 하나로 분류:
+    - patent: 특허, Patent 관련
+    - article: 논문, Article, paper, 학술 관련
+  output_format: '{"intent": "patent|article"}'
+

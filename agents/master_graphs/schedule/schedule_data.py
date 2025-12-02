@@ -106,12 +106,17 @@ def _build_async_db_url() -> str:
     if explicit_url:
         return explicit_url
 
-    # .env 파일의 실제 변수명 사용
-    user = os.getenv("DB_USERNAME") or os.getenv("SCHEDULE_DB_USER") or os.getenv("DB_USER") or "root"
-    password = os.getenv("DB_PASSWORD") or os.getenv("SCHEDULE_DB_PASSWORD") or "root"
-    host = os.getenv("HOST") or os.getenv("DB_HOST") or os.getenv("SCHEDULE_DB_HOST") or "175.120.35.228"
-    port = os.getenv("DB_PORT") or os.getenv("SCHEDULE_DB_PORT") or "3306"
-    database = os.getenv("DB_NAME") or os.getenv("SCHEDULE_DB_NAME") or "ai_agent"
+    # .env 파일의 실제 변수명 사용 (공백 제거)
+    def _get_env_trimmed(key: str, default: Optional[str] = None) -> Optional[str]:
+        """환경 변수 조회 (공백 제거)."""
+        value = os.getenv(key, default)
+        return value.strip() if value and isinstance(value, str) else (default if value is None else value)
+    
+    user = _get_env_trimmed("DB_USERNAME") or _get_env_trimmed("SCHEDULE_DB_USER") or _get_env_trimmed("DB_USER") or "root"
+    password = _get_env_trimmed("DB_PASSWORD") or _get_env_trimmed("SCHEDULE_DB_PASSWORD") or "5whakfldkelql"
+    host = _get_env_trimmed("HOST") or _get_env_trimmed("DB_HOST") or _get_env_trimmed("SCHEDULE_DB_HOST") or "175.114.229.152"
+    port = _get_env_trimmed("DB_PORT") or _get_env_trimmed("SCHEDULE_DB_PORT") or "3306"
+    database = _get_env_trimmed("DB_NAME") or _get_env_trimmed("SCHEDULE_DB_NAME") or "ai_agent"
 
     return f"mysql+asyncmy://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4"
 

@@ -255,11 +255,16 @@ def _message_to_text(msg, max_lines: Optional[int] = 5) -> str:
 # LangGraph State 정의 (mail_test.py 참고)
 #
 class EmailSearchState(TypedDict, total=False):
-	"""이메일 검색 상태 (mail_test.py의 MailState 참고)."""
-	connection: Any
-	mail_ids: List[bytes]
+	"""이메일 검색 상태 (mail_test.py의 MailState 참고).
+	
+	주의: 이 State는 내부 LangGraph용이며 Redis에 저장되지 않습니다.
+	직렬화 가능한 타입만 사용하여 상위 그래프의 checkpointer와 충돌하지 않도록 함.
+	connection 객체는 상태에서 제거하고 전역 변수로 관리합니다.
+	"""
+	# connection: Any  # IMAP4_SSL 연결 객체는 상태에서 제거 (직렬화 불가능)
+	mail_ids: List[str]  # bytes를 문자열로 변환하여 직렬화 가능하게 함
 	keyword: str
-	matched_ids: List[bytes]
+	matched_ids: List[str]  # bytes를 문자열로 변환하여 직렬화 가능하게 함
 	matched_items: List[Dict[str, Any]]
 	found_count: int
 	limit: int
@@ -270,12 +275,16 @@ class EmailSearchState(TypedDict, total=False):
 	session_id: Optional[str]  # 세션 ID (멀티턴 대화 지원)
 	result: Optional[Dict[str, Any]]
 	has_more: bool  # 더 검색할 메일이 있는지 여부
+	# orchestrator_state는 EmailSearchState에 포함하지 않음 (직렬화 오류 방지)
+	# 모든 상태는 OrchestratorState.email_search_context를 통해 Redis에 저장됨
 
 
 #
 # IMAP 구현
 #
 # 세션별 이메일 검색 결과 캐시 (멀티턴 대화 지원)
+# DEPRECATED: 이제 Redis 숏텀 메모리(OrchestratorState.email_search_context)를 사용합니다.
+# 하위 호환성을 위해 유지되지만, 새 코드에서는 사용하지 마세요.
 # {session_id: {"ids": [], "items": [], "index_map": {}, "batch_offset": 0, "last_keyword": "", "keyword_offsets": {}}}
 # keyword_offsets: {extracted_keyword: batch_offset} - 키워드별 마지막 검색 위치 저장
 _EMAIL_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -296,8 +305,24 @@ def _set_email_session_id(session_id: Optional[str] = None) -> str:
 	return _EMAIL_SESSION_ID
 
 
-def _get_email_cache(session_id: Optional[str] = None) -> Dict[str, Any]:
-	"""세션별 이메일 검색 결과 캐시 가져오기."""
+def _get_email_cache(session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	"""세션별 이메일 검색 결과 캐시 가져오기.
+	
+	Redis 숏텀 메모리(OrchestratorState)를 우선 사용하고,
+	없으면 로컬 캐시를 사용합니다 (하위 호환성).
+	
+	Args:
+		session_id: 세션 ID
+		state: OrchestratorState (선택적, Redis에서 가져온 state)
+	
+	Returns:
+		이메일 검색 캐시 딕셔너리
+	"""
+	# Redis 숏텀 메모리(OrchestratorState)에서 가져오기 (우선)
+	if state and "email_search_context" in state and state["email_search_context"]:
+		return state["email_search_context"]
+	
+	# 하위 호환성: 로컬 캐시 사용 (deprecated)
 	sid = _set_email_session_id(session_id)
 	if sid not in _EMAIL_SEARCH_CACHE:
 		_EMAIL_SEARCH_CACHE[sid] = {
@@ -311,10 +336,30 @@ def _get_email_cache(session_id: Optional[str] = None) -> Dict[str, Any]:
 	return _EMAIL_SEARCH_CACHE[sid]
 
 
-def _save_email_cache(cache_data: Dict[str, Any], session_id: Optional[str] = None) -> None:
-	"""세션별 이메일 검색 결과 캐시 저장."""
+def _save_email_cache(cache_data: Dict[str, Any], session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	"""세션별 이메일 검색 결과 캐시 저장.
+	
+	Redis 숏텀 메모리(OrchestratorState)에 저장할 수 있도록
+	업데이트된 state를 반환합니다.
+	
+	Args:
+		cache_data: 저장할 캐시 데이터
+		session_id: 세션 ID
+		state: OrchestratorState (선택적, Redis에 저장할 state)
+	
+	Returns:
+		업데이트된 state (state가 전달된 경우) 또는 None
+	"""
+	# Redis 숏텀 메모리(OrchestratorState)에 저장 (우선)
+	if state is not None:
+		updated_state = state.copy()
+		updated_state["email_search_context"] = cache_data
+		return updated_state
+	
+	# 하위 호환성: 로컬 캐시 사용 (deprecated)
 	sid = _set_email_session_id(session_id)
 	_EMAIL_SEARCH_CACHE[sid] = cache_data
+	return None
 
 def _imap_connect() -> imaplib.IMAP4_SSL:
 	"""IMAP 서버에 연결 (mail_test.py 방식 참고)."""
@@ -356,7 +401,12 @@ def _extract_summary_from_msg(idx: int, msg: email_pkg.message.Message) -> Email
 # LangGraph 노드 정의 (mail_test.py 참고)
 #
 def connect_imap_node(state: EmailSearchState) -> EmailSearchState:
-	"""IMAP 서버 연결 (mail_test.py의 connect_imap 참고)."""
+	"""IMAP 서버 연결 (mail_test.py의 connect_imap 참고).
+	
+	주의: connection 객체는 상태에 저장하지 않고, 노드 함수 내에서만 사용합니다.
+	IMAP 연결은 search_emails_node에서도 필요하므로, 여기서는 mail_ids만 가져옵니다.
+	실제 검색은 search_emails_node에서 새로운 연결을 생성하여 수행합니다.
+	"""
 	host = _get_env("IMAP_HOST") or "imap.naver.com"
 	port = int(_get_env("IMAP_PORT") or "993")
 	user = _get_env("NAVER_EMAIL") or ""
@@ -369,31 +419,50 @@ def connect_imap_node(state: EmailSearchState) -> EmailSearchState:
 		raise RuntimeError(
 			"IMAP 접속 정보가 필요합니다. .env 파일에 NAVER_EMAIL, NAVER_APP_PASSWORD를 설정해 주세요."
 		)
-	m = imaplib.IMAP4_SSL(host, port)
-	m.login(user, pwd)
-	m.select("INBOX")
 	
-	status, data = m.search(None, "ALL")
-	if status != "OK" or not data or not data[0]:
-		session_id = state.get("session_id")
-		return {**state, "connection": m, "mail_ids": [], "session_id": session_id, "result": {"ok": False, "error": "메일 목록을 가져올 수 없습니다."}}
+	# IMAP 연결 생성 (mail_ids만 가져오기 위해)
+	m = imaplib.IMAP4_SSL(host, port)
+	try:
+		m.login(user, pwd)
+		m.select("INBOX")
+		
+		status, data = m.search(None, "ALL")
+		if status != "OK" or not data or not data[0]:
+			session_id = state.get("session_id")
+			return {**state, "mail_ids": [], "session_id": session_id, "result": {"ok": False, "error": "메일 목록을 가져올 수 없습니다."}}
 
-	mail_ids = data[0].split()
-	_IMAP_CONNECTION_INFO["host"] = host
-	_IMAP_CONNECTION_INFO["port"] = port
-	_IMAP_CONNECTION_INFO["user"] = user
-	session_id = state.get("session_id")
-	return {**state, "connection": m, "mail_ids": mail_ids, "session_id": session_id}
+		mail_ids_bytes = data[0].split()
+		# bytes를 문자열로 변환하여 직렬화 가능하게 함
+		mail_ids = [msg_id.decode('utf-8') if isinstance(msg_id, bytes) else str(msg_id) for msg_id in mail_ids_bytes]
+		_IMAP_CONNECTION_INFO["host"] = host
+		_IMAP_CONNECTION_INFO["port"] = port
+		_IMAP_CONNECTION_INFO["user"] = user
+		session_id = state.get("session_id")
+		return {**state, "mail_ids": mail_ids, "session_id": session_id}
+	finally:
+		# 연결 종료 (mail_ids만 가져왔으므로)
+		try:
+			m.logout()
+		except Exception:
+			pass
 
 
 def search_emails_node(state: EmailSearchState) -> EmailSearchState:
-	"""메일 검색 - 100개씩 배치로 점진적 검색."""
-	mail = state["connection"]
+	"""메일 검색 - 100개씩 배치로 점진적 검색.
+	
+	주의: IMAP 연결은 이 노드 함수 내에서 생성하고 사용 후 즉시 종료합니다.
+	모든 상태는 OrchestratorState.email_search_context를 통해 Redis에 저장됩니다.
+	"""
+	# orchestrator_state는 _imap_search_emails에서 설정한 전역 변수에서 가져오기
+	global _current_orchestrator_state_for_node
+	orchestrator_state = _current_orchestrator_state_for_node
+	
 	mail_ids = state["mail_ids"]
 	keyword = state["keyword"]
 	batch_size = state.get("batch_size", 100)
 	batch_offset = state.get("batch_offset", 0)
 	max_batches = state.get("max_batches", 10)  # 최대 10배치 (1000개)
+	session_id = state.get("session_id")
 
 	# 핵심 키워드 추출
 	search_keyword = _extract_keywords(keyword)
@@ -409,9 +478,9 @@ def search_emails_node(state: EmailSearchState) -> EmailSearchState:
 		previous_ids = []
 		previous_found = 0
 	else:
-		# 이전 배치 결과는 캐시에서 가져오기
-		session_id = state.get("session_id")
-		cache = _get_email_cache(session_id)
+		# 이전 배치 결과는 Redis 숏텀 메모리에서 가져오기
+		# orchestrator_state를 전달하여 Redis에서 가져오기
+		cache = _get_email_cache(session_id, orchestrator_state)
 		previous_items = cache.get("items", [])
 		previous_ids = cache.get("ids", [])
 		previous_found = len(previous_items)
@@ -429,7 +498,6 @@ def search_emails_node(state: EmailSearchState) -> EmailSearchState:
 
 	if not batch_ids:
 		# 더 이상 검색할 메일이 없음
-		session_id = state.get("session_id")
 		if previous_found == 0:
 			result = {
 				"ok": True,
@@ -451,98 +519,134 @@ def search_emails_node(state: EmailSearchState) -> EmailSearchState:
 				"items": previous_items,
 			}
 
-		try:
-			mail.logout()
-		except Exception:
-			pass
-
 		return {**state, "matched_ids": previous_ids, "matched_items": previous_items, "found_count": previous_found, "session_id": session_id, "result": result, "has_more": False}
 
-	# 현재 배치 검색
-	items: List[Dict[str, Any]] = []
-	matched_ids: List[bytes] = []
-	found_in_batch = 0
-
-	# 배치 내에서 역순으로 처리 (최신 메일부터)
-	for idx, msg_id in enumerate(reversed(batch_ids)):
-		try:
-			msg = _imap_fetch_msg(mail, msg_id)
-			subject = _decode_mime_header(msg.get("Subject"))
-			body_text = _message_to_text(msg, max_lines=None)
-			# mail_test.py 방식: keyword in subject or keyword in body
-			keywords_list = search_keyword.split()
-			matched = False
-			if keywords_list:
-				subject_lower = subject.lower()
-				body_lower = body_text.lower()
-				for kw in keywords_list:
-					if kw in subject_lower or kw in body_lower:
-						matched = True
-						break
-			
-			if matched:
-				# 전체 메일 목록에서의 순서번호 계산
-				global_index = total_mails - (batch_offset * batch_size + idx)
-				s = _extract_summary_from_msg(global_index, msg)
-				# 검색 결과에서의 실제 인덱스 (이전 결과 포함)
-				actual_index = previous_found + found_in_batch
-				display_index = global_index  # 표시되는 번호 (전체 메일 목록의 순서)
-
-				items.append(
-					{
-						"title": s.subject,
-						"from": s.from_addr,
-						"date": s.date,
-						"snippet": s.snippet,
-						"index": str(display_index),  # 표시용 번호 (문자열)
-						"actual_index": actual_index,  # 실제 인덱스 (숫자)
-					}
-				)
-				matched_ids.append(msg_id)
-				found_in_batch += 1
-		except Exception as e:
-			logger.debug("메일 처리 중 오류: %s", repr(e))
-			continue
+	# IMAP 연결 생성
+	host = _get_env("IMAP_HOST") or "imap.naver.com"
+	port = int(_get_env("IMAP_PORT") or "993")
+	user = _get_env("NAVER_EMAIL") or ""
+	if not user:
+		nid = _get_env("NAVER_ID") or ""
+		if nid:
+			user = f"{nid}@naver.com"
+	pwd = _get_env("NAVER_APP_PASSWORD") or ""
 	
-	# 이전 결과와 병합
-	all_items = previous_items + items
-	all_matched_ids = previous_ids + matched_ids
-	total_found = previous_found + found_in_batch
+	if not user or not pwd:
+		return {
+			**state,
+			"result": {"ok": False, "error": "IMAP 접속 정보가 필요합니다."},
+		}
+	
+	mail = imaplib.IMAP4_SSL(host, port)
+	try:
+		mail.login(user, pwd)
+		mail.select("INBOX")
 
-	# 다음 배치가 있는지 확인 (먼저 계산)
-	has_more = (batch_offset + 1) < max_batches and (batch_offset + 1) * batch_size < total_mails
+		# 현재 배치 검색
+		items: List[Dict[str, Any]] = []
+		matched_ids: List[str] = []  # bytes 대신 문자열 사용
+		found_in_batch = 0
 
-	# 세션별 캐시에 저장
-	session_id = state.get("session_id")
-	cache = _get_email_cache(session_id)
-	cache["ids"] = all_matched_ids
-	cache["items"] = all_items
-	cache["batch_offset"] = batch_offset + 1 if has_more else batch_offset
-	cache["last_keyword"] = keyword
+		# 배치 내에서 역순으로 처리 (최신 메일부터)
+		for idx, msg_id in enumerate(reversed(batch_ids)):
+			try:
+				# msg_id가 문자열이면 bytes로 변환
+				msg_id_bytes = msg_id.encode('utf-8') if isinstance(msg_id, str) else msg_id
+				msg = _imap_fetch_msg(mail, msg_id_bytes)
+				subject = _decode_mime_header(msg.get("Subject"))
+				body_text = _message_to_text(msg, max_lines=None)
+				# mail_test.py 방식: keyword in subject or keyword in body
+				keywords_list = search_keyword.split()
+				matched = False
+				if keywords_list:
+					subject_lower = subject.lower()
+					body_lower = body_text.lower()
+					for kw in keywords_list:
+						if kw in subject_lower or kw in body_lower:
+							matched = True
+							break
+				
+				if matched:
+					# 전체 메일 목록에서의 순서번호 계산
+					global_index = total_mails - (batch_offset * batch_size + idx)
+					s = _extract_summary_from_msg(global_index, msg)
+					# 검색 결과에서의 실제 인덱스 (이전 결과 포함)
+					actual_index = previous_found + found_in_batch
+					display_index = global_index  # 표시되는 번호 (전체 메일 목록의 순서)
 
-	# 키워드별 마지막 검색 위치 저장 (추출된 키워드 기준)
-	extracted_keyword = _extract_keywords(keyword)
-	if extracted_keyword:
-		if "keyword_offsets" not in cache:
-			cache["keyword_offsets"] = {}
-		cache["keyword_offsets"][extracted_keyword] = batch_offset + 1 if has_more else batch_offset
+					items.append(
+						{
+							"title": s.subject,
+							"from": s.from_addr,
+							"date": s.date,
+							"snippet": s.snippet,
+							"index": str(display_index),  # 표시용 번호 (문자열)
+							"actual_index": actual_index,  # 실제 인덱스 (숫자)
+						}
+					)
+					# msg_id를 문자열로 저장 (직렬화 가능하게 함)
+					msg_id_str = msg_id if isinstance(msg_id, str) else msg_id.decode('utf-8')
+					matched_ids.append(msg_id_str)
+					found_in_batch += 1
+			except Exception as e:
+				logger.debug("메일 처리 중 오류: %s", repr(e))
+				continue
+		
+		# 이전 결과와 병합
+		all_items = previous_items + items
+		all_matched_ids = previous_ids + matched_ids
+		total_found = previous_found + found_in_batch
 
-	# 번호 매핑 저장: {표시번호: 실제인덱스}
-	index_map = {}
-	for item in all_items:
-		display_num = int(item.get("index", 0))
-		actual_idx = item.get("actual_index", 0)
-		index_map[display_num] = actual_idx
-	cache["index_map"] = index_map
-	_save_email_cache(cache, session_id)
+		# 다음 배치가 있는지 확인 (먼저 계산)
+		has_more = (batch_offset + 1) < max_batches and (batch_offset + 1) * batch_size < total_mails
 
-	# 결과가 충분히 찾았거나 (5개 이상), 더 이상 검색할 메일이 없으면 종료
-	if total_found >= 5 or not has_more:
-		# 연결 종료
+		# 세션별 캐시에 저장 (Redis 숏텀 메모리 사용)
+		# all_matched_ids는 이미 문자열 리스트이므로 변환 불필요
+		all_matched_ids_str = all_matched_ids
+		
+		# orchestrator_state를 전달하여 Redis에서 가져오기
+		cache = _get_email_cache(session_id, orchestrator_state)
+		cache["ids"] = all_matched_ids_str  # 문자열로 변환된 ID 저장
+		cache["items"] = all_items
+		# batch_offset 업데이트: 다음 검색을 위해 증가시킴
+		# has_more가 True이면 다음 배치가 있으므로 batch_offset을 증가시킴
+		# has_more가 False이면 더 이상 검색할 메일이 없으므로 현재 batch_offset 유지
+		if has_more:
+			cache["batch_offset"] = batch_offset + 1
+		else:
+			cache["batch_offset"] = batch_offset  # 더 이상 검색할 메일이 없으면 현재 위치 유지
+		cache["last_keyword"] = keyword
+
+		# 키워드별 마지막 검색 위치 저장 (추출된 키워드 기준)
+		extracted_keyword = _extract_keywords(keyword)
+		if extracted_keyword:
+			if "keyword_offsets" not in cache:
+				cache["keyword_offsets"] = {}
+			# has_more가 True이면 다음 배치 위치 저장, False이면 현재 위치 저장
+			cache["keyword_offsets"][extracted_keyword] = batch_offset + 1 if has_more else batch_offset
+
+		# 번호 매핑 저장: {표시번호: 실제인덱스}
+		index_map = {}
+		for item in all_items:
+			display_num = int(item.get("index", 0))
+			actual_idx = item.get("actual_index", 0)
+			index_map[display_num] = actual_idx
+		cache["index_map"] = index_map
+		
+		# Redis 숏텀 메모리에 저장
+		# orchestrator_state를 전달하여 Redis에 저장
+		updated_state = _save_email_cache(cache, session_id, orchestrator_state)
+		if updated_state and orchestrator_state:
+			orchestrator_state.update(updated_state)
+	finally:
+		# IMAP 연결 종료
 		try:
 			mail.logout()
 		except Exception:
 			pass
+	
+	# 결과가 충분히 찾았거나 (5개 이상), 더 이상 검색할 메일이 없으면 종료
+	if total_found >= 5 or not has_more:
 
 		if total_found == 0:
 			result = {
@@ -599,9 +703,11 @@ def fetch_detail_node(state: EmailSearchState) -> EmailSearchState:
 		}
 	
 	msg_id = matched_ids[selection_index - 1]
+	# matched_ids가 문자열이므로 bytes로 변환 필요
+	msg_id_bytes = msg_id.encode('utf-8') if isinstance(msg_id, str) else msg_id
 	m = _imap_connect()
 	try:
-		msg = _imap_fetch_msg(m, msg_id)
+		msg = _imap_fetch_msg(m, msg_id_bytes)
 		subject = _decode_mime_header(msg.get("Subject"))
 		sender = _decode_mime_header(msg.get("From"))
 		date = _decode_header_value(msg.get("Date"))
@@ -623,6 +729,13 @@ def fetch_detail_node(state: EmailSearchState) -> EmailSearchState:
 #
 # LangGraph 구성
 #
+# 전역 변수 제거: 모든 상태는 OrchestratorState를 통해 Redis에 저장됨
+# IMAP 연결은 각 노드 함수 내에서 생성하고 사용 후 즉시 종료
+
+# orchestrator_state를 노드 함수에 전달하기 위한 임시 저장소
+# 주의: 이는 단일 요청당 단일 그래프 실행이므로 안전함
+_current_orchestrator_state_for_node: Optional[Dict[str, Any]] = None
+
 def _build_search_graph() -> StateGraph:
 	"""검색 그래프 구성 (mail_test.py 참고)."""
 	graph = StateGraph(EmailSearchState)
@@ -644,14 +757,18 @@ def _build_detail_graph() -> StateGraph:
 
 
 # 그래프 인스턴스 (재사용)
-_search_graph = _build_search_graph().compile()
-_detail_graph = _build_detail_graph().compile()
+# 주의: 이 그래프는 checkpointer 없이 컴파일합니다.
+# EmailSearchState에는 IMAP4_SSL 연결 객체와 bytes 타입이 포함되어 있어
+# Redis에 직렬화할 수 없습니다. 이 그래프는 내부 구현 세부사항이므로
+# Redis에 저장할 필요가 없습니다. 실제 상태는 OrchestratorState에 저장됩니다.
+_search_graph = _build_search_graph().compile(checkpointer=None)
+_detail_graph = _build_detail_graph().compile(checkpointer=None)
 
 
 #
 # 기존 함수 인터페이스 유지 (LangGraph 사용)
 #
-def _imap_search_emails(keyword: str, limit: int = 1000, session_id: Optional[str] = None, batch_offset: int = 0) -> Dict[str, Any]:
+async def _imap_search_emails(keyword: str, limit: int = 1000, session_id: Optional[str] = None, batch_offset: int = 0, orchestrator_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 	"""IMAP을 통해 최근 메일에서 키워드로 검색 (LangGraph 사용, 100개씩 배치 검색).
 
 	Args:
@@ -659,13 +776,19 @@ def _imap_search_emails(keyword: str, limit: int = 1000, session_id: Optional[st
 		limit: 검색할 최대 메일 개수 (참고용, 실제로는 배치 단위로 검색)
 		session_id: 세션 ID (멀티턴 대화 지원)
 		batch_offset: 배치 오프셋 (0부터 시작)
+		orchestrator_state: OrchestratorState (Redis 숏텀 메모리)
+	
+	Note:
+		AsyncRedisSaver를 사용하는 경우 비동기 인터페이스(ainvoke)를 사용해야 합니다.
 	"""
 	batch_size = 100
 	max_batches = (limit + batch_size - 1) // batch_size  # 올림 계산
 
+	# initial_state에는 직렬화 불가능한 객체를 포함하지 않음
+	# orchestrator_state는 노드 함수에서 직접 사용 (클로저 또는 전역 변수로 전달)
+	# connection은 전역 변수로 관리하므로 상태에서 제거
 	initial_state: EmailSearchState = {
-		"connection": None,
-		"mail_ids": [],
+		"mail_ids": [],  # connect_imap_node에서 생성됨
 		"keyword": keyword,
 		"matched_ids": [],
 		"matched_items": [],
@@ -677,22 +800,43 @@ def _imap_search_emails(keyword: str, limit: int = 1000, session_id: Optional[st
 		"session_id": session_id,
 		"result": None,
 		"has_more": False,
+		# orchestrator_state는 포함하지 않음 (직렬화 오류 방지)
+		# 대신 search_emails_node에서 session_id를 통해 접근
 	}
-	final_state = _search_graph.invoke(initial_state)
-	result = final_state.get("result")
-	if result:
-		return result
-	return {"ok": False, "error": "검색 결과를 가져올 수 없습니다."}
+	# AsyncRedisSaver를 사용하는 경우 비동기 인터페이스 사용
+	# 주의: _search_graph는 checkpointer=None으로 컴파일되어 내부 상태는 Redis에 저장되지 않음
+	# 하지만 검색 결과는 orchestrator_state를 통해 OrchestratorState.email_search_context에 저장됨
+	
+	# orchestrator_state를 노드 함수에 전달하기 위해 전역 변수에 저장
+	# 주의: 이는 단일 요청당 단일 그래프 실행이므로 안전함
+	global _current_orchestrator_state_for_node
+	_current_orchestrator_state_for_node = orchestrator_state
+	
+	try:
+		# _search_graph 실행 (checkpointer 없이 독립 실행)
+		final_state = await _search_graph.ainvoke(initial_state, config={"configurable": {}})
+		result = final_state.get("result")
+		
+		# search_emails_node에서 이미 _save_email_cache를 통해 OrchestratorState.email_search_context에 저장됨
+		# orchestrator_state는 상위 그래프에서 자동으로 Redis에 저장됨
+		
+		if result:
+			return result
+		return {"ok": False, "error": "검색 결과를 가져올 수 없습니다."}
+	finally:
+		# 전역 변수 정리
+		_current_orchestrator_state_for_node = None
 
-def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, by_display_number: bool = True) -> Dict[str, Any]:
+async def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, by_display_number: bool = True, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 	"""선택한 메일의 상세 내용 가져오기 (LangGraph 사용).
 
 	Args:
 		sel_index: 선택한 번호
 		session_id: 세션 ID (멀티턴 대화 지원)
 		by_display_number: True면 표시 번호로 검색, False면 실제 인덱스로 검색
+		state: OrchestratorState (선택적, Redis에서 가져온 state)
 	"""
-	cache = _get_email_cache(session_id)
+	cache = _get_email_cache(session_id, state)
 
 	if not cache.get("ids"):
 		return {"ok": False, "error": "선택 가능한 메일 목록이 없습니다. 먼저 검색을 실행해 주세요."}
@@ -700,7 +844,12 @@ def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, 
 	# 표시 번호로 검색하는 경우 매핑에서 실제 인덱스 찾기
 	if by_display_number:
 		index_map = cache.get("index_map", {})
+		# Redis에서 로드된 JSON은 키가 문자열일 수 있으므로 처리
 		actual_index = index_map.get(sel_index)
+		if actual_index is None:
+			# 문자열 키로도 시도
+			actual_index = index_map.get(str(sel_index))
+		
 		if actual_index is None:
 			# 매핑에서 찾지 못하면, 표시 번호가 있는 아이템에서 직접 찾기
 			items = cache.get("items", [])
@@ -716,7 +865,7 @@ def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, 
 		sel_index = actual_index + 1
 
 	initial_state: EmailSearchState = {
-		"connection": None,
+		# connection은 전역 변수로 관리하므로 상태에서 제거
 		"mail_ids": [],
 		"keyword": "",
 		"matched_ids": cache["ids"],
@@ -727,29 +876,33 @@ def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, 
 		"session_id": session_id,
 		"result": None,
 	}
-	final_state = _detail_graph.invoke(initial_state)
+	# AsyncRedisSaver를 사용하는 경우 비동기 인터페이스 사용
+	final_state = await _detail_graph.ainvoke(initial_state)
 	result = final_state.get("result")
 	if result:
 		return result
 	return {"ok": False, "error": "메일 상세 내용을 가져올 수 없습니다."}
 
-def has_pending_email_results(session_id: Optional[str] = None) -> bool:
+def has_pending_email_results(session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> bool:
 	"""최근 검색 결과가 캐시에 남아 있는지 여부 (세션별).
 
 	Args:
 		session_id: 세션 ID (없으면 현재 세션 사용)
+		state: OrchestratorState (선택적, Redis에서 가져온 state)
 	"""
-	cache = _get_email_cache(session_id)
-	return bool(cache.get("ids"))
+	cache = _get_email_cache(session_id, state)
+	# 결과(ids)가 있거나, 이전 검색 키워드(last_keyword)가 있으면 연속 검색 가능
+	return bool(cache.get("ids") or cache.get("last_keyword"))
 
 
-def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+async def email_search(user_text: str, session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 	print("사용자 질의로 메일함을 검색하여 관련 메일 요약/상세을 준비중입니다.")
 	"""사용자 질의로 IMAP 메일함을 검색하여 관련 메일 요약/상세를 반환합니다.
 
 	Args:
 		user_text: 사용자 질의 (예: "육아휴직 신청 관련 메일을 찾아줘")
 		session_id: 세션 ID (멀티턴 대화 지원)
+		state: OrchestratorState (선택적, Redis 숏텀 메모리에서 가져온 state)
 
 	.env 지원:
 		현재 작업 디렉터리의 .env 파일을 자동으로 읽어 환경변수에 주입하려 시도합니다(존재 시).
@@ -815,8 +968,8 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 
 	try:
 		# 이전 검색 결과가 있는 경우에만 상세 요청 처리 (세션별)
-		if has_pending_email_results(session_id):
-			# 패턴 1: 숫자로 시작 + "에 대해", "자세히", "상세히", "상세", "알려줘" 패턴 (메일 키워드 불필요)
+		if has_pending_email_results(session_id, state):
+			# 패턴 1: 숫자로 시작 + "에 대해", "자세히", "상세히" 패턴 → 상세 요청 (메일 키워드 불필요)
 			# 예: "626. 육아휴직 연장 안내의 건에 대해 알려줘", "600. 육아휴직 연장 안내의 건 상세"
 			# 주의: 다른 agent(특허, 논문)와 충돌 방지를 위해 이전 검색 결과 확인 필수
 			if re.match(r"^\d+\.?\s*", query) and any(k in query for k in ["에 대해", "에대해", "자세히", "상세히", "상세", "알려줘", "알려"]):
@@ -889,10 +1042,10 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 
 	# 선택 처리: 숫자가 있고 이전 검색 결과가 있으면 상세 보기 (세션별)
 	try:
-		if selection_index is not None and has_pending_email_results(session_id):
+		if selection_index is not None and has_pending_email_results(session_id, state):
 			# 제목으로도 검색 시도 (번호가 매칭되지 않는 경우)
 			if selection_by_title:
-				cache = _get_email_cache(session_id)
+				cache = _get_email_cache(session_id, state)
 				items = cache.get("items", [])
 				# 제목으로 아이템 찾기
 				for idx, item in enumerate(items):
@@ -901,38 +1054,42 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 					# 번호가 일치하거나 제목이 유사하면
 					if display_num == selection_index or selection_by_title.lower() in item_title.lower():
 						actual_index = item.get("actual_index", idx)
-						return _imap_fetch_full_by_index(actual_index + 1, session_id=session_id, by_display_number=False)
+						return await _imap_fetch_full_by_index(actual_index + 1, session_id=session_id, by_display_number=False, state=state)
 
 			# 번호로만 검색
-			return _imap_fetch_full_by_index(selection_index, session_id=session_id, by_display_number=True)
+			return await _imap_fetch_full_by_index(selection_index, session_id=session_id, by_display_number=True, state=state)
 
 		# "더 찾아줘", "계속 검색" 등의 요청 처리
+		# Redis 숏텀 메모리(OrchestratorState)에서 이전 검색 정보 가져오기
 		batch_offset = 0
 		search_keyword = query  # 기본값은 현재 쿼리
-		cache = _get_email_cache(session_id)
+		cache = _get_email_cache(session_id, state)
 
 		# 현재 쿼리에서 키워드 추출
 		current_extracted = _extract_keywords(query)
 
 		# 이전 검색 결과가 있고, 명시적으로 "더 찾아줘" 등의 요청인 경우
-		if has_pending_email_results(session_id):
+		if has_pending_email_results(session_id, state):
 			last_keyword = cache.get("last_keyword", "")
 			keyword_offsets = cache.get("keyword_offsets", {})
 
 			# "더 찾아줘", "계속 검색" 등의 연속 검색 요청인 경우
-			if any(k in query.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘"]):
-				# 이전 키워드를 사용하여 계속 검색
+			if any(k in query.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘", "더 찾아", "계속 찾아"]):
+				# 이전 키워드를 사용하여 계속 검색 (Redis 숏텀 메모리에서 가져옴)
 				if last_keyword:
 					search_keyword = last_keyword
-					# 저장된 배치 오프셋 사용
+					# 저장된 배치 오프셋 사용 (Redis 숏텀 메모리에서 가져옴)
+					# 이전 검색에서 저장된 batch_offset은 이미 다음 배치를 가리키고 있음
 					batch_offset = cache.get("batch_offset", 0)
+					print(f"✅ 연속 검색: 이전 키워드='{last_keyword}', batch_offset={batch_offset}")
 				else:
 					# 이전 키워드가 없으면 현재 쿼리 사용 (fallback)
 					search_keyword = query
 					batch_offset = 0
+					print(f"⚠️ 이전 키워드 없음, 현재 쿼리 사용: '{query}'")
 			# 같은 키워드로 계속 검색하는 경우
 			elif query == last_keyword:
-				# 저장된 배치 오프셋 사용
+				# 저장된 배치 오프셋 사용 (Redis 숏텀 메모리에서 가져옴)
 				batch_offset = cache.get("batch_offset", 0)
 				search_keyword = query
 			# 새로운 키워드로 검색하는 경우
@@ -947,10 +1104,12 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 					batch_offset = 0
 					search_keyword = query
 
-				# 캐시 업데이트
+				# Redis 숏텀 메모리에 캐시 업데이트
 				cache["batch_offset"] = batch_offset
 				cache["last_keyword"] = query
-				_save_email_cache(cache, session_id)
+				updated_state = _save_email_cache(cache, session_id, state)
+				if updated_state:
+					state.update(updated_state)
 		else:
 			# 새로운 검색인 경우
 			batch_offset = 0
@@ -959,11 +1118,22 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 			cache["last_keyword"] = query
 			if "keyword_offsets" not in cache:
 				cache["keyword_offsets"] = {}
-			_save_email_cache(cache, session_id)
+			# Redis 숏텀 메모리에 캐시 저장
+			updated_state = _save_email_cache(cache, session_id, state)
+			if updated_state:
+				state.update(updated_state)
 
 		# 검색 실행(IMAP) - 배치 단위로 검색 (이전 키워드 사용)
+		# Redis 숏텀 메모리 state를 전달하여 이전 검색 정보 활용
 		imap_limit = int(_get_env("IMAP_MAX_FETCH", "1000") or "1000")
-		return _imap_search_emails(keyword=search_keyword, limit=imap_limit, session_id=session_id, batch_offset=batch_offset)
+		# _imap_search_emails는 비동기 함수이므로 await 사용
+		return await _imap_search_emails(
+			keyword=search_keyword, 
+			limit=imap_limit, 
+			session_id=session_id, 
+			batch_offset=batch_offset,
+			orchestrator_state=state
+		)
 	except Exception as e:
 		import traceback
 		traceback.print_exc()
@@ -974,8 +1144,8 @@ def email_search(user_text: str, session_id: Optional[str] = None) -> Dict[str, 
 	# 이 지점까지 오면 정상 반환됨(검색/상세)
 
 
-async def email_search_async(user_text: str) -> Dict[str, Any]:
-	"""비동기 래퍼: IMAP 블로킹 작업을 스레드로 오프로딩."""
-	return await asyncio.to_thread(email_search, user_text)
+async def email_search_async(user_text: str, session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	"""비동기 래퍼: email_search는 이미 비동기 함수이므로 직접 호출."""
+	return await email_search(user_text, session_id=session_id, state=state)
 
 

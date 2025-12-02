@@ -13,10 +13,16 @@ from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connec
 from sentence_transformers import SentenceTransformer
 
 # Milvus 연결 설정 (환경 변수 또는 기본값)
-# HOST 환경 변수 사용 (SCHEDULE_DB_HOST와 MILVUS_HOST를 통합)
-MILVUS_HOST = os.getenv("HOST", "localhost")
-MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
-MILVUS_COLLECTION_NAME = "document_vectors"
+# HOST 환경 변수 사용 (공백 제거)
+def _get_env_trimmed(key: str, default: str = "") -> str:
+    """환경 변수 조회 (공백 제거)."""
+    value = os.getenv(key, default)
+    return value.strip() if value and isinstance(value, str) else default
+
+MILVUS_HOST = _get_env_trimmed("HOST") or _get_env_trimmed("MILVUS_HOST") or "175.114.229.152"
+MILVUS_PORT_STR = _get_env_trimmed("MILVUS_PORT") or "19530"
+MILVUS_PORT = int(MILVUS_PORT_STR.strip()) if MILVUS_PORT_STR else 19530
+MILVUS_COLLECTION_NAME = _get_env_trimmed("DOCUMENT_COLLECTION") or _get_env_trimmed("MILVUS_COLLECTION_NAME") or "document_vectors"
 
 # 임베딩 모델 초기화 (한번만 로드)
 _embedding_model = None
