@@ -153,7 +153,12 @@ document:
       features: |
         - Structured Output Parser 사용: 사용자 쿼리에서 template_type, variables, output_format 등을 자동 추출
         - Redis 컨텍스트: 생성한 문서 정보를 Redis에 저장하여 멀티턴 대화 지원
+          * 이전에 생성한 문서의 템플릿 타입, 제목, 변수 정보를 기억
+          * 대화 히스토리를 활용하여 이전 요청에서 템플릿명, 제목, 요구사항 추출
+          * "이전 문서와 같은 템플릿으로" 같은 요청 시 이전 컨텍스트 활용
         - Human-in-the-loop: PDF 변환 및 결재 요청 시 사용자 승인 요청
+          * 결재 필요 문서 생성 시 사용자에게 승인 요청
+          * 사용자 승인/취소 응답을 Redis 컨텍스트에 저장하여 처리
       capabilities:
         - "템플릿 기반 문서 생성"
         - "인사정보 요약 리포트 작성"
@@ -192,6 +197,12 @@ document:
         - "제품 비교표 템플릿 생성"
     upload_knowledge:
       description: "지식 업로드 (RAG)"
+      features: |
+        - Redis 컨텍스트: 업로드한 파일 경로, 청크 수, 임베딩 수 등을 Redis에 저장하여 멀티턴 대화 지원
+        - 파일 파싱: PDF/DOCX 등의 파일에서 텍스트 추출
+        - 청킹: 추출된 텍스트를 의미 있는 단위로 분할
+        - 임베딩: 각 청크를 벡터로 변환
+        - Vector DB Upsert: 임베딩 벡터를 Milvus에 저장/업데이트
       capabilities:
         - "문서 업로드"
         - "벡터 DB 저장"

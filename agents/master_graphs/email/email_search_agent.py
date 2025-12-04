@@ -961,14 +961,35 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 
 	# IMAP: 선택 요청인지 확인
 	# 1. 이전 검색 결과가 있고, 숫자로 시작 + "에 대해", "자세히", "상세히" 패턴 → 상세 요청 (메일 키워드 불필요)
-	# 2. "메일" 또는 "이메일" 키워드가 포함된 경우 상세 요청
-	# 3. 숫자로 시작 + 제목 형식 (예: "355번 메일", "355. 육아휴직 연장 안내의 건 메일")
+	# 2. "자세히 알려주세요", "자세히", "상세히"만 있고 숫자가 없으면 첫 번째 메일 상세 보기
+	# 3. "메일" 또는 "이메일" 키워드가 포함된 경우 상세 요청
+	# 4. 숫자로 시작 + 제목 형식 (예: "355번 메일", "355. 육아휴직 연장 안내의 건 메일")
 	selection_index: Optional[int] = None
 	selection_by_title: Optional[str] = None
 
 	try:
 		# 이전 검색 결과가 있는 경우에만 상세 요청 처리 (세션별)
 		if has_pending_email_results(session_id, state):
+			# 패턴 0: "자세히 알려주세요", "자세히", "상세히"만 있고 숫자가 없으면 첫 번째 메일 상세 보기
+			detail_keywords = ["자세히 알려주세요", "자세히 알려줘", "자세히", "상세히 알려주세요", "상세히 알려줘", "상세히", "상세", "자세히 보여줘", "상세히 보여줘"]
+			has_detail_keyword = any(k in query for k in detail_keywords)
+			has_number = bool(re.search(r"\d+", query))
+			# 다른 명확한 의도 키워드 제외 (식단, 일정, 특허, 논문 등)
+			exclude_keywords = ["점심", "저녁", "메뉴", "식단", "구내식당", "일정", "스케줄",
+			                    "특허", "논문", "paper", "patent", "KISTI", "ScienceON", "학술"]
+			has_exclude_keyword = any(k in query for k in exclude_keywords)
+			
+			if has_detail_keyword and not has_number and not has_exclude_keyword:
+				# 첫 번째 메일의 상세 내용 보여주기
+				cache = _get_email_cache(session_id, state)
+				items = cache.get("items", [])
+				if items:
+					# 첫 번째 메일 (index=0)의 display 번호 가져오기
+					first_item = items[0]
+					display_num = int(first_item.get("index", 0))
+					if display_num > 0:
+						return await _imap_fetch_full_by_index(display_num, session_id=session_id, by_display_number=True, state=state)
+			
 			# 패턴 1: 숫자로 시작 + "에 대해", "자세히", "상세히" 패턴 → 상세 요청 (메일 키워드 불필요)
 			# 예: "626. 육아휴직 연장 안내의 건에 대해 알려줘", "600. 육아휴직 연장 안내의 건 상세"
 			# 주의: 다른 agent(특허, 논문)와 충돌 방지를 위해 이전 검색 결과 확인 필수
