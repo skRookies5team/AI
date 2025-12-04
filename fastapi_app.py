@@ -10,10 +10,10 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from agents.schedule_master import schedule_master
 from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.master_graphs.document.document_upload_service import process_uploaded_file
 from agents.redis_checkpoint import get_redis_checkpointer
+from agents.master_graphs.schedule.schedule_langgraph import run_schedule_agent
 
 # Redis 체크포인터 초기화 (앱 시작 시 한 번만)
 _redis_checkpointer = get_redis_checkpointer()
@@ -53,7 +53,7 @@ app.add_middleware(
 async def schedule_chat_endpoint(payload: ScheduleChatRequest) -> ScheduleChatResponse:
     """스케줄 챗봇 질의 엔드포인트."""
     try:
-        result = await run_in_threadpool(schedule_master, payload.query)
+        result = await run_in_threadpool(run_schedule_agent, payload.query)
     except Exception as exc:  # pragma: no cover - FastAPI가 처리
         raise HTTPException(status_code=500, detail=f"일정 챗봇 처리 실패: {exc}") from exc
 
@@ -75,7 +75,7 @@ async def schedule_get_endpoint(query: str = Query("", description="사용자 �
         raise HTTPException(status_code=400, detail="query parameter must not be empty.")
 
     try:
-        result = await run_in_threadpool(schedule_master, normalized)
+        result = await run_in_threadpool(run_schedule_agent, normalized)
     except Exception as exc:  # pragma: no cover - FastAPI가 처리
         raise HTTPException(status_code=500, detail=f"일정 챗봇 처리 실패: {exc}") from exc
 
@@ -148,7 +148,7 @@ async def leave_chat_endpoint(payload: LeaveChatRequest) -> LeaveChatResponse:
         raise HTTPException(status_code=400, detail="query 값이 필요합니다.")
 
     try:
-        result = await run_in_threadpool(schedule_master, normalized)
+        result = await run_in_threadpool(run_schedule_agent, normalized)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"휴가 챗봇 처리 실패: {exc}") from exc
 
@@ -316,3 +316,42 @@ async def upload_document_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"문서 업로드 실패: {exc}") from exc
+
+
+if __name__ == "__main__":
+    """FastAPI 서버 직접 실행.
+    
+    사용법:
+        python fastapi_app.py
+        또는
+        uv run fastapi_app.py
+    """
+    import uvicorn
+    
+    # 환경 변수 확인
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("⚠️ 경고: OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
+        print("   .env 파일을 확인하거나 환경 변수를 설정해주세요.")
+    
+    # Redis 연결 정보 확인
+    redis_host = os.environ.get("HOST", "localhost")
+    redis_port = os.environ.get("REDIS_PORT", "6379")
+    print(f"📡 Redis 연결 정보: {redis_host}:{redis_port}")
+    print(f"💡 Redis 서버가 실행 중인지 확인해주세요.")
+    
+    print("\n" + "="*60)
+    print("🚀 FastAPI 서버 시작 중...")
+    print("="*60)
+    print(f"📝 API 문서: http://localhost:8000/docs")
+    print(f"🌐 UI 메인 페이지: http://localhost:8000/")
+    print(f"📄 문서 작성 UI: http://localhost:8000/document-writer")
+    print("="*60 + "\n")
+    
+    # uvicorn 서버 실행
+    uvicorn.run(
+        "fastapi_app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,  # 개발 환경에서 자동 리로드
+        log_level="info"
+    )
