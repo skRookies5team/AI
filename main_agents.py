@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agents.orchestrator_v3 import get_orchestrator_graph
-from agents.redis_checkpoint import get_redis_checkpointer
+from agents.session_manager import get_session_manager
 
 
 def _fmt_num(n):
@@ -150,40 +150,120 @@ def format_result(result) -> str:
 async def chat_loop_async() -> None:
 	"""대화 루프: LangGraph Orchestrator 기반 멀티턴 대화 지원."""
 	print("깐부 AI Agent 시스템 시작 (LangGraph Orchestrator)")
-	print("종료하려면 'exit' 또는 'quit' 입력\n")
+	print("종료하려면 'exit' 또는 'quit' 입력")
+	print("세션 변경: '/session <세션ID>' 또는 '/new' (새 세션)")
+	print("현재 세션 확인: '/session' 또는 '/current'\n")
 
-	# Redis 체크포인터 초기화
-	checkpointer = get_redis_checkpointer()
+	# 세션 관리자 초기화
+	session_manager = await get_session_manager()
 	
-	# 오케스트레이터 그래프 초기화 (Redis 체크포인터 전달)
-	graph = get_orchestrator_graph(checkpointer=checkpointer)
+	# 오케스트레이터 그래프 초기화 (체크포인터 없이 실행)
+	graph = get_orchestrator_graph(checkpointer=None)
 	
 	# 세션 ID 생성 (대화 세션별 메모리 관리)
-	session_id = str(uuid.uuid4())
+	session_id = f"cli_session_{uuid.uuid4()}"
+	employee_id = 1001  # 기본 사원 번호
+	
+	print(f"📌 현재 세션: {session_id}\n")
 	
 	while True:
 		user = input("\n사용자> ").strip()
-		if user.lower() in {"exit", "quit"}:
+		
+		# 종료 명령
+		if user.lower() in {"exit", "quit", "종료"}:
 			print("종료합니다.")
 			break
 		
+		# 빈 입력
 		if not user:
 			continue
 		
+		# 세션 변경 명령 처리
+		if user.startswith("/session") or user.startswith("/new") or user.startswith("/current"):
+			parts = user.split()
+			if len(parts) > 1:
+				# /session <세션ID> - 특정 세션으로 변경
+				new_session_id = parts[1]
+				session_id = new_session_id
+				print(f"✅ 세션 변경: {session_id}")
+			elif user.startswith("/new"):
+				# /new - 새 세션 생성
+				session_id = f"cli_session_{uuid.uuid4()}"
+				print(f"✅ 새 세션 생성: {session_id}")
+			else:
+				# /session 또는 /current - 현재 세션 표시
+				print(f"📌 현재 세션: {session_id}")
+				if session_manager:
+					session_data = await session_manager.load_session_data(session_id)
+					history_count = len(session_data.get("conversation_history", []))
+					print(f"   - 대화 히스토리: {history_count}개 메시지")
+			continue
+		
 		try:
+			# 세션 관리자로 이전 세션 데이터 로드
+			session_data = {
+				"conversation_history": [],
+				"email_search_context": {},
+				"qa_search_context": {},
+				"tech_search_context": {},
+				"schedule_context": {},
+				"document_context": {}
+			}
+			if session_manager:
+				session_data = await session_manager.load_session_data(session_id)
+			
 			# 오케스트레이터 상태 생성
 			input_state = {
 				"query": user,
 				"session_id": session_id,
-				"employee_id": 1001,  # 기본 사원 번호 (환경변수나 설정으로 변경 가능)
-				"messages": [],
-				"conversation_history": []  # 멀티턴 대화 히스토리
+				"employee_id": employee_id,
+				"conversation_history": session_data.get("conversation_history", []),
+				"email_search_context": session_data.get("email_search_context", {}),
+				"qa_search_context": session_data.get("qa_search_context", {}),
+				"tech_search_context": session_data.get("tech_search_context", {}),
+				"schedule_context": session_data.get("schedule_context", {}),
+				"document_context": session_data.get("document_context", {})
 			}
 			
-			# 오케스트레이터 실행 (체크포인터 사용 시 thread_id 필요)
+			# 오케스트레이터 실행
 			print("🤖 처리 중...")
 			config = {"configurable": {"thread_id": session_id}}
 			final_state = await graph.ainvoke(input_state, config=config)
+			
+			# 세션 데이터 저장
+			if session_manager:
+				# 사용자 메시지 추가
+				user_message = {
+					"role": "user",
+					"content": user,
+					"timestamp": __import__("datetime").datetime.now().isoformat()
+				}
+				
+				# conversation_history 업데이트
+				conversation_history = list(final_state.get("conversation_history", []))
+				if not conversation_history or conversation_history[-1].get("role") != "user":
+					conversation_history.append(user_message)
+				
+				# Assistant 메시지 추가
+				final_msg = final_state.get("final_response")
+				if final_msg:
+					assistant_message = {
+						"role": "assistant",
+						"content": final_msg,
+						"timestamp": __import__("datetime").datetime.now().isoformat()
+					}
+					conversation_history.append(assistant_message)
+				
+				# 세션 state 전체 저장
+				session_state = {
+					"conversation_history": conversation_history,
+					"email_search_context": final_state.get("email_search_context", {}),
+					"qa_search_context": final_state.get("qa_search_context", {}),
+					"tech_search_context": final_state.get("tech_search_context", {}),
+					"schedule_context": final_state.get("schedule_context", {}),
+					"document_context": final_state.get("document_context", {})
+				}
+				await session_manager.save_session_state(session_id, session_state)
 			
 			# 결과 처리
 			messages = final_state.get("messages", [])
@@ -276,11 +356,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
 
     try:
-        # Redis 체크포인터 초기화
-        checkpointer = get_redis_checkpointer()
-        
-        # 오케스트레이터 그래프 초기화 (Redis 체크포인터 전달)
-        graph = get_orchestrator_graph(checkpointer=checkpointer)
+        # 오케스트레이터 그래프 초기화 (체크포인터 없이 실행)
+        graph = get_orchestrator_graph(checkpointer=None)
         
         # Initial State
         input_state = {

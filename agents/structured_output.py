@@ -97,6 +97,33 @@ class QueryIntent(BaseModel):
     )
 
 
+class HistoryCheckIntent(BaseModel):
+    """이전 대화 확인 질문 의도 분석 결과.
+    
+    사용자가 이전에 요청한 작업이나 대화 내용을 확인하는 질문인지 판단합니다.
+    예: "내가 이메일에서 육아휴직 관련 내용 찾아달라는 요청을 한적이 있어?"
+    """
+    
+    is_history_check: bool = Field(
+        ..., 
+        description="이전 대화 확인 질문인지 여부. 사용자가 과거에 요청한 작업이나 대화 내용을 확인하는 질문이면 True"
+    )
+    check_type: Optional[str] = Field(
+        default=None,
+        description="확인하려는 작업 유형 (email_search, patent_search, article_search, leave_request, document_generation 등). is_history_check가 True일 때만 의미가 있음"
+    )
+    mentioned_keywords: list[str] = Field(
+        default_factory=list,
+        description="질문에서 언급된 키워드들 (예: '육아휴직', '특허', '논문' 등)"
+    )
+    confidence: float = Field(
+        ..., 
+        description="분류 신뢰도 (0.0 ~ 1.0)", 
+        ge=0.0, 
+        le=1.0
+    )
+
+
 class DocumentGenerationParams(BaseModel):
     """문서 생성 파라미터."""
     

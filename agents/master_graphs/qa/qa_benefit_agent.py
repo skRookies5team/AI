@@ -506,20 +506,52 @@ async def benefit_rag(
 		# 그래프 실행
 		result = await _rag_graph.ainvoke(initial_state)
 		
-		# Redis에 검색 컨텍스트 저장
+		# 답변 텍스트 추출
+		answer_text = result.get("answer", "답변을 생성할 수 없습니다.")
+		
+		# Redis에 검색 컨텍스트 및 답변 저장
 		if orchestrator_state is not None:
-			if "qa_search_context" not in orchestrator_state:
+			# qa_search_context 초기화 (None 체크 포함)
+			if "qa_search_context" not in orchestrator_state or orchestrator_state["qa_search_context"] is None:
 				orchestrator_state["qa_search_context"] = {}
+			if not isinstance(orchestrator_state.get("qa_search_context"), dict):
+				orchestrator_state["qa_search_context"] = {}
+			
+			# 검색 컨텍스트 저장
 			orchestrator_state["qa_search_context"]["benefit"] = {
 				"last_query": user_query,
-				"last_answer": result.get("answer", ""),
+				"last_answer": answer_text,
 				"retrieved_contexts": result.get("retrieved_contexts", []),
 			}
+			
+			# conversation_history에 답변 추가 (Redis 저장용)
+			if "conversation_history" not in orchestrator_state:
+				orchestrator_state["conversation_history"] = []
+			if not isinstance(orchestrator_state.get("conversation_history"), list):
+				orchestrator_state["conversation_history"] = []
+			
+			# 사용자 메시지가 없으면 추가
+			conversation_history = orchestrator_state["conversation_history"]
+			if not conversation_history or conversation_history[-1].get("role") != "user":
+				from datetime import datetime
+				conversation_history.append({
+					"role": "user",
+					"content": user_query,
+					"timestamp": datetime.now().isoformat()
+				})
+			
+			# Assistant 답변 추가
+			from datetime import datetime
+			conversation_history.append({
+				"role": "assistant",
+				"content": answer_text,
+				"timestamp": datetime.now().isoformat()
+			})
 		
 		# 결과 반환
 		return {
 			"ok": True,
-			"message": result.get("answer", "답변을 생성할 수 없습니다."),
+			"message": answer_text,
 			"contexts": result.get("retrieved_contexts", []),
 			"timings": result.get("timings", {})
 		}

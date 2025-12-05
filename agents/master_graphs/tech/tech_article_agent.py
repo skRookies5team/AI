@@ -1020,18 +1020,21 @@ async def run_scienceon_agent(
         )
         
         # OrchestratorState에 검색 결과 저장 (Redis 숏텀 메모리)
+        # 성능 최적화: 한 번에 딕셔너리 생성하여 여러 번의 접근 제거
         if orchestrator_state is not None:
+            # tech_search_context 초기화 (한 번만)
             if "tech_search_context" not in orchestrator_state or orchestrator_state["tech_search_context"] is None:
                 orchestrator_state["tech_search_context"] = {}
-            if "article" not in orchestrator_state["tech_search_context"]:
-                orchestrator_state["tech_search_context"]["article"] = {}
             
-            orchestrator_state["tech_search_context"]["article"]["results"] = final_state.get("results", [])
-            orchestrator_state["tech_search_context"]["article"]["last_keyword"] = final_state.get("keyword", "")
-            orchestrator_state["tech_search_context"]["article"]["displayed_count"] = final_state.get("displayed_count", 0)
-            # 쿼리와 의도도 저장하여 문맥 유지 (ask_source 등에서 필요)
-            orchestrator_state["tech_search_context"]["article"]["query"] = final_state.get("query", "")
-            orchestrator_state["tech_search_context"]["article"]["intent"] = final_state.get("intent", "unknown")
+            # article 컨텍스트를 한 번에 생성하여 여러 번의 딕셔너리 접근 제거
+            article_context = {
+                "results": final_state.get("results", []),
+                "last_keyword": final_state.get("keyword", ""),
+                "displayed_count": final_state.get("displayed_count", 0),
+                "query": final_state.get("query", ""),
+                "intent": final_state.get("intent", "unknown"),
+            }
+            orchestrator_state["tech_search_context"]["article"] = article_context
         
         return final_state
     except Exception as exc:

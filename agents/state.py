@@ -21,6 +21,7 @@ class OrchestratorState(TypedDict):
     domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech'
     last_domain: Optional[str]  # 이전 대화의 도메인 (단순 답변 시 라우팅용)
     intent: Optional[str]  # 'business_trip', 'research', 'meeting', etc.
+    template_name: Optional[str]  # 문서 템플릿 이름 (예: 'work_performance_review', 'hr_summary_report')
     current_step: Optional[str]  # Optional로 변경 (기본값 없음)
     
     # Extracted Data (Entities)
@@ -113,15 +114,6 @@ class OrchestratorState(TypedDict):
     #   "last_template_type": str,  # 마지막 생성한 문서 템플릿 타입
     #   "last_variables": Dict,  # 마지막 사용한 변수들
     #   "pending_document": Optional[Dict],  # 생성 대기 중인 문서 정보
-    #   "pending_approval": Optional[Dict],  # 결재 대기 중인 문서 정보
-    # }
-    
-    # Human-in-the-loop 상태
-    waiting_for_approval: Optional[Dict[str, Any]]  # 사용자 승인 대기 중인 작업 정보
-    # 구조: {
-    #   "type": str,  # 승인 타입 (leave_application, meeting_reservation, document_approval 등)
-    #   "data": Dict,  # 승인 대기 중인 데이터
-    #   "message": str,  # 사용자에게 표시할 메시지
     # }
     
     # Final Output

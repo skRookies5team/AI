@@ -123,8 +123,12 @@ class EmailMasterGraph(BaseMasterGraph):
         email_search_context = state.get("email_search_context", {})
         
         # 이전 요청 확인 질문인지 감지 ("요청한적있어?", "요청한 적 있어?", "요청했어?" 등)
-        is_history_check = any(k in query for k in ["요청한적", "요청한 적", "요청했어", "요청했었어", "요청한적있어", "요청한 적 있어", 
-                                                    "찾아달라고 요청", "검색 요청", "검색한적", "검색한 적", "검색했어"])
+        is_history_check = any(k in query for k in [
+            "요청한적", "요청한 적", "요청했어", "요청했었어", "요청한적있어", "요청한 적 있어",
+            "한적", "한 적", "했어?", "했었어?", "했나?", "했었나?",
+            "찾아달라고 요청", "검색 요청한적", "검색한적", "검색한 적", "검색했어",
+            "찾아달라는 요청", "요청했던", "요청했었던"
+        ])
         
         if is_history_check:
             print(f"✅ 이전 요청 확인 질문 감지: '{query}' - 대화 히스토리 확인")
