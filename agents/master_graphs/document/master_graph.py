@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 import asyncio
+from datetime import datetime
 
 from langgraph.graph import StateGraph, END
 
@@ -43,10 +44,6 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 노드 추가
         workflow.add_node("route_intent", self.route_intent)  # AI-011: 문서 라우팅 (작업 유형 분류 + 템플릿 매핑)
         workflow.add_node("generate_document", self.generate_document)  # AI-012: 문서 작성 (템플릿 로드 → DB 데이터 매핑 → 초안 생성)
-        workflow.add_node("check_approval_required", self.check_approval_required)  # 휴먼인더루프: 결재 필요 여부 판단
-        workflow.add_node("request_user_confirmation", self.request_user_confirmation)  # 휴먼인더루프: 사용자 확인 요청
-        workflow.add_node("convert_to_pdf", self.convert_to_pdf)
-        workflow.add_node("request_approval", self.request_approval)
         workflow.add_node("upload_knowledge", self.upload_knowledge)  # AI-013: 문서 업로드 (파일 파싱 → 청킹 → 임베딩 → Vector DB Upsert)
         
         # 엣지 설정
@@ -59,50 +56,11 @@ class DocumentMasterGraph(BaseMasterGraph):
             {
                 "generate": "generate_document",  # 문서 작성
                 "upload": "upload_knowledge",  # 문서 업로드 (RAG)
-                "convert": "convert_to_pdf",  # 문서 변환 (향후 구현)
             }
         )
         
-        # 문서 생성 후 결재 필요 여부 확인
-        workflow.add_conditional_edges(
-            "generate_document",
-            self.should_check_approval,
-            {
-                "check": "check_approval_required",
-                "skip": END,  # document_content가 없으면 종료
-            }
-        )
-        
-        # 결재 필요 여부에 따라 분기
-        workflow.add_conditional_edges(
-            "check_approval_required",
-            self.route_by_approval_status,
-            {
-                "required": "request_user_confirmation",  # 결재 필요 시 사용자 확인
-                "not_required": END,  # 결재 불필요 시 바로 종료
-            }
-        )
-        
-        # 사용자 확인 후 PDF 변환 및 결재 프로세스
-        workflow.add_conditional_edges(
-            "request_user_confirmation",
-            self.handle_user_confirmation,
-            {
-                "approved": "convert_to_pdf",  # 승인 시 PDF 변환 진행
-                "rejected": END,  # 거부 시 종료
-            }
-        )
-        
-        workflow.add_conditional_edges(
-            "convert_to_pdf",
-            self.should_request_approval,
-            {
-                "yes": "request_approval",
-                "no": END,
-            }
-        )
-        
-        workflow.add_edge("request_approval", END)
+        # 문서 생성 후 바로 종료
+        workflow.add_edge("generate_document", END)
         workflow.add_edge("upload_knowledge", END)
         
         return workflow.compile()
@@ -150,28 +108,39 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 2단계: 템플릿 매핑 (문서 작성의 경우)
         template_name = None
         if operation_type == "generate":
-            # 쿼리에서 템플릿명 추출
-            template_match = re.search(r'양식[:\s]+(\w+)|템플릿[:\s]+(\w+)|template[:\s]+(\w+)', query, re.IGNORECASE)
+            # 쿼리에서 템플릿명 추출 (언더스코어 포함한 전체 템플릿명 추출)
+            # 예: "양식: work_performance_review" -> "work_performance_review"
+            # "양식: work_performance_review, 제목: ..." 형태에서 추출
+            template_match = re.search(r'양식[:\s]+([a-zA-Z0-9_]+)|템플릿[:\s]+([a-zA-Z0-9_]+)|template[:\s]+([a-zA-Z0-9_]+)', query, re.IGNORECASE)
             if template_match:
                 template_name = template_match.group(1) or template_match.group(2) or template_match.group(3)
+                if template_name:
+                    print(f"✅ [route_intent] 양식에서 템플릿명 추출: {template_name}")
             else:
+                # 양식 패턴이 없으면 키워드 기반 매핑으로 진행
                 # 기본 템플릿 매핑 (키워드 기반)
-                template_keywords = {
-                    "product_development_plan": ["제품개발", "신제품", "개발계획"],
-                    "purchase_order": ["발주", "구매", "주문"],
-                    "hr_summary_report": ["인사", "인력", "직원"],
-                    "monthly_profit_analysis_report": ["수익", "매출", "분석"],
-                    "work_performance_review": ["성과", "평가", "업무"],
-                    "supplier_evaluation_form": ["공급업체", "협력사", "평가"],
-                    "contract_renewal_report": ["계약", "갱신", "연장"],
-                    "activity_based_costing": ["원가", "비용", "계산"],
-                    "project_schedule": ["프로젝트", "일정", "스케줄"],
-                    "product_comparison_table": ["비교", "제품비교"],
-                }
+                # 중요: 더 구체적인 키워드가 먼저 매칭되도록 순서 조정
+                template_keywords = [
+                    # 구체적인 키워드 우선 (순서 중요!)
+                    ("work_performance_review", ["업무 성과 평가", "근무 평가", "성과 평가서", "업무 평가서", "업무 성과", "성과 평가"]),
+                    # 제품 비교표는 제품개발보다 먼저 체크 (더 구체적인 키워드)
+                    ("product_comparison_table", ["제품 비교표", "제품 비교", "제품성능 비교", "성능 비교", "비교표", "제품비교", "비교 대상", "비교 목적"]),
+                    ("product_development_plan", ["제품개발", "신제품", "개발계획", "제품개발 계획서"]),
+                    ("purchase_order", ["발주", "구매", "주문", "발주서"]),
+                    ("monthly_profit_analysis_report", ["수익", "매출", "분석", "수익 분석", "수익 분석 리포트"]),
+                    ("supplier_evaluation_form", ["공급업체", "협력사", "공급업체 평가"]),
+                    ("contract_renewal_report", ["계약", "갱신", "연장", "계약 갱신"]),
+                    ("activity_based_costing", ["원가", "비용", "계산", "활동기준 원가"]),
+                    ("project_schedule", ["프로젝트", "일정", "스케줄", "프로젝트 일정"]),
+                    # 일반적인 키워드는 나중에 (hr_summary_report는 "인사정보 리포트" 같은 구체적 키워드가 있을 때만)
+                    ("hr_summary_report", ["인사정보 리포트", "인사정보", "인력 리포트"]),
+                ]
                 
-                for tpl, keywords in template_keywords.items():
+                for tpl, keywords in template_keywords:
                     if any(kw in query for kw in keywords):
                         template_name = tpl
+                        matched_keyword = [kw for kw in keywords if kw in query][0] if any(kw in query for kw in keywords) else None
+                        print(f"✅ [route_intent] 키워드 매칭: '{tpl}' (매칭 키워드: {matched_keyword}, 쿼리: {query[:50]})")
                         break
                 
                 # 기본값
@@ -179,7 +148,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                     template_name = "product_development_plan"
                     print(f"⚠️ 템플릿을 찾을 수 없어 기본 템플릿 사용: {template_name}")
             
-            print(f"📋 템플릿 매핑: {template_name}")
+            print(f"📋 [route_intent] 템플릿 매핑 완료: {template_name}")
         
         print(f"✅ 작업 유형 결정: {operation_type}, 템플릿: {template_name or 'N/A'}")
         
@@ -202,6 +171,9 @@ class DocumentMasterGraph(BaseMasterGraph):
         3. 초안 생성: 매핑된 데이터와 사용자 요구사항을 기반으로 LLM으로 초안 생성
         """
         print("--- [AI-012] Document Generation: 템플릿 로드 → DB 데이터 매핑 → 초안 생성 ---")
+        # datetime을 전역 변수로 명시적으로 참조
+        from datetime import datetime as dt_now
+        
         query = state.get("query", "")
         orchestrator_state = state  # orchestrator_state는 state와 동일
         
@@ -212,11 +184,41 @@ class DocumentMasterGraph(BaseMasterGraph):
         # State에서 템플릿명 가져오기 (route_intent에서 이미 매핑됨)
         template_name = state.get("template_name")
         
-        # 이전 컨텍스트에서 템플릿명 복원 (없는 경우)
-        if not template_name:
+        print(f"🔍 [generate_document] State에서 템플릿 확인: {template_name}")
+        print(f"🔍 [generate_document] State keys: {list(state.keys())}")
+        
+        # 현재 요청의 템플릿이 있으면 우선 사용 (이전 컨텍스트보다 우선)
+        if template_name:
+            print(f"✅ 현재 요청의 템플릿 사용: {template_name}")
+        else:
+            # 이전 컨텍스트에서 템플릿명 복원 (없는 경우)
             template_name = orchestrator_state.get("document_context", {}).get("last_template_type")
             if template_name:
-                print(f"✅ 이전 컨텍스트에서 템플릿 복원: {template_name}")
+                print(f"⚠️ 이전 컨텍스트에서 템플릿 복원: {template_name} (현재 요청에 템플릿 정보 없음)")
+            else:
+                # 쿼리에서 직접 템플릿 추출 시도 (fallback)
+                # 중요: 더 구체적인 키워드가 먼저 매칭되도록 순서 조정
+                # "업무 성과 평가"가 "인사"보다 우선되어야 함
+                template_keywords = [
+                    # 구체적인 키워드 우선 (순서 중요!)
+                    ("work_performance_review", ["업무 성과 평가", "근무 평가", "성과 평가서", "업무 평가서", "성과", "평가서"]),
+                    ("product_development_plan", ["제품개발", "신제품", "개발계획", "제품개발 계획서"]),
+                    ("purchase_order", ["발주", "구매", "주문", "발주서"]),
+                    ("monthly_profit_analysis_report", ["수익", "매출", "분석", "수익 분석 리포트"]),
+                    ("supplier_evaluation_form", ["공급업체", "협력사", "공급업체 평가"]),
+                    ("contract_renewal_report", ["계약", "갱신", "연장", "계약 갱신"]),
+                    ("activity_based_costing", ["원가", "비용", "계산", "활동기준 원가"]),
+                    ("project_schedule", ["프로젝트", "일정", "스케줄", "프로젝트 일정"]),
+                    ("product_comparison_table", ["비교", "제품비교", "제품 비교표"]),
+                    # 일반적인 키워드는 나중에 (hr_summary_report는 "인사정보 리포트" 같은 구체적 키워드가 있을 때만)
+                    ("hr_summary_report", ["인사정보 리포트", "인사정보", "인력 리포트"]),
+                ]
+                
+                for tpl, keywords in template_keywords:
+                    if any(kw in query for kw in keywords):
+                        template_name = tpl
+                        print(f"✅ 쿼리에서 직접 템플릿 추출: {template_name} (매칭 키워드: {[kw for kw in keywords if kw in query][:1]})")
+                        break
         
         # 쿼리에서 제목, 요구사항 추출
         import re
@@ -236,6 +238,39 @@ class DocumentMasterGraph(BaseMasterGraph):
         
         print(f"📋 템플릿: {template_name}, 제목: {document_title}")
         print(f"💡 요구사항: {requirements[:100] if requirements else None}...")
+        
+        # Human-in-the-loop: 제목과 요구사항이 없으면 예시문 반환
+        if not template_name:
+            return {
+                "final_response": "❌ 문서 양식을 선택해주세요. 예: '제품개발 계획서 작성', '발주서 작성' 등",
+                "conversation_history": []
+            }
+        
+        # 제목과 요구사항이 모두 없으면 예시문 반환 (모든 템플릿에 적용)
+        if not document_title and not requirements:
+            from agents.master_graphs.document.template_examples import get_template_example, get_template_title
+            
+            example_text = get_template_example(template_name)
+            template_title = get_template_title(template_name) or template_name
+            
+            if example_text:
+                response_message = example_text  # 예시문에 이미 안내 메시지가 포함되어 있음
+                print(f"📋 {template_title} 작성 예시문 반환 (Human-in-the-loop)")
+            else:
+                response_message = f"📋 {template_title} 작성을 시작하시겠어요?\n\n다음 형식으로 제목과 요구사항을 입력해주세요:\n\n```\n제목: [문서 제목]\n요구사항: [상세 요구사항]\n```"
+            
+            from agents.state import Message
+            
+            return {
+                "final_response": response_message,
+                "template_name": template_name,  # 템플릿 정보 유지
+                "requires_input": True,  # 사용자 입력 필요 플래그
+                "conversation_history": [{
+                    "role": "assistant",
+                    "content": response_message,
+                    "timestamp": dt_now.now().isoformat()
+                }]
+            }
         
         # DB 데이터 매핑을 위한 정보 추출
         db_data = await self._fetch_db_data_for_template(template_name, query, requirements)
@@ -279,13 +314,36 @@ class DocumentMasterGraph(BaseMasterGraph):
         if result.get("document_context"):
             orchestrator_state["document_context"] = result["document_context"]
         
+        # 생성된 HTML도 document_context에 저장 (이미 doc_generate_agent에서 저장했지만 확실히 하기 위해)
+        if result.get("ok") and document_content:
+            if orchestrator_state.get("document_context") is None:
+                orchestrator_state["document_context"] = {}
+            orchestrator_state["document_context"]["last_generated_html"] = document_content
+        
+        # final_response 설정 (문서 내용을 우선 표시)
+        if result.get("ok") and document_content:
+            final_response = document_content
+            # conversation_history에 assistant 메시지 추가
+            from agents.state import Message
+            assistant_message: Message = {
+                "role": "assistant",
+                "content": document_content,
+                "timestamp": datetime.now().isoformat()
+            }
+            conversation_history = state.get("conversation_history", [])
+            conversation_history.append(assistant_message)
+        else:
+            final_response = result.get("message", "문서 생성에 실패했습니다.")
+            conversation_history = state.get("conversation_history", [])
+        
         return {
             "document_content": document_content,
             "document_path": document_path,  # HTML 파일 경로
-            "document_title": document_title,  # 문서 제목 저장 (결재 판단에 사용)
+            "document_title": document_title,  # 문서 제목 저장
             "messages": ["문서가 생성되었습니다."],
-            "document_context": orchestrator_state["document_context"],  # Redis 컨텍스트 반환
-            # final_response는 결재 필요 여부 확인 후 설정
+            "final_response": final_response,  # 생성된 HTML 문서 내용을 final_response에 설정
+            "conversation_history": conversation_history,  # 업데이트된 대화 히스토리
+            "document_context": orchestrator_state["document_context"],  # Redis 컨텍스트 반환 (HTML 포함)
         }
     
     async def _fetch_db_data_for_template(
@@ -371,238 +429,6 @@ class DocumentMasterGraph(BaseMasterGraph):
         
         return db_data
     
-    def should_check_approval(self, state: OrchestratorState) -> str:
-        """결재 필요 여부 확인이 필요한지 결정."""
-        # document_content가 있으면 결재 필요 여부 확인
-        if state.get("document_content"):
-            return "check"
-        return "skip"
-    
-    async def check_approval_required(self, state: OrchestratorState) -> Dict[str, Any]:
-        """문서의 중요도를 판단하여 결재 필요 여부를 결정합니다 (LLM 기반).
-        
-        결재가 필요한 경우:
-        - 예산이 큰 문서 (예: 1억원 이상)
-        - 법적 구속력이 있는 문서 (계약서, 발주서 등)
-        - 중요한 정책 변경 문서
-        - 외부 공개 문서
-        """
-        print("--- [Document Master] Checking if Approval Required ---")
-        query = state.get("query", "")
-        document_content = state.get("document_content", "")
-        document_title = state.get("document_title", "")
-        
-        # LLM을 사용하여 문서의 중요도 및 결재 필요 여부 판단
-        try:
-            from langchain_openai import ChatOpenAI
-            import json
-            import re
-            
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
-            
-            llm = ChatOpenAI(
-                model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-                temperature=0.3,
-                api_key=api_key
-            )
-            
-            approval_prompt = f"""다음 문서의 중요도를 판단하여 결재가 필요한지 결정해주세요.
-
-문서 제목: {document_title}
-사용자 요구사항: {query[:1000]}
-
-결재가 필요한 경우:
-- 예산이 큰 문서 (1억원 이상, 큰 금액)
-- 계약서, 발주서, 계약 갱신 보고서 등 법적 구속력이 있는 문서
-- 중요한 정책 변경 문서
-- 외부 공개 문서
-- 회사 전체에 영향을 미치는 문서
-
-결재가 불필요한 경우:
-- 내부 보고서
-- 일상적인 업무 문서
-- 개인 작업 문서
-- 간단한 요약 리포트
-
-JSON 형식으로 응답하세요:
-{{"approval_required": true 또는 false, "reason": "판단 사유"}}"""
-            
-            response = await asyncio.to_thread(llm.invoke, approval_prompt)
-            content = response.content.strip()
-            
-            # JSON 파싱
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
-            if json_match:
-                try:
-                    result = json.loads(json_match.group())
-                    is_approval_required = result.get("approval_required", False)
-                    approval_reason = result.get("reason", "LLM 판단")
-                except json.JSONDecodeError:
-                    # JSON 파싱 실패 시 텍스트 기반 판단
-                    is_approval_required = "required" in content.lower() or "true" in content.lower() or "필요" in content
-                    approval_reason = "LLM 응답 파싱 실패 (텍스트 기반 판단)"
-            else:
-                # 키워드 기반 fallback 판단
-                approval_keywords = ["계약", "발주", "예산", "억원", "법적", "공개", "정책", "규정", "결재"]
-                is_approval_required = any(keyword in query for keyword in approval_keywords)
-                approval_reason = "키워드 기반 판단"
-            
-            print(f"📋 결재 필요 여부 판단: {'필요' if is_approval_required else '불필요'} ({approval_reason})")
-            
-            return {
-                "approval_required": is_approval_required,
-                "approval_reason": approval_reason,
-                "messages": [f"결재 필요 여부: {'필요' if is_approval_required else '불필요'}"],
-            }
-            
-        except Exception as e:
-            print(f"⚠️ 결재 필요 여부 판단 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            # 키워드 기반 fallback 판단
-            approval_keywords = ["계약", "발주", "예산", "억원", "법적", "공개", "정책"]
-            is_approval_required = any(keyword in query for keyword in approval_keywords)
-            approval_reason = f"에러 발생, 키워드 기반 판단: {'필요' if is_approval_required else '불필요'}"
-            
-            return {
-                "approval_required": is_approval_required,
-                "approval_reason": approval_reason,
-                "messages": ["결재 필요 여부 판단에 실패했습니다. 키워드 기반으로 판단합니다."],
-            }
-    
-    def route_by_approval_status(self, state: OrchestratorState) -> str:
-        """결재 필요 여부에 따라 라우팅."""
-        approval_required = state.get("approval_required", False)
-        return "required" if approval_required else "not_required"
-    
-    async def request_user_confirmation(self, state: OrchestratorState) -> Dict[str, Any]:
-        """사용자에게 결재 확인을 요청합니다 (휴먼인더루프).
-        
-        Redis 기반 컨텍스트를 활용하여 이전 대화를 기억하고,
-        사용자 승인/취소 응답을 처리합니다.
-        """
-        print("--- [Document Master] Requesting User Confirmation ---")
-        document_title = state.get("document_title", "문서")
-        approval_reason = state.get("approval_reason", "중요한 문서")
-        orchestrator_state = state
-        query = state.get("query", "")
-        
-        # Redis 기반 컨텍스트 초기화
-        if orchestrator_state.get("document_context") is None:
-            orchestrator_state["document_context"] = {}
-        
-        # 승인 대기 중인 경우 사용자 응답 처리
-        pending_approval = orchestrator_state["document_context"].get("pending_approval")
-        if pending_approval and any(k in query.lower() for k in ["승인", "확인", "네", "예", "yes", "ok", "취소", "아니오", "no"]):
-            if any(k in query.lower() for k in ["승인", "확인", "네", "예", "yes", "ok"]):
-                # 승인 처리
-                orchestrator_state["document_context"]["pending_approval"] = None
-                orchestrator_state["waiting_for_approval"] = None
-                print("✅ 사용자 승인 완료 - PDF 변환 및 결재 프로세스 진행")
-                return {
-                    "user_approved": True,
-                    "messages": ["사용자가 결재를 승인했습니다."],
-                    "document_context": orchestrator_state["document_context"],
-                }
-            else:
-                # 취소 처리
-                orchestrator_state["document_context"]["pending_approval"] = None
-                orchestrator_state["waiting_for_approval"] = None
-                print("❌ 사용자가 결재를 거부했습니다 - 프로세스 종료")
-                return {
-                    "user_approved": False,
-                    "final_response": "사용자가 결재를 거부하여 문서 생성 프로세스가 중단되었습니다.",
-                    "messages": ["결재가 거부되었습니다."],
-                    "document_context": orchestrator_state["document_context"],
-                }
-        
-        # Human-in-the-loop: 사용자에게 승인 요청
-        approval_data = {
-            "document_title": document_title,
-            "approval_reason": approval_reason,
-            "document_path": state.get("document_path"),
-        }
-        
-        orchestrator_state["document_context"]["pending_approval"] = approval_data
-        orchestrator_state["waiting_for_approval"] = {
-            "type": "document_approval",
-            "data": approval_data,
-            "message": (
-                f"📋 결재 확인 요청\n\n"
-                f"문서: {document_title}\n"
-                f"사유: {approval_reason}\n"
-                f"\n이 문서는 결재가 필요한 문서로 판단되었습니다.\n"
-                f"PDF 변환 및 결재 프로세스를 진행하시겠습니까?\n\n"
-                f"승인하시려면 '승인', '확인', '네'라고 말씀해주세요.\n"
-                f"취소하시려면 '취소', '아니오'라고 말씀해주세요."
-            )
-        }
-        
-        return {
-            "final_response": orchestrator_state["waiting_for_approval"]["message"],
-            "messages": [orchestrator_state["waiting_for_approval"]["message"]],
-            "document_context": orchestrator_state["document_context"],
-            "waiting_for_approval": orchestrator_state["waiting_for_approval"],
-        }
-    
-    def handle_user_confirmation(self, state: OrchestratorState) -> str:
-        """사용자 확인 결과에 따라 라우팅."""
-        user_approved = state.get("user_approved", False)
-        return "approved" if user_approved else "rejected"
-    
-    async def convert_to_pdf(self, state: OrchestratorState) -> Dict[str, Any]:
-        """PDF 변환 (AI-013)."""
-        print("--- [Document Master] Converting to PDF ---")
-        document_content = state.get("document_content", "")
-        html_file_path = state.get("document_path")  # 이미 저장된 HTML 파일 경로
-        
-        # PDF 변환 로직은 향후 구현 예정
-        # 현재는 HTML 파일만 저장되고 있음
-        if html_file_path:
-            print(f"📁 HTML 파일이 저장되었습니다: {html_file_path}")
-            print("💡 PDF 변환 기능은 향후 구현 예정입니다.")
-        
-        return {
-            "document_path": html_file_path,  # HTML 파일 경로 반환
-            "messages": ["HTML 파일이 저장되었습니다. PDF 변환은 향후 구현 예정입니다."],
-        }
-    
-    def should_request_approval(self, state: OrchestratorState) -> str:
-        """결재 요청이 필요한지 결정."""
-        # 간단한 로직: PDF가 생성되었으면 결재 요청 가능
-        if state.get("document_path"):
-            return "yes"
-        return "no"
-    
-    async def request_approval(self, state: OrchestratorState) -> Dict[str, Any]:
-        """자동 결재 요청 (AI-014)."""
-        print("--- [Document Master] Requesting Approval ---")
-        document_path = state.get("document_path", "")
-        document_title = state.get("document_title", "문서")
-        approval_reason = state.get("approval_reason", "중요한 문서")
-        
-        # 결재 요청 로직 (실제 구현 필요)
-        # 실제 환경에서는:
-        # - 결재 시스템 API 호출
-        # - 결재자에게 알림 전송
-        # - 결재 워크플로우 시작
-        
-        approval_message = (
-            f"✅ 결재 요청 완료\n\n"
-            f"📄 문서: {document_title}\n"
-            f"📁 파일: {document_path}\n"
-            f"📋 사유: {approval_reason}\n"
-            f"\n문서가 생성되었고 결재 프로세스에 등록되었습니다."
-        )
-        
-        return {
-            "final_response": approval_message,
-            "messages": ["결재 요청이 완료되었습니다."],
-        }
-    
     async def upload_knowledge(self, state: OrchestratorState) -> Dict[str, Any]:
         """AI-013: 문서 업로드 (RAG) - 파일 파싱(Text Extraction) → 청킹(Chunking) → 임베딩(Embedding) → Vector DB(Milvus) Upsert.
         
@@ -632,7 +458,6 @@ JSON 형식으로 응답하세요:
             upsert_to_milvus
         )
         from pathlib import Path
-        from datetime import datetime
         
         # 파일 경로가 state에 있으면 사용
         file_path = state.get("document_path")

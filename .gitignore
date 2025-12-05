@@ -26,6 +26,11 @@ import_*.bat
 *_qa.md
 *_explanation.md
 
-#프론트
-.templates
-.fastapi_app.py
+# 로그 파일
+logs/
+*.log
+
+# 빌드 산출물
+*.egg-info/
+build/
+dist/

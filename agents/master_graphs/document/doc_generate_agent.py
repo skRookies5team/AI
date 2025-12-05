@@ -66,46 +66,105 @@ def doc_generate(
     previous_variables = doc_context.get("last_variables", {})
     previous_title = doc_context.get("last_document_title")
     
-    # 대화 히스토리에서 이전 요청 정보 추출
-    if conversation_history:
-        print(f"📚 대화 히스토리 확인: {len(conversation_history)}개 메시지")
-        # 최근 대화에서 템플릿, 제목, 요구사항 추출 시도
+    # 이메일 내용 등 불필요한 정보 제외를 위한 키워드
+    excluded_keywords = ["보낸 사람", "받는 사람", "메일", "이메일", "email", "문서번호", "고용센터", "결정통지서", "edi@"]
+    
+    # ===== 템플릿 추출 우선순위 =====
+    # 1. 전달받은 template_name (route_intent에서 매핑된 것) - 최우선
+    if template_name:
+        print(f"✅ 전달받은 템플릿 사용: {template_name}")
+    # 2. user_text에서 추출 (현재 요청)
+    else:
+        # "양식: product_development_plan" 형식 추출
+        template_match = re.search(r'양식[:\s]+(\w+)|템플릿[:\s]+(\w+)|template[:\s]+(\w+)', user_text, re.IGNORECASE)
+        if template_match:
+            template_name = template_match.group(1) or template_match.group(2) or template_match.group(3)
+            print(f"✅ 현재 요청에서 템플릿 추출: {template_name}")
+        
+        # 키워드 기반 템플릿 매핑 (명시적 템플릿명이 없는 경우)
+        if not template_name:
+            template_keywords = {
+                # 제품 비교표는 제품개발보다 먼저 체크 (더 구체적인 키워드)
+                "product_comparison_table": ["제품 비교표", "제품 비교", "제품성능 비교", "성능 비교", "비교표", "제품비교", "비교 대상", "비교 목적"],
+                "product_development_plan": ["제품개발", "신제품", "개발계획", "제품개발 계획서"],
+                "purchase_order": ["발주", "구매", "주문", "발주서"],
+                "hr_summary_report": ["인사", "인력", "직원", "인사정보"],
+                "monthly_profit_analysis_report": ["수익", "매출", "분석", "수익 분석"],
+                "work_performance_review": ["성과", "평가", "업무", "성과 평가"],
+                "supplier_evaluation_form": ["공급업체", "협력사", "평가"],
+                "contract_renewal_report": ["계약", "갱신", "연장"],
+                "activity_based_costing": ["원가", "비용", "계산"],
+                "project_schedule": ["프로젝트", "일정", "스케줄"],
+            }
+            
+            for tpl, keywords in template_keywords.items():
+                if any(kw in user_text for kw in keywords):
+                    template_name = tpl
+                    print(f"✅ 키워드 기반 템플릿 매핑: {template_name}")
+                    break
+    
+    # 3. 대화 히스토리에서 추출 (이전 대화)
+    if not template_name and conversation_history:
+        print(f"📚 대화 히스토리에서 템플릿 검색: {len(conversation_history)}개 메시지")
         for msg in reversed(conversation_history[-5:]):  # 최근 5개 메시지만 확인
             content = msg.get("content", "")
-            if not template_name and any(k in content for k in ["양식", "템플릿", "template"]):
-                # 이전 대화에서 템플릿 정보 추출
-                template_match = re.search(r'양식[:\s]+(\w+)|템플릿[:\s]+(\w+)|template[:\s]+(\w+)', content, re.IGNORECASE)
-                if template_match:
-                    template_name = template_match.group(1) or template_match.group(2) or template_match.group(3)
-                    print(f"✅ 대화 히스토리에서 템플릿 추출: {template_name}")
-            if not document_title and any(k in content for k in ["제목", "title"]):
-                # 이전 대화에서 제목 추출
-                title_match = re.search(r'제목[:\s]+([^.]+)', content)
-                if title_match:
-                    document_title = title_match.group(1).strip()
-                    print(f"✅ 대화 히스토리에서 제목 추출: {document_title}")
+            
+            # 이메일 관련 내용은 제외
+            if any(excluded in content for excluded in excluded_keywords):
+                continue
+            
+            if any(k in content for k in ["양식", "템플릿", "template"]):
+                # 이전 대화에서 템플릿 정보 추출 (문서 작성 관련 컨텍스트만)
+                if any(k in content for k in ["문서 작성", "작성해줘", "생성", "제품개발", "발주", "계획서"]):
+                    template_match = re.search(r'양식[:\s]+(\w+)|템플릿[:\s]+(\w+)|template[:\s]+(\w+)', content, re.IGNORECASE)
+                    if template_match:
+                        template_name = template_match.group(1) or template_match.group(2) or template_match.group(3)
+                        print(f"✅ 대화 히스토리에서 템플릿 추출: {template_name}")
+                        break
     
-    # 이전 컨텍스트 활용
+    # 4. 이전 컨텍스트에서 복원 (Redis)
     if not template_name and previous_template:
         template_name = previous_template
-        print(f"✅ 이전 컨텍스트에서 템플릿 사용: {template_name}")
+        print(f"⚠️ 이전 컨텍스트에서 템플릿 복원: {template_name} (현재 요청에 템플릿 정보 없음)")
     
-    if not document_title and previous_title:
-        document_title = previous_title
-        print(f"✅ 이전 컨텍스트에서 제목 사용: {document_title}")
-    
-    # user_text에서 정보 추출 (템플릿명, 제목, 요구사항)
-    if not template_name:
-        # "양식: product_development_plan" 형식 추출
-        template_match = re.search(r'양식[:\s]+(\w+)', user_text)
-        if template_match:
-            template_name = template_match.group(1)
-    
-    if not document_title:
+    # ===== 제목 추출 우선순위 =====
+    # 1. 전달받은 document_title - 최우선
+    if document_title:
+        print(f"✅ 전달받은 제목 사용: {document_title}")
+    # 2. user_text에서 추출 (현재 요청)
+    else:
         # "제목: ..." 형식 추출
-        title_match = re.search(r'제목[:\s]+([^.]+)', user_text)
+        title_match = re.search(r'제목[:\s]+([^.]+?)(?:\.|요구사항|$)', user_text)
         if title_match:
             document_title = title_match.group(1).strip()
+            print(f"✅ 현재 요청에서 제목 추출: {document_title}")
+    
+    # 3. 대화 히스토리에서 추출 (이전 대화)
+    if not document_title and conversation_history:
+        print(f"📚 대화 히스토리에서 제목 검색")
+        for msg in reversed(conversation_history[-5:]):  # 최근 5개 메시지만 확인
+            content = msg.get("content", "")
+            
+            # 이메일 관련 내용은 제외
+            if any(excluded in content for excluded in excluded_keywords):
+                continue
+            
+            if any(k in content for k in ["제목", "title"]):
+                # 이전 대화에서 제목 추출 (문서 작성 관련 컨텍스트만)
+                if any(k in content for k in ["문서 작성", "작성해줘", "생성", "제품개발", "발주", "계획서"]):
+                    title_match = re.search(r'제목[:\s]+([^.]+?)(?:\.|요구사항|$)', content)
+                    if title_match:
+                        extracted_title = title_match.group(1).strip()
+                        # 이메일 제목 등 불필요한 정보 제외
+                        if not any(excluded in extracted_title for excluded in excluded_keywords):
+                            document_title = extracted_title
+                            print(f"✅ 대화 히스토리에서 제목 추출: {document_title}")
+                            break
+    
+    # 4. 이전 컨텍스트에서 복원 (Redis)
+    if not document_title and previous_title:
+        document_title = previous_title
+        print(f"⚠️ 이전 컨텍스트에서 제목 복원: {document_title} (현재 요청에 제목 정보 없음)")
     
     if not requirements:
         # "요구사항: ..." 형식 추출 (더 강력한 패턴)
@@ -635,11 +694,14 @@ def doc_generate(
     doc_context["last_variables"] = field_values  # 생성에 사용된 변수들 저장
     doc_context["last_file_path"] = document_path
     doc_context["last_query"] = user_text
+    # 생성된 HTML 내용도 Redis에 저장
+    doc_context["last_generated_html"] = generated_html
     
     print(f"💾 Redis 컨텍스트에 저장 완료:")
     print(f"   - 템플릿: {template_name}")
     print(f"   - 제목: {document_title}")
     print(f"   - 변수 개수: {len(field_values)}")
+    print(f"   - HTML 길이: {len(generated_html):,} 문자")
     
     return {
         "ok": True,
@@ -647,5 +709,5 @@ def doc_generate(
         "template_name": template_name,
         "document_title": document_title,
         "file_path": document_path,  # 저장된 파일 경로
-        "document_context": orchestrator_state.get("document_context", {})  # 컨텍스트 반환
+        "document_context": orchestrator_state.get("document_context", {})  # 컨텍스트 반환 (HTML 포함)
     }

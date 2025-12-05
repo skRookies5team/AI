@@ -215,12 +215,14 @@ class TechMasterGraph(BaseMasterGraph):
         # article_master 함수는 이제 비동기 함수이므로 await 사용
         result = await article_master(query, session_id=session_id, orchestrator_state=state)
         
-        # article_master에서 업데이트된 state를 반영하여 Redis에 저장
+        # article_master에서 이미 orchestrator_state에 tech_search_context를 저장했으므로
+        # 불필요한 딕셔너리 복사 제거 (성능 최적화)
         return {
             "final_response": result.get("message", "논문 검색 결과를 찾을 수 없습니다."),
             "search_results": result.get("items", []),
             "messages": [result.get("message", "")],
-            "tech_search_context": state.get("tech_search_context"),
+            # tech_search_context는 이미 state에 저장되어 있으므로 명시적으로 반환하지 않아도 됨
+            # LangGraph가 state를 자동으로 병합하므로 불필요한 복사 제거
         }
     
     async def vectorize_article(self, state: OrchestratorState) -> Dict[str, Any]:

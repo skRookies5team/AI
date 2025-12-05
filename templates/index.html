@@ -50,6 +50,137 @@
             display: flex;
             align-items: center;
             gap: 20px;
+            flex: 1;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .session-info {
+            font-size: 12px;
+            opacity: 0.9;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .session-info:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .session-button {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .session-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .session-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .session-modal.active {
+            display: flex;
+        }
+
+        .session-modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .session-modal-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .session-input-group {
+            margin-bottom: 15px;
+        }
+
+        .session-input-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .session-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .session-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .session-modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .session-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .session-btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .session-btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .session-btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .session-btn-secondary:hover {
+            background: #d0d0d0;
         }
 
         .bot-avatar {
@@ -553,19 +684,29 @@
             display: none;
             border: 2px solid #667eea;
             border-radius: 8px;
-            padding: 20px;
+            padding: 0;
             background: #f8f9fa;
             min-height: 400px;
-            max-height: 600px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            font-size: 14px;
-            line-height: 1.8;
-            color: #2c3e50;
+            max-height: calc(100vh - 200px);
+            overflow: hidden;
         }
 
         .result-preview.active {
             display: block;
+        }
+
+        .result-preview iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 600px;
+            border: none;
+            background: white;
+        }
+
+        .result-preview-content {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
         }
 
         .action-buttons {
@@ -650,6 +791,28 @@
                         <button class="tab-btn hidden" id="writerTabBtn" onclick="switchTab('writer')">📝 문서 작성</button>
                         <button class="tab-btn hidden" id="uploadTabBtn" onclick="handleDocumentUpload()">📤 문서 업로드</button>
                     </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="session-info" id="sessionInfo" onclick="showSessionModal()" title="세션 변경">
+                    📌 세션: <span id="sessionIdDisplay">로딩 중...</span>
+                </div>
+                <button class="session-button" onclick="showSessionModal()">세션 변경</button>
+            </div>
+        </div>
+
+        <!-- 세션 변경 모달 -->
+        <div class="session-modal" id="sessionModal" onclick="closeSessionModal(event)">
+            <div class="session-modal-content" onclick="event.stopPropagation()">
+                <div class="session-modal-title">세션 변경</div>
+                <div class="session-input-group">
+                    <label class="session-input-label">새 세션 ID (비워두면 새로 생성)</label>
+                    <input type="text" id="newSessionId" class="session-input" placeholder="예: session_1001_abc123">
+                </div>
+                <div class="session-modal-buttons">
+                    <button class="session-btn session-btn-secondary" onclick="closeSessionModal()">취소</button>
+                    <button class="session-btn session-btn-primary" onclick="createNewSession()">새 세션 생성</button>
+                    <button class="session-btn session-btn-primary" onclick="changeSession()">세션 변경</button>
                 </div>
             </div>
         </div>
@@ -812,7 +975,7 @@
                             <div class="form-group">
                                 <div class="checkbox-group">
                                     <input type="checkbox" id="useRAG" checked>
-                                    <label for="useRAG">내 결재문서(완료함) 검색 및 참조</label>
+                                    <label for="useRAG">문서 검색 및 참조</label>
                                 </div>
                                 <input type="text" id="searchKeyword" class="form-input" placeholder="검색 키워드 (선택사항)" style="margin-top: 10px;">
                             </div>
@@ -851,20 +1014,139 @@
         // 세션 ID 관리 (멀티턴 대화 지원)
         let currentSessionId = localStorage.getItem('chat_session_id');
         if (!currentSessionId) {
-            currentSessionId = 'chat_session_' + Date.now();
+            // 초기 세션은 employee_id 기반으로 생성
+            currentSessionId = 'session_1001_' + Date.now().toString(36);
             localStorage.setItem('chat_session_id', currentSessionId);
         }
         
-        // 세션 ID 표시 (디버깅용, 선택적)
-        console.log('현재 세션 ID:', currentSessionId);
+        // 세션 ID 표시 업데이트
+        function updateSessionDisplay() {
+            const displayElement = document.getElementById('sessionIdDisplay');
+            if (displayElement) {
+                // 세션 ID를 짧게 표시 (마지막 12자만)
+                const shortId = currentSessionId.length > 20 
+                    ? '...' + currentSessionId.slice(-12) 
+                    : currentSessionId;
+                displayElement.textContent = shortId;
+            }
+        }
+        
+        // 페이지 로드 시 세션 ID 표시
+        updateSessionDisplay();
+        
+        // 세션 정보 조회
+        async function loadSessionInfo() {
+            try {
+                const response = await fetch(`/api/session/current/${currentSessionId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const displayElement = document.getElementById('sessionIdDisplay');
+                    if (displayElement) {
+                        const shortId = currentSessionId.length > 20 
+                            ? '...' + currentSessionId.slice(-12) 
+                            : currentSessionId;
+                        displayElement.textContent = `${shortId} (${data.message_count}개 대화)`;
+                    }
+                }
+            } catch (error) {
+                console.error('세션 정보 조회 실패:', error);
+            }
+        }
+        
+        // 페이지 로드 시 세션 정보 조회
+        loadSessionInfo();
+        
+        // 세션 모달 표시
+        function showSessionModal() {
+            document.getElementById('sessionModal').classList.add('active');
+            document.getElementById('newSessionId').value = '';
+        }
+        
+        // 세션 모달 닫기
+        function closeSessionModal(event) {
+            if (!event || event.target.id === 'sessionModal') {
+                document.getElementById('sessionModal').classList.remove('active');
+            }
+        }
+        
+        // 새 세션 생성
+        async function createNewSession() {
+            try {
+                const response = await fetch('/api/session/new', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ employee_id: 1001 })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentSessionId = data.session_id;
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                    updateSessionDisplay();
+                    closeSessionModal();
+                    
+                    // 채팅 메시지 초기화
+                    document.getElementById('chatMessages').innerHTML = '';
+                    
+                    alert('새 세션이 생성되었습니다.');
+                } else {
+                    alert('세션 생성에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('세션 생성 실패:', error);
+                alert('세션 생성 중 오류가 발생했습니다.');
+            }
+        }
+        
+        // 세션 변경
+        async function changeSession() {
+            const newSessionId = document.getElementById('newSessionId').value.trim();
+            
+            if (!newSessionId) {
+                alert('세션 ID를 입력해주세요.');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/session/change', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        session_id: newSessionId,
+                        employee_id: 1001 
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentSessionId = data.session_id;
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                    updateSessionDisplay();
+                    loadSessionInfo();
+                    closeSessionModal();
+                    
+                    // 채팅 메시지 초기화
+                    document.getElementById('chatMessages').innerHTML = '';
+                    
+                    alert(`세션이 변경되었습니다. (대화 ${data.message_count}개)`);
+                } else {
+                    alert('세션 변경에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('세션 변경 실패:', error);
+                alert('세션 변경 중 오류가 발생했습니다.');
+            }
+        }
         
         // 세션 초기화 버튼 (선택적, 개발용)
         function resetSession() {
             if (confirm('세션을 초기화하시겠습니까? 이전 대화 내용이 삭제됩니다.')) {
                 localStorage.removeItem('chat_session_id');
-                currentSessionId = 'chat_session_' + Date.now();
-                localStorage.setItem('chat_session_id', currentSessionId);
-                location.reload();
+                createNewSession();
             }
         }
 
@@ -1183,6 +1465,44 @@
             }
         }
 
+        // 상태 메시지를 표시하는 함수
+        let statusMessageElement = null;
+        
+        function showStatusMessage(message) {
+            const messagesContainer = document.getElementById('chatMessages');
+            
+            // 기존 상태 메시지가 있으면 업데이트, 없으면 생성
+            if (!statusMessageElement) {
+                statusMessageElement = document.createElement('div');
+                statusMessageElement.className = 'message bot status-message';
+                statusMessageElement.style.opacity = '0.7';
+                statusMessageElement.style.fontStyle = 'italic';
+                
+                const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                statusMessageElement.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble" id="statusMessageContent">${message}</div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+                messagesContainer.appendChild(statusMessageElement);
+            } else {
+                const statusContent = document.getElementById('statusMessageContent');
+                if (statusContent) {
+                    statusContent.textContent = message;
+                }
+            }
+            scrollToBottom();
+        }
+        
+        function hideStatusMessage() {
+            if (statusMessageElement) {
+                statusMessageElement.remove();
+                statusMessageElement = null;
+            }
+        }
+
         async function handleBotResponse(userMessage) {
             showTypingIndicator();
 
@@ -1207,7 +1527,8 @@
                     employee_id: 1001
                 };
 
-                const response = await fetch(API_URL, {
+                // 스트리밍 엔드포인트 사용
+                const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1219,20 +1540,75 @@
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
-                const result = await response.json();
-                const botMessage = result.message || '죄송합니다. 응답을 생성할 수 없습니다.';
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let finalResult = null;
 
                 hideTypingIndicator();
-                
-                if (botMessage.includes('문서') || botMessage.includes('작성') || botMessage.includes('계획서')) {
-                    addBotMessage(botMessage, ['자세히 알려주세요', '문서 작성 폼 열기']);
-                } else {
-                    addBotMessage(botMessage, []);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // 마지막 불완전한 라인은 버퍼에 보관
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.type === 'status') {
+                                    // 상태 메시지 표시
+                                    showStatusMessage(data.message);
+                                } else if (data.type === 'complete') {
+                                    // 최종 결과 처리
+                                    finalResult = data;
+                                    hideStatusMessage();
+                                    
+                                    // 세션 ID 업데이트
+                                    if (data.session_id && data.session_id !== currentSessionId) {
+                                        currentSessionId = data.session_id;
+                                        localStorage.setItem('chat_session_id', currentSessionId);
+                                        console.log('세션 ID 업데이트:', currentSessionId);
+                                    }
+                                    
+                                    const botMessage = data.message || '죄송합니다. 응답을 생성할 수 없습니다.';
+                                    const documentPath = data.document_path;
+                                    const requiresInput = data.requires_input || false;
+                                    
+                                    // 사용자 입력이 필요한 경우 (예시문 표시) - 최우선 처리
+                                    if (requiresInput || (botMessage && (botMessage.includes('📋') || botMessage.includes('예시') || botMessage.includes('입력 형식')))) {
+                                        console.log('✅ 예시문 표시 (requires_input 또는 예시 키워드 감지)');
+                                        // 예시문만 표시 (입력 폼 없음)
+                                        addBotMessage(botMessage);
+                                    }
+                                    // HTML 문서가 생성된 경우 채팅창에 표시 (예시문이 아닐 때만)
+                                    else if (documentPath || (botMessage && (botMessage.includes('<!DOCTYPE') || botMessage.includes('<html') || botMessage.length > 5000))) {
+                                        console.log('✅ HTML 문서 표시');
+                                        await addHTMLDocumentToChat(botMessage, documentPath);
+                                    } else if (botMessage.includes('문서') || botMessage.includes('작성') || botMessage.includes('계획서')) {
+                                        addBotMessage(botMessage, ['자세히 알려주세요', '문서 작성 폼 열기']);
+                                    } else {
+                                        addBotMessage(botMessage, []);
+                                    }
+                                } else if (data.type === 'error') {
+                                    hideStatusMessage();
+                                    addBotMessage(data.message, ['다시 시도']);
+                                }
+                            } catch (e) {
+                                console.error('JSON 파싱 오류:', e, line);
+                            }
+                        }
+                    }
                 }
 
             } catch (error) {
                 console.error('Error:', error);
                 hideTypingIndicator();
+                hideStatusMessage();
                 
                 let errorMessage = '죄송합니다. 오류가 발생했습니다.\n\n';
                 if (error.message === 'Failed to fetch') {
@@ -1275,6 +1651,80 @@
                     <div class="message-time">${now}</div>
                 </div>
             `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // HTML 문서를 채팅창에 표시하는 함수
+        async function addHTMLDocumentToChat(botMessage, documentPath) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            let htmlContent = null;
+            
+            // 1. document_path가 있으면 파일을 직접 로드
+            if (documentPath) {
+                try {
+                    const filename = documentPath.split(/[/\\]/).pop();
+                    const fileResponse = await fetch(`/api/documents/${filename}`);
+                    if (fileResponse.ok) {
+                        htmlContent = await fileResponse.text();
+                        console.log('✅ HTML 파일 로드 성공:', filename);
+                    }
+                } catch (error) {
+                    console.error('파일 로드 실패:', error);
+                }
+            }
+            
+            // 2. 파일 로드 실패 시 메시지에서 HTML 추출
+            if (!htmlContent && botMessage) {
+                const trimmedMessage = botMessage.trim();
+                const isHTML = trimmedMessage.match(/^\s*<!DOCTYPE\s+html/i) || 
+                               trimmedMessage.match(/^\s*<html/i) ||
+                               (trimmedMessage.includes('<!DOCTYPE') && trimmedMessage.includes('<html')) ||
+                               (trimmedMessage.includes('<html') && trimmedMessage.includes('</html>')) ||
+                               trimmedMessage.length > 5000;
+                
+                if (isHTML) {
+                    htmlContent = botMessage;
+                    console.log('✅ 메시지에서 HTML 감지');
+                }
+            }
+            
+            // 3. HTML이 있으면 iframe으로 렌더링
+            if (htmlContent) {
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble" style="padding: 0; max-width: 100%; overflow: hidden;">
+                            <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <iframe 
+                                    srcdoc='${htmlContent.replace(/'/g, "&#39;")}'
+                                    style="width: 100%; height: 600px; border: none; display: block;"
+                                    scrolling="auto"
+                                ></iframe>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                                📄 생성된 문서가 위에 표시됩니다. 문서를 스크롤하여 전체 내용을 확인하세요.
+                            </div>
+                        </div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+            } else {
+                // HTML이 없으면 일반 메시지로 표시
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble">${botMessage}</div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+            }
             
             messagesContainer.appendChild(messageDiv);
             scrollToBottom();
@@ -1346,11 +1796,15 @@
                 }
 
                 // 문서 작성도 같은 세션 ID 사용 (멀티턴 대화 지원)
-                const docSessionId = currentSessionId || 'doc_session_' + Date.now();
+                // currentSessionId가 없으면 새로 생성하되, localStorage에 저장
+                if (!currentSessionId) {
+                    currentSessionId = 'chat_session_' + Date.now();
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                }
                 
                 const payload = {
                     query: query,
-                    session_id: docSessionId,
+                    session_id: currentSessionId,  // 챗봇과 동일한 세션 ID 사용
                     employee_id: 1001
                 };
 
@@ -1368,12 +1822,110 @@
 
                 const result = await response.json();
                 const aiMessage = result.message || '문서 생성에 실패했습니다.';
+                let documentPath = result.document_path;
 
-                document.getElementById('resultPreview').textContent = aiMessage;
-                document.getElementById('resultPreview').classList.add('active');
-                document.getElementById('placeholderMessage').style.display = 'none';
-                document.getElementById('actionButtons').style.display = 'flex';
-                showAlert('문서가 성공적으로 생성되었습니다!', 'success');
+                // 세션 ID 업데이트 (서버에서 반환된 세션 ID 사용, 멀티턴 대화 지원)
+                if (result.session_id && result.session_id !== currentSessionId) {
+                    currentSessionId = result.session_id;
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                    console.log('문서 작성 세션 ID 업데이트:', currentSessionId);
+                }
+
+                console.log('서버 응답:', { documentPath, messageLength: aiMessage?.length, messagePreview: aiMessage?.substring(0, 200), sessionId: result.session_id });
+
+                // 결과 표시 - HTML 문서 렌더링
+                const previewDiv = document.getElementById('resultPreview');
+                previewDiv.innerHTML = ''; // 기존 내용 제거
+                
+                let htmlContent = null;
+                
+                // 1. document_path가 있으면 파일을 직접 로드 시도
+                if (documentPath) {
+                    // 파일명만 추출 (경로에서)
+                    const filename = documentPath.split(/[/\\]/).pop();
+                    console.log('📁 파일명 추출:', filename);
+                    
+                    try {
+                        const fileResponse = await fetch(`/api/documents/${encodeURIComponent(filename)}`);
+                        if (fileResponse.ok) {
+                            htmlContent = await fileResponse.text();
+                            console.log('✅ 파일 로드 성공, 길이:', htmlContent.length);
+                            
+                            // 파일 내용이 HTML인지 확인
+                            if (htmlContent.trim().match(/^\s*<!DOCTYPE\s+html/i) || htmlContent.trim().match(/^\s*<html/i)) {
+                                console.log('✅ 파일 내용이 HTML로 확인됨');
+                            } else {
+                                console.warn('⚠️ 파일 내용이 HTML로 보이지 않음');
+                            }
+                        } else {
+                            console.error('❌ 파일 로드 실패, 상태:', fileResponse.status);
+                            const errorText = await fileResponse.text();
+                            console.error('에러 내용:', errorText);
+                        }
+                    } catch (error) {
+                        console.error('❌ 파일 로드 오류:', error);
+                    }
+                }
+                
+                // 2. 파일 로드 실패 시 메시지에서 HTML 추출 시도
+                if (!htmlContent && aiMessage) {
+                    const trimmedMessage = aiMessage.trim();
+                    
+                    // HTML 문서인지 확인 (매우 넓은 범위로)
+                    const isHTML = trimmedMessage.match(/^\s*<!DOCTYPE\s+html/i) || 
+                                   trimmedMessage.match(/^\s*<html/i) ||
+                                   (trimmedMessage.includes('<!DOCTYPE') && trimmedMessage.includes('<html')) ||
+                                   (trimmedMessage.includes('<html') && trimmedMessage.includes('</html>')) ||
+                                   (trimmedMessage.includes('<html lang=')) ||
+                                   (trimmedMessage.startsWith('<!DOCTYPE')) ||
+                                   (trimmedMessage.startsWith('<html'));
+                    
+                    // 메시지가 매우 길면 (5000자 이상) HTML로 간주
+                    if (trimmedMessage.length > 5000 && trimmedMessage.includes('<')) {
+                        htmlContent = aiMessage;
+                        console.log('✅ 긴 메시지를 HTML로 간주, 길이:', htmlContent.length);
+                    } else if (isHTML) {
+                        htmlContent = aiMessage;
+                        console.log('✅ 메시지에서 HTML 감지, 길이:', htmlContent.length);
+                    } else {
+                        console.log('❌ HTML 감지 실패. 메시지 시작:', trimmedMessage.substring(0, 200));
+                        console.log('메시지 길이:', trimmedMessage.length);
+                    }
+                }
+                
+                // 3. HTML이 있으면 무조건 iframe으로 렌더링 (텍스트로 표시 절대 금지!)
+                if (htmlContent) {
+                    console.log('🚀 HTML 렌더링 시작, 길이:', htmlContent.length);
+                    
+                    // 기존 내용 완전히 제거
+                    previewDiv.innerHTML = '';
+                    
+                    const iframe = document.createElement('iframe');
+                    iframe.srcdoc = htmlContent;
+                    iframe.style.width = '100%';
+                    iframe.style.height = '100%';
+                    iframe.style.minHeight = '600px';
+                    iframe.style.border = 'none';
+                    iframe.style.background = 'white';
+                    
+                    previewDiv.appendChild(iframe);
+                    previewDiv.classList.add('active');
+                    document.getElementById('placeholderMessage').style.display = 'none';
+                    document.getElementById('actionButtons').style.display = 'flex';
+                    showAlert('문서가 성공적으로 생성되었습니다!', 'success');
+                } else {
+                    // HTML이 아닌 일반 텍스트인 경우에만 텍스트로 표시
+                    console.log('📝 일반 텍스트로 표시');
+                    console.log('메시지 전체:', aiMessage);
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'result-preview-content';
+                    contentDiv.textContent = aiMessage;
+                    previewDiv.innerHTML = '';
+                    previewDiv.appendChild(contentDiv);
+                    previewDiv.classList.add('active');
+                    document.getElementById('placeholderMessage').style.display = 'none';
+                    showAlert('문서 생성이 완료되었습니다.', 'success');
+                }
 
             } catch (error) {
                 console.error('Error:', error);
@@ -1393,8 +1945,13 @@
                     showAlert(`오류 발생: ${error.message}`, 'error');
                 }
                 
-                document.getElementById('resultPreview').textContent = errorMessage;
-                document.getElementById('resultPreview').classList.add('active');
+                const previewDiv = document.getElementById('resultPreview');
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'result-preview-content';
+                contentDiv.textContent = errorMessage;
+                previewDiv.innerHTML = '';
+                previewDiv.appendChild(contentDiv);
+                previewDiv.classList.add('active');
             } finally {
                 document.getElementById('loadingDiv').classList.remove('active');
                 document.getElementById('generateBtn').disabled = false;
@@ -1402,7 +1959,23 @@
         });
 
         function copyToClipboard() {
-            const content = document.getElementById('resultPreview').textContent;
+            const previewDiv = document.getElementById('resultPreview');
+            let content = '';
+            
+            // iframe이 있으면 iframe 내용 가져오기
+            const iframe = previewDiv.querySelector('iframe');
+            if (iframe && iframe.contentDocument) {
+                content = iframe.contentDocument.documentElement.outerHTML;
+            } else {
+                // 일반 텍스트 또는 HTML
+                const contentDiv = previewDiv.querySelector('.result-preview-content');
+                if (contentDiv) {
+                    content = contentDiv.textContent;
+                } else {
+                    content = previewDiv.textContent;
+                }
+            }
+            
             navigator.clipboard.writeText(content).then(() => {
                 showAlert('클립보드에 복사되었습니다!', 'success');
             }).catch(err => {
