@@ -13,7 +13,6 @@ import json
 from pydantic import BaseModel, Field
 
 from agents.orchestrator_v3 import get_orchestrator_graph
-from agents.master_graphs.document.document_upload_service import process_uploaded_file
 from agents.session_manager import get_session_manager
 import asyncio
 import threading
@@ -558,10 +557,12 @@ async def upload_document_endpoint(
         # 파일 내용 읽기
         content = await file.read()
         
-        # 문서 업로드 서비스 호출 (동기 함수를 비동기로 실행)
+        # 문서 업데이트 서비스 호출 (동기 함수를 비동기로 실행)
         from fastapi.concurrency import run_in_threadpool
+        from agents.master_graphs.document.update.document_update_service import process_update_file
+        
         result = await run_in_threadpool(
-            process_uploaded_file,
+            process_update_file,
             file_content=content,
             filename=file.filename,
             document_title=document_title
@@ -680,25 +681,3 @@ async def health_check():
     """헬스 체크 엔드포인트."""
     return {"status": "ok", "service": "깐부 AI Agent 시스템"}
 
-
-# ===== 서버 시작 =====
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    print("\n" + "="*60)
-    print("🚀 FastAPI 서버 시작 중...")
-    print("="*60)
-    print(f"📝 API 문서: http://localhost:8000/docs")
-    print(f"🌐 UI 메인 페이지: http://localhost:8000/")
-    print(f"📄 문서 작성 UI: http://localhost:8000/")
-    print("="*60 + "\n")
-    
-    # uvicorn 서버 실행
-    uvicorn.run(
-        "fastapi_app:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,  # 개발 환경에서 자동 리로드
-        log_level="info"
-    )
