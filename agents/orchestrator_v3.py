@@ -30,21 +30,21 @@ from agents.redis_optimizer import optimize_state_before_save
 from agents.domain_node_handler import process_domain_node_result
 from agents.utils import check_detailed_response_in_history, get_clarification_message
 from agents.master_graphs import (
-    get_schedule_master_graph,
+    # get_schedule_master_graph,
     get_document_master_graph,
-    get_qa_master_graph,
-    get_email_master_graph,
-    get_tech_master_graph,
+    # get_qa_master_graph,
+    # get_email_master_graph,
+    # get_tech_master_graph,
 )
 
 
 # 도메인별 마스터그래프 매핑
 MASTER_GRAPHS = {
-    "schedule": get_schedule_master_graph,
+    # "schedule": get_schedule_master_graph,
     "document": get_document_master_graph,
-    "qa": get_qa_master_graph,
-    "email": get_email_master_graph,
-    "tech": get_tech_master_graph,
+    # "qa": get_qa_master_graph,
+    # "email": get_email_master_graph,
+    # "tech": get_tech_master_graph,
 }
 
 
@@ -700,11 +700,11 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     
     # 각 도메인별 마스터그래프를 서브그래프로 추가
     # 도메인 노드 공통 로직은 domain_node_handler 모듈에서 처리
-    async def schedule_node(state: OrchestratorState) -> Dict[str, Any]:
-        """스케줄 마스터그래프 실행."""
-        graph = get_schedule_master_graph()
-        result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "schedule", "스케줄 작업을 완료했습니다.")
+    # async def schedule_node(state: OrchestratorState) -> Dict[str, Any]:
+    #     """스케줄 마스터그래프 실행."""
+    #     graph = get_schedule_master_graph()
+    #     result = await graph.ainvoke(state)
+    #     return process_domain_node_result(state, result, "schedule", "스케줄 작업을 완료했습니다.")
     
     async def document_node(state: OrchestratorState) -> Dict[str, Any]:
         """문서 마스터그래프 실행."""
@@ -712,33 +712,33 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         result = await graph.ainvoke(state)
         return process_domain_node_result(state, result, "document", "문서 작업을 완료했습니다.")
     
-    async def qa_node(state: OrchestratorState) -> Dict[str, Any]:
-        """QA 마스터그래프 실행."""
-        graph = get_qa_master_graph()
-        result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "qa", "질문에 답변했습니다.")
+    # async def qa_node(state: OrchestratorState) -> Dict[str, Any]:
+    #     """QA 마스터그래프 실행."""
+    #     graph = get_qa_master_graph()
+    #     result = await graph.ainvoke(state)
+    #     return process_domain_node_result(state, result, "qa", "질문에 답변했습니다.")
     
-    async def email_node(state: OrchestratorState) -> Dict[str, Any]:
-        """이메일 마스터그래프 실행."""
-        print("--- [Orchestrator] Executing Email Master Graph ---")
-        graph = get_email_master_graph()
-        result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "email", "이메일 작업을 완료했습니다.")
+    # async def email_node(state: OrchestratorState) -> Dict[str, Any]:
+    #     """이메일 마스터그래프 실행."""
+    #     print("--- [Orchestrator] Executing Email Master Graph ---")
+    #     graph = get_email_master_graph()
+    #     result = await graph.ainvoke(state)
+    #     return process_domain_node_result(state, result, "email", "이메일 작업을 완료했습니다.")
     
-    async def tech_node(state: OrchestratorState) -> Dict[str, Any]:
-        """기술 마스터그래프 실행."""
-        graph = get_tech_master_graph()
-        result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "tech", "기술 검색 작업을 완료했습니다.")
+    # async def tech_node(state: OrchestratorState) -> Dict[str, Any]:
+    #     """기술 마스터그래프 실행."""
+    #     graph = get_tech_master_graph()
+    #     result = await graph.ainvoke(state)
+    #     return process_domain_node_result(state, result, "tech", "기술 검색 작업을 완료했습니다.")
     
     # 각 도메인별 노드 등록
-    workflow.add_node("schedule", schedule_node)
+    # workflow.add_node("schedule", schedule_node)
     workflow.add_node("document", document_node)
-    workflow.add_node("qa", qa_node)
-    workflow.add_node("email", email_node)
-    workflow.add_node("tech", tech_node)
+    # workflow.add_node("qa", qa_node)
+    # workflow.add_node("email", email_node)
+    # workflow.add_node("tech", tech_node)
     
-    print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech")
+    print(f"✅ 마스터그래프 등록 완료: document")  # schedule, qa, email, tech는 주석 처리됨
     
     # 엣지 설정
     workflow.set_entry_point("route_to_domain")
@@ -760,13 +760,13 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         
         # domain이 없거나 None이면 기본값 사용
         if not domain:
-            print("⚠️ domain이 state에 없습니다. qa로 fallback")
-            domain = "qa"
+            print("⚠️ domain이 state에 없습니다. document로 fallback")
+            domain = "document"
         
         # 유효성 검사
         if domain not in MASTER_GRAPHS:
-            print(f"⚠️ 알 수 없는 도메인: {domain}, qa로 fallback")
-            domain = "qa"
+            print(f"⚠️ 알 수 없는 도메인: {domain}, document로 fallback")
+            domain = "document"
         
         print(f"--- [Orchestrator] Routing to {domain} master graph ---")
         return domain

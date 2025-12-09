@@ -251,35 +251,144 @@ document:
         - "2024년 1분기 인사정보 요약 리포트 작성해줘"
         - "스마트워치 신제품 개발 계획서 만들어줘"
         - "제품 비교표 템플릿 생성"
-    upload_knowledge:
-      description: "지식 업로드 (RAG)"
+    update_document:
+      description: "문서 업데이트 (복리후생/식단/메뉴얼)"
       features: |
-        - Redis 컨텍스트: 업로드한 파일 경로, 청크 수, 임베딩 수 등을 Redis에 저장하여 멀티턴 대화 지원
+        - Structured Output Parser 사용: 사용자 쿼리에서 document_title, file_path, document_type 등을 자동 추출
+        - 업데이트 가능한 문서: 복리후생, 식단, 메뉴얼만 업데이트 가능
+        - Redis 컨텍스트: 업데이트한 파일 경로, 청크 수 등을 Redis에 저장하여 멀티턴 대화 지원
         - 파일 파싱: PDF/DOCX 등의 파일에서 텍스트 추출
         - 청킹: 추출된 텍스트를 의미 있는 단위로 분할
         - 임베딩: 각 청크를 벡터로 변환
-        - Vector DB Upsert: 임베딩 벡터를 Milvus에 저장/업데이트
+        - Vector DB Upsert: 임베딩 벡터를 Milvus에 저장/업데이트 (기존 문서 삭제 후 새로 저장)
       capabilities:
-        - "문서 업로드"
-        - "벡터 DB 저장"
-        - "RAG 지식 베이스 구축"
+        - "복리후생 문서 업데이트"
+        - "식단 문서 업데이트"
+        - "메뉴얼 문서 업데이트"
+        - "벡터 DB 업데이트"
       keywords:
         positive:
-          - "업로드"
-          - "저장"
-          - "지식"
-          - "RAG"
-          - "벡터"
+          - "업데이트"
+          - "수정"
+          - "갱신"
+          - "변경"
+          - "복리후생"
+          - "식단"
+          - "메뉴얼"
         negative: []
       examples:
-        - "이 문서를 지식 베이스에 업로드해줘"
-        - "PDF 파일을 벡터 DB에 저장"
+        - "복리후생 문서를 업데이트해줘"
+        - "식단 파일을 수정해줘"
+        - "메뉴얼을 갱신해줘"
+      structured_output_prompt: |
+        사용자의 쿼리에서 문서 업데이트에 필요한 정보를 추출하세요.
+        
+        **업데이트 가능한 문서 타입:**
+        - 복리후생: 회사 복리후생 정책, 휴가규정, 근무제도, 급여 외 혜택, 보험, 수당, 퇴직연금 등
+        - 식단: 구내식당 식단, 점심/저녁 메뉴, 식단 추천 등
+        - 메뉴얼: 시스템 사용 매뉴얼, Q&A, 사용 방법 안내 등
+        
+        **추출해야 할 정보:**
+        - document_title (필수): 업데이트할 문서 제목. 반드시 "복리후생", "식단", "메뉴얼" 중 하나가 포함되어야 합니다.
+        - file_path (선택): 업데이트할 파일 경로. 사용자가 명시적으로 파일 경로를 제공한 경우에만 추출합니다.
+        - document_type (필수): 문서 타입. 반드시 "복리후생", "식단", "메뉴얼" 중 하나로 정확히 판단해야 합니다.
+          * 쿼리에서 "복리후생", "휴가규정", "근무제도", "보험", "수당" 등의 키워드가 있으면 "복리후생"
+          * 쿼리에서 "식단", "메뉴", "구내식당", "점심", "저녁" 등의 키워드가 있으면 "식단"
+          * 쿼리에서 "메뉴얼", "매뉴얼", "사용 방법", "Q&A" 등의 키워드가 있으면 "메뉴얼"
+          * 여러 키워드가 있으면 가장 많이 언급된 타입을 선택하거나, 쿼리의 주 목적을 파악하여 판단하세요.
+        
+        **주의사항:**
+        - document_title은 반드시 포함되어야 하며, 업데이트 가능한 문서 타입 중 하나를 포함해야 합니다.
+        - document_type은 반드시 "복리후생", "식단", "메뉴얼" 중 하나로 정확히 판단해야 합니다.
+        - file_path는 선택적이지만, 사용자가 파일 경로를 언급한 경우 추출해야 합니다.
+        - 사용자가 "복리후생", "식단", "메뉴얼" 중 하나를 언급하지 않으면 document_title과 document_type을 쿼리 내용을 분석하여 추론하세요.
+      document_type_detection_keywords:
+        menu:
+          - "식단"
+          - "메뉴"
+          - "점심"
+          - "저녁"
+          - "아침"
+          - "구내식당"
+          - "식당"
+          - "카페테리아"
+          - "cafeteria"
+          - "menu"
+          - "lunch"
+          - "dinner"
+          - "breakfast"
+          - "요일"
+          - "월요일"
+          - "화요일"
+          - "수요일"
+          - "목요일"
+          - "금요일"
+          - "한식"
+          - "양식"
+          - "중식"
+          - "일식"
+          - "분식"
+          - "돈까스"
+          - "비빔밥"
+        benefit:
+          - "복리후생"
+          - "휴가"
+          - "연차"
+          - "보험"
+          - "수당"
+          - "급여"
+          - "퇴직연금"
+          - "건강검진"
+          - "교육지원"
+          - "자녀학자금"
+          - "주거지원"
+          - "benefit"
+        manual:
+          - "메뉴얼"
+          - "매뉴얼"
+          - "manual"
+          - "사용법"
+          - "가이드"
+          - "안내"
+          - "q&a"
+          - "faq"
+          - "질문"
+          - "답변"
+          - "사용 방법"
+          - "policies"
+          - "procedures"
+          - "policy"
+          - "procedure"
+          - "handbook"
+          - "guidebook"
+          - "hr"
+          - "human resources"
+          - "정책"
+          - "규정"
+          - "규칙"
+          - "절차"
+          - "지침"
+        resume:
+          - "이력서"
+          - "resume"
+          - "cv"
+          - "curriculum vitae"
+          - "채용"
+          - "인재"
+          - "지원자"
+          - "applicant"
+          - "candidate"
+          - "recruitment"
+          - "채용 이력서"
+          - "인재 채용"
+          - "지원서"
+          - "application"
   classification_criteria: |
     사용자 질의를 분석하여 다음 문서 서브 에이전트 중 하나로 분류:
     - doc_generate: 문서, 보고서, 작성, 템플릿 관련
-    - upload_knowledge: 문서 업로드, RAG 저장 관련
+    - update_document: 문서 업데이트 (복리후생/식단/메뉴얼만 가능)
     - email_auto_reply: 이메일, 메일, 자동응답 관련 (참고: 실제로는 email 도메인으로 라우팅)
-  output_format: '{"intent": "doc_generate|upload_knowledge|email_auto_reply"}'
+  output_format: '{"intent": "doc_generate|update_document|email_auto_reply"}'
 
 qa:
   description: "Q&A 도메인 - 질문 답변 및 조회"
