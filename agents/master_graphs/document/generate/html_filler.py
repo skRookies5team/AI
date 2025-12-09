@@ -1277,23 +1277,6 @@ def _handle_product_comparison_special(
                 script.string = new_content
                 print(f"✅ initializeTable() 호출을 조건부로 변경 (데이터가 있을 경우 건너뜀)")
             break
-            script_content = script.string
-            
-            # initializeTable() 호출을 조건부로 변경
-            # comparisonBody에 이미 행이 있으면 initializeTable()을 호출하지 않음
-            new_content = re.sub(
-                r'(\s*)initializeTable\(\);',
-                r'\1// AI가 데이터를 채웠으면 initializeTable() 건너뜀\n'
-                r'\1if (document.getElementById("comparisonBody").children.length === 0) {\n'
-                r'\1    initializeTable();\n'
-                r'\1}',
-                script_content
-            )
-            
-            if new_content != script_content:
-                script.string = new_content
-                print(f"✅ initializeTable() 호출을 조건부로 변경 (데이터가 있을 경우 건너뜀)")
-            break
 
 
 def _update_title_tags(
