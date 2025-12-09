@@ -12,7 +12,7 @@ from langgraph.graph import StateGraph, END
 from agents.state import OrchestratorState
 from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
-from agents.master_graphs.document.doc_generate_agent import doc_generate
+from agents.master_graphs.document.generate.doc_generate_agent import doc_generate
 
 # LLM 관련 optional import
 try:
@@ -21,7 +21,6 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
     ChatOpenAI = None
-# document_upload_service는 실제 사용 시점에만 import (lazy import)
 # sentence_transformers 의존성 때문에 모듈 레벨 import 시 충돌 발생 가능
 
 
@@ -29,9 +28,9 @@ class DocumentMasterGraph(BaseMasterGraph):
     """문서 도메인 마스터그래프.
     
     요구사항:
-    - AI-011: 문서 라우팅 - 문서 작업 유형(작성/업로드/변환) 분류 → 템플릿 매핑
+    - AI-011: 문서 라우팅 - 문서 작업 유형(작성/업데이트/변환) 분류 → 템플릿 매핑
     - AI-012: 문서 자동 작성 - 템플릿 로드 → DB 데이터 매핑(Data Binding) → 초안 생성
-    - AI-013: 문서 업로드 (RAG) - 파일 파싱(Text Extraction) → 청킹(Chunking) → 임베딩(Embedding) → Vector DB(Milvus) Upsert
+    - AI-014: 문서 업데이트 - 복리후생/식단/메뉴얼 파일 업데이트 (파일 파싱 → 청킹 → 임베딩 → Vector DB(Milvus) Upsert)
     """
     
     def get_domain_name(self) -> str:
@@ -44,7 +43,7 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 노드 추가
         workflow.add_node("route_intent", self.route_intent)  # AI-011: 문서 라우팅 (작업 유형 분류 + 템플릿 매핑)
         workflow.add_node("generate_document", self.generate_document)  # AI-012: 문서 작성 (템플릿 로드 → DB 데이터 매핑 → 초안 생성)
-        workflow.add_node("upload_knowledge", self.upload_knowledge)  # AI-013: 문서 업로드 (파일 파싱 → 청킹 → 임베딩 → Vector DB Upsert)
+        workflow.add_node("update_document", self.update_document)  # AI-014: 문서 업데이트 (복리후생/식단/메뉴얼 파일 업데이트)
         
         # 엣지 설정
         workflow.set_entry_point("route_intent")
@@ -55,34 +54,34 @@ class DocumentMasterGraph(BaseMasterGraph):
             self.route_to_subagent,
             {
                 "generate": "generate_document",  # 문서 작성
-                "upload": "upload_knowledge",  # 문서 업로드 (RAG)
+                "update": "update_document",  # 문서 업데이트 (복리후생/식단/메뉴얼)
             }
         )
         
         # 문서 생성 후 바로 종료
         workflow.add_edge("generate_document", END)
-        workflow.add_edge("upload_knowledge", END)
+        workflow.add_edge("update_document", END)
         
         return workflow.compile()
     
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
-        """AI-011: 문서 라우팅 - 문서 작업 유형(작성/업로드/변환) 분류 → 템플릿 매핑.
+        """AI-011: 문서 라우팅 - 문서 작업 유형(작성/업데이트/변환) 분류 → 템플릿 매핑.
         
         작업 유형:
         - generate: 문서 작성 (템플릿 기반 문서 생성)
-        - upload: 문서 업로드 (RAG를 위한 지식 업로드)
+        - update: 문서 업데이트 (복리후생/식단/메뉴얼 파일 업데이트)
         - convert: 문서 변환 (PDF 등 형식 변환)
         """
         print("--- [AI-011] Document Routing: 작업 유형 분류 및 템플릿 매핑 ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 1단계: 작업 유형 분류 (작성/업로드/변환)
+        # 1단계: 작업 유형 분류 (작성/업데이트/변환)
         import re
         
         # 키워드 기반 작업 유형 판단
-        if any(k in query for k in ["업로드", "저장", "지식", "RAG", "벡터", "벡터DB", "밀브스"]):
-            operation_type = "upload"
+        if any(k in query for k in ["업데이트", "수정", "갱신", "변경", "update"]):
+            operation_type = "update"
         elif any(k in query for k in ["변환", "PDF", "엑셀", "워드", "convert"]):
             operation_type = "convert"
         else:
@@ -100,8 +99,8 @@ class DocumentMasterGraph(BaseMasterGraph):
             
             if llm_intent == "doc_generate":
                 operation_type = "generate"
-            elif any(k in llm_intent for k in ["upload", "지식", "RAG"]):
-                operation_type = "upload"
+            elif any(k in llm_intent for k in ["update", "업데이트", "수정"]):
+                operation_type = "update"
         except Exception as e:
             print(f"⚠️ LLM 기반 분류 실패, 키워드 기반 사용: {e}")
         
@@ -248,7 +247,7 @@ class DocumentMasterGraph(BaseMasterGraph):
         
         # 제목과 요구사항이 모두 없으면 예시문 반환 (모든 템플릿에 적용)
         if not document_title and not requirements:
-            from agents.master_graphs.document.template_examples import get_template_example, get_template_title
+            from agents.master_graphs.document.generate.template_examples import get_template_example, get_template_title
             
             example_text = get_template_example(template_name)
             template_title = get_template_title(template_name) or template_name
@@ -429,8 +428,8 @@ class DocumentMasterGraph(BaseMasterGraph):
         
         return db_data
     
-    async def upload_knowledge(self, state: OrchestratorState) -> Dict[str, Any]:
-        """AI-013: 문서 업로드 (RAG) - 파일 파싱(Text Extraction) → 청킹(Chunking) → 임베딩(Embedding) → Vector DB(Milvus) Upsert.
+    async def update_document(self, state: OrchestratorState) -> Dict[str, Any]:
+        """AI-014: 문서 업데이트 - 복리후생/식단/메뉴얼 파일 업데이트.
         
         프로세스:
         1. 파일 파싱: PDF/DOCX 등의 파일에서 텍스트 추출
@@ -438,11 +437,16 @@ class DocumentMasterGraph(BaseMasterGraph):
         3. 임베딩: 각 청크를 벡터로 변환
         4. Vector DB Upsert: 임베딩 벡터를 Milvus에 저장/업데이트
         
+        업데이트 가능한 문서:
+        - 복리후생
+        - 식단
+        - 메뉴얼
+        
         Redis 기반 컨텍스트 관리:
-        - 업로드한 파일 경로, 청크 수, 임베딩 수 등을 Redis에 저장
-        - 이전 업로드 내역을 기억하여 멀티턴 대화 지원
+        - 업데이트한 파일 경로, 청크 수, 임베딩 수 등을 Redis에 저장
+        - 이전 업데이트 내역을 기억하여 멀티턴 대화 지원
         """
-        print("--- [AI-013] Document Upload (RAG): 파일 파싱 → 청킹 → 임베딩 → Vector DB Upsert ---")
+        print("--- [AI-014] Document Update: 파일 파싱 → 청킹 → 임베딩 → Vector DB Upsert ---")
         query = state.get("query", "")
         orchestrator_state = state
         
@@ -450,96 +454,117 @@ class DocumentMasterGraph(BaseMasterGraph):
         if orchestrator_state.get("document_context") is None:
             orchestrator_state["document_context"] = {}
         
-        # document_upload_service는 lazy import (sentence_transformers 의존성 때문)
-        from agents.master_graphs.document.document_upload_service import (
-            extract_text_from_file,
-            chunk_text,
-            get_embedding_model,
-            upsert_to_milvus
+        # Structured Output Parser를 사용하여 쿼리에서 파라미터 추출
+        from agents.structured_output import extract_structured_output, DocumentUpdateParams
+        from agents.master_graphs.document.update.document_update_service import (
+            process_update_file,
+            get_updatable_documents,
         )
+        from agents.master_graphs.document.utils import get_update_document_prompt
         from pathlib import Path
         
-        # 파일 경로가 state에 있으면 사용
-        file_path = state.get("document_path")
+        # 문서 타입 초기화
+        document_type = None
+        
+        try:
+            # agent_prompts.yaml에서 프롬프트 로드
+            system_prompt = get_update_document_prompt()
+            
+            params = await extract_structured_output(
+                query=query,
+                model_class=DocumentUpdateParams,
+                system_prompt=system_prompt,
+                temperature=0.0
+            )
+            
+            document_title = params.document_title
+            document_type = params.document_type
+            file_path = params.file_path or state.get("document_path")
+            
+            print(f"✅ [Structured Output] 추출된 파라미터: document_title={document_title}, document_type={document_type}, file_path={file_path}")
+            
+        except Exception as e:
+            print(f"⚠️ Structured Output 파싱 실패, state에서 직접 가져오기: {e}")
+            # Fallback: state에서 직접 가져오기
+            file_path = state.get("document_path")
+            document_title = state.get("document_title")
+            
+            # document_title이 없으면 쿼리에서 추출 시도
+            if not document_title:
+                updatable_docs = get_updatable_documents()
+                for doc in updatable_docs:
+                    if doc in query:
+                        document_title = doc
+                        document_type = doc  # document_title과 동일하게 설정
+                        break
         
         if not file_path:
             # 파일 경로가 없으면 에러
+            updatable_docs = get_updatable_documents()
             return {
                 "ok": False,
-                "message": "업로드할 파일 경로가 필요합니다.",
-                "error": "file_path is required",
+                "final_response": f"업데이트할 파일 경로가 필요합니다. 업데이트 가능한 문서: {', '.join(updatable_docs)}",
+                "messages": ["파일 경로가 필요합니다."],
+                "document_context": orchestrator_state["document_context"],
             }
+        
+        if not document_title:
+            # 문서 제목이 없으면 파일명 사용
+            document_title = Path(file_path).stem
         
         file_path_obj = Path(file_path)
         if not file_path_obj.exists():
             return {
                 "ok": False,
-                "message": f"파일을 찾을 수 없습니다: {file_path}",
-                "error": "file_not_found",
+                "final_response": f"파일을 찾을 수 없습니다: {file_path}",
+                "messages": ["파일을 찾을 수 없습니다."],
+                "document_context": orchestrator_state["document_context"],
             }
         
         try:
-            # 1단계: 파일 파싱 (Text Extraction)
-            print(f"📄 [1/4] 파일 파싱: {file_path_obj.name}")
-            text_content = extract_text_from_file(file_path_obj)
-            print(f"  → 추출된 텍스트 길이: {len(text_content):,} 문자")
+            # 파일 내용 읽기
+            with open(file_path_obj, "rb") as f:
+                file_content = f.read()
             
-            # 2단계: 청킹 (Chunking)
-            print(f"✂️ [2/4] 텍스트 청킹...")
-            chunks = chunk_text(text_content, chunk_size=500, chunk_overlap=100)
-            print(f"  → 생성된 청크 수: {len(chunks)}개")
-            
-            # 3단계: 임베딩 (Embedding)
-            print(f"🔢 [3/4] 임베딩 생성...")
-            embedding_model = get_embedding_model()
-            embeddings = []
-            for i, chunk in enumerate(chunks):
-                embedding = embedding_model.encode(chunk)
-                embeddings.append(embedding.tolist())
-                if (i + 1) % 10 == 0:
-                    print(f"  → 진행: {i + 1}/{len(chunks)} 청크 임베딩 완료")
-            print(f"  → 임베딩 완료: {len(embeddings)}개 벡터")
-            
-            # 4단계: Vector DB Upsert (Milvus)
-            print(f"💾 [4/4] Milvus에 업로드...")
-            result = upsert_to_milvus(
-                file_path=str(file_path),
-                chunks=chunks,
-                embeddings=embeddings,
-                metadata={"source": file_path_obj.name, "uploaded_at": datetime.now().isoformat()}
+            # 문서 업데이트 서비스 호출 (document_type 전달)
+            result = process_update_file(
+                file_content=file_content,
+                filename=file_path_obj.name,
+                document_title=document_title,
+                document_type=document_type
             )
             
             if result.get("ok"):
-                print(f"✅ 문서 업로드 완료: {result.get('message', '')}")
+                print(f"✅ 문서 업데이트 완료: {result.get('message', '')}")
                 
                 # Redis 컨텍스트에 저장
-                upload_info = {
+                update_info = {
                     "file_path": str(file_path),
-                    "chunks_count": len(chunks),
-                    "embeddings_count": len(embeddings),
-                    "uploaded_at": datetime.now().isoformat(),
+                    "document_title": document_title,
+                    "chunks_count": result.get("chunks_count", 0),
+                    "updated_at": datetime.now().isoformat(),
                 }
-                orchestrator_state["document_context"]["last_upload"] = upload_info
+                orchestrator_state["document_context"]["last_update"] = update_info
                 
                 return {
-                    "final_response": result.get("message", "문서가 지식 베이스에 업로드되었습니다."),
-                    "messages": [f"문서 업로드 완료: {len(chunks)}개 청크, {len(embeddings)}개 벡터 저장됨"],
+                    "final_response": result.get("message", "문서가 지식 베이스에 업데이트되었습니다."),
+                    "messages": [f"문서 업데이트 완료: {result.get('chunks_count', 0)}개 청크 저장됨"],
                     "document_context": orchestrator_state["document_context"],
                 }
             else:
                 return {
-                    "final_response": f"문서 업로드 실패: {result.get('error', '알 수 없는 오류')}",
-                    "messages": ["문서 업로드에 실패했습니다."],
+                    "final_response": f"문서 업데이트 실패: {result.get('message', '알 수 없는 오류')}",
+                    "messages": ["문서 업데이트에 실패했습니다."],
                     "document_context": orchestrator_state["document_context"],
                 }
                 
         except Exception as e:
-            print(f"❌ 문서 업로드 중 오류 발생: {e}")
+            print(f"❌ 문서 업데이트 중 오류 발생: {e}")
             import traceback
             traceback.print_exc()
             return {
                 "ok": False,
-                "final_response": f"문서 업로드 중 오류가 발생했습니다: {str(e)}",
+                "final_response": f"문서 업데이트 중 오류가 발생했습니다: {str(e)}",
                 "messages": [f"오류: {str(e)}"],
                 "document_context": orchestrator_state.get("document_context", {}),
             }

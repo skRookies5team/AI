@@ -165,6 +165,14 @@ class TechSearchParams(BaseModel):
     date_range: Optional[dict[str, str]] = Field(default=None, description="날짜 범위")
 
 
+class DocumentUpdateParams(BaseModel):
+    """문서 업데이트 파라미터."""
+    
+    document_title: str = Field(..., description="업데이트할 문서 제목 (예: 복리후생, 식단, 메뉴얼)")
+    file_path: Optional[str] = Field(default=None, description="업데이트할 파일 경로 (선택적, 없으면 사용자에게 요청)")
+    document_type: str = Field(..., description="문서 타입 (반드시 '복리후생', '식단', '메뉴얼' 중 하나로 판단)")
+
+
 class AgentResponse(BaseModel):
     """에이전트 응답 구조."""
     

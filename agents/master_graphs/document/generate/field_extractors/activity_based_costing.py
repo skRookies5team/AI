@@ -11,7 +11,7 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
 
-from ..utils import get_env
+from ...utils import get_env
 
 
 def extract_activity_based_costing_fields(
