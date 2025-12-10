@@ -175,21 +175,52 @@ def check_tech_ask_source_state(query: str, state: OrchestratorState, user_messa
     if not tech_search_context:
         return None
     
-    # article 또는 patent의 ask_source 상태 확인
+    # article 또는 patent의 상태 확인
     for agent_type in ["article", "patent"]:
         if agent_type in tech_search_context:
             agent_ctx = tech_search_context[agent_type]
             # agent_ctx가 None이 아니고 딕셔너리인지 확인
             if agent_ctx and isinstance(agent_ctx, dict):
-                if agent_ctx.get("intent") == "ask_source" or agent_ctx.get("intent") == "ask_search_mode":
+                intent = agent_ctx.get("intent")
+                
+                # ask_source 또는 ask_search_mode 상태 확인
+                if intent == "ask_source" or intent == "ask_search_mode":
                     # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
                     tech_continuation_keywords = [
                         "웹에서", "웹에서 검색", "웹 검색", "웹검색",
                         "사내 서버", "사내 서버에서", "사내 서버에서 검색", "사내 검색",
                         "1", "2", "1번", "2번", "웹", "사내"
                     ]
+                    # "서버에 데이터가 있나" 같은 질문도 tech 도메인으로 유지
+                    server_data_keywords = [
+                        "서버에", "서버에 데이터", "데이터가 있나", "데이터 있나",
+                        "서버에 있나", "서버에 있는지", "데이터 있는지",
+                        "서버", "벡터", "db", "데이터베이스", "밀버스"
+                    ]
                     if any(k in query for k in tech_continuation_keywords) or query.isdigit():
                         print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
+                        return {
+                            "domain": "tech",
+                            "conversation_history": [user_message]
+                        }
+                    # ask_search_mode 상태에서도 서버 데이터 질문 처리
+                    if any(k in query for k in server_data_keywords):
+                        print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
+                        return {
+                            "domain": "tech",
+                            "conversation_history": [user_message]
+                        }
+                
+                # 일반 특허 검색 컨텍스트 확인 (추가)
+                elif intent == "search":
+                    # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
+                    server_data_keywords = [
+                        "서버에", "서버에 데이터", "데이터가 있나", "데이터 있나",
+                        "서버에 있나", "서버에 있는지", "데이터 있는지",
+                        "서버", "벡터", "db", "데이터베이스", "밀버스"
+                    ]
+                    if any(k in query for k in server_data_keywords):
+                        print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
                         return {
                             "domain": "tech",
                             "conversation_history": [user_message]
