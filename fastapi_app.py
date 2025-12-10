@@ -242,6 +242,7 @@ async def chat_stream_endpoint(payload: ChatRequest):
             session_data = {
                 "conversation_history": [],
                 "email_search_context": {},
+                "email_compose_context": {},
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
@@ -265,6 +266,7 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "employee_id": payload.employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
+                "email_compose_context": session_data.get("email_compose_context", {}),
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
@@ -371,11 +373,15 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     session_state = {
                         "conversation_history": conversation_history,
                         "email_search_context": final_state.get("email_search_context", {}),
+                        "email_compose_context": final_state.get("email_compose_context", {}),
                         "qa_search_context": final_state.get("qa_search_context", {}),
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
                         "document_context": final_state.get("document_context", {})
                     }
+                    print(f"[FASTAPI DEBUG] session_state 저장:")
+                    print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
+                    print(f"  - email_compose_context 키: {list(session_state.get('email_compose_context', {}).keys())}")
                     await session_manager.save_session_state(session_id, session_state)
         
         except Exception as exc:
@@ -437,11 +443,15 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "employee_id": payload.employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
+            "email_compose_context": session_data.get("email_compose_context", {}),
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
             "document_context": session_data.get("document_context", {})
         }
+        print(f"[FASTAPI DEBUG] input_state 로드:")
+        print(f"  - email_compose_context 존재: {bool(input_state.get('email_compose_context'))}")
+        print(f"  - email_compose_context 키: {list(input_state.get('email_compose_context', {}).keys())}")
         
         # LangGraph 체크포인터 없이 실행 (세션 관리자가 대화 히스토리 관리)
         config = {"configurable": {"thread_id": session_id}}
@@ -477,11 +487,15 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             session_state = {
                 "conversation_history": conversation_history,
                 "email_search_context": final_state.get("email_search_context", {}),
+                "email_compose_context": final_state.get("email_compose_context", {}),
                 "qa_search_context": final_state.get("qa_search_context", {}),
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),
                 "document_context": final_state.get("document_context", {})
             }
+            print(f"[FASTAPI DEBUG] session_state 저장 (non-stream):")
+            print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
+            print(f"  - email_compose_context 키: {list(session_state.get('email_compose_context', {}).keys())}")
             await session_manager.save_session_state(session_id, session_state)
         
         # Process Output
