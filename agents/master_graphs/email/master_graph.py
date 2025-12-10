@@ -5,14 +5,61 @@ from __future__ import annotations
 from typing import Any, Dict
 import asyncio
 import re
+import logging
+from datetime import datetime
+from pathlib import Path
 
 from langgraph.graph import StateGraph, END
 
 from agents.state import OrchestratorState
 from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
-from agents.master_graphs.email.email_search_agent import email_search
+from agents.master_graphs.email.email_search_agent import email_search, _extract_recipient_info_with_llm
+from agents.master_graphs.email.email_compose_agent import compose_and_send_email
 from agents.structured_output import extract_structured_output, EmailSearchParams, AgentResponse
+
+# Email 전용 로거 설정 (email_compose_agent와 동일한 로그 파일 사용)
+# email_compose_agent에서 이미 로거를 설정했으므로, 여기서는 같은 로거를 가져와서 사용
+def _setup_email_logger() -> logging.Logger:
+    """이메일 관련 로그를 파일에 저장하는 로거 설정."""
+    # email_compose_agent에서 설정한 같은 로거 사용
+    logger = logging.getLogger("email_compose")
+    
+    # 로거가 이미 설정되어 있으면 그대로 사용
+    # 없으면 기본 설정 (하지만 email_compose_agent가 먼저 로드되므로 보통 이미 설정되어 있음)
+    if not logger.handlers:
+        logger.setLevel(logging.INFO)
+        
+        # logs 디렉토리 생성
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent.parent.parent
+        log_dir = project_root / "logs"
+        log_dir.mkdir(exist_ok=True)
+        
+        # 로그 파일 경로 (날짜별로 생성)
+        log_file = log_dir / f"email_compose_{datetime.now().strftime('%Y%m%d')}.log"
+        
+        # 파일 핸들러 생성
+        try:
+            file_handler = logging.FileHandler(log_file, encoding="utf-8", mode='a')
+            file_handler.setLevel(logging.INFO)
+            
+            # 포맷 설정: 시간 | 레벨 | 메시지
+            formatter = logging.Formatter(
+                '%(asctime)s | %(levelname)s | %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            
+            logger.addHandler(file_handler)
+            logger.propagate = False  # 상위 로거로 전파하지 않음
+        except Exception as e:
+            import sys
+            print(f"⚠️ Email 로거 설정 실패: {e}", file=sys.stderr)
+    
+    return logger
+
+logger = _setup_email_logger()
 
 
 class EmailMasterGraph(BaseMasterGraph):
@@ -40,7 +87,6 @@ class EmailMasterGraph(BaseMasterGraph):
         workflow.add_node("search_email", self.search_email)
         workflow.add_node("generate_reply", self.generate_reply)
         workflow.add_node("detect_reception", self.detect_reception)
-        workflow.add_node("send_email", self.send_email)
         
         # 엣지 설정
         workflow.set_entry_point("route_intent")
@@ -52,23 +98,14 @@ class EmailMasterGraph(BaseMasterGraph):
             {
                 "search": "search_email",
                 "reply": "generate_reply",
+                "compose": "generate_reply",  # 새 메일 작성도 generate_reply로 처리
                 "detect": "detect_reception",
             }
         )
         
-        # 답장 생성 후 자동 발송 (선택적)
-        workflow.add_conditional_edges(
-            "generate_reply",
-            self.should_send,
-            {
-                "yes": "send_email",
-                "no": END,
-            }
-        )
-        
         workflow.add_edge("search_email", END)
+        workflow.add_edge("generate_reply", END)  # compose_and_send_email 내부에서 HITL 처리
         workflow.add_edge("detect_reception", END)
-        workflow.add_edge("send_email", END)
         
         return workflow.compile()
     
@@ -88,15 +125,17 @@ class EmailMasterGraph(BaseMasterGraph):
         )
         
         # llm_router는 "search" 또는 "auto_reply"를 반환하지만,
-        # 우리 그래프는 "search", "reply", "detect"를 사용
+        # 우리 그래프는 "search", "reply", "compose", "detect"를 사용
         if intent == "auto_reply":
             intent = "reply"
-        elif intent not in ["search", "reply", "detect"]:
+        elif intent not in ["search", "reply", "compose", "detect"]:
             # 키워드 기반 fallback
             if any(k in query for k in ["찾아", "검색", "search", "find"]):
                 intent = "search"
             elif any(k in query for k in ["답장", "응답", "자동응답", "reply"]):
                 intent = "reply"
+            elif any(k in query for k in ["작성", "보내", "전송", "메일 보내", "이메일 작성", "메일 작성", "compose", "send"]):
+                intent = "compose"
             elif any(k in query for k in ["수신", "새 메일", "확인"]):
                 intent = "detect"
             else:
@@ -108,6 +147,9 @@ class EmailMasterGraph(BaseMasterGraph):
     def route_to_subagent(self, state: OrchestratorState) -> str:
         """route_intent 결과에 따라 하위 에이전트로 라우팅."""
         intent = state.get("intent", "search")
+        # "compose"는 "reply"와 동일하게 처리 (generate_reply 노드에서 구분)
+        if intent == "compose":
+            return "reply"
         return intent
     
     async def search_email(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -278,35 +320,219 @@ class EmailMasterGraph(BaseMasterGraph):
                 }
     
     async def generate_reply(self, state: OrchestratorState) -> Dict[str, Any]:
-        """답장 초안 생성 (AI-026)."""
-        print("--- [Email Master] Generating Reply ---")
+        """답장/새 메일 초안 생성 및 발송 워크플로우 (AI-026, AI-027)."""
+        print("--- [Email Master] Generating Reply/Compose Email ---")
         query = state.get("query", "")
+        session_id = state.get("session_id")
         
-        # 답장 초안 생성 로직 (실제 구현 필요)
-        # 여기서는 메시지만 반환
-        return {
-            "email_draft": f"답장 초안 생성 기능은 현재 구현 중입니다. (요청: {query})",
-            "messages": ["답장 초안 생성 기능은 현재 구현 중입니다."],
-        }
-    
-    def should_send(self, state: OrchestratorState) -> str:
-        """자동 발송이 필요한지 결정."""
-        # 간단한 로직: email_draft가 있으면 발송 가능
-        # 실제로는 사용자 승인(Human-in-the-loop)이 필요할 수 있음
-        if state.get("email_draft"):
-            return "no"  # 기본적으로 자동 발송하지 않음 (안전)
-        return "no"
-    
-    async def send_email(self, state: OrchestratorState) -> Dict[str, Any]:
-        """자동 발송 (AI-027)."""
-        print("--- [Email Master] Sending Email ---")
-        email_draft = state.get("email_draft", "")
+        # 사용자 쿼리에서 이메일 주소, 메시지 추출 시도 (LLM 사용)
+        # 예: "user@example.com에게 내일 회의 시간 변경 요청 메일 보내줘"
+        #     "답장해줘: 내일 가능해요"
         
-        # 이메일 발송 로직 (실제 구현 필요)
-        # 여기서는 메시지만 반환
+        # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
+        email_compose_context = state.get("email_compose_context", {})
+        
+        # LLM을 사용하여 수신자 정보 추출
+        recipient_info = await _extract_recipient_info_with_llm(query)
+        to_emails = recipient_info.get("to_emails", [])
+        to_email = ", ".join(to_emails) if to_emails else ""
+        cc = recipient_info.get("cc") or state.get("cc") or email_compose_context.get("cc")
+        bcc = recipient_info.get("bcc") or state.get("bcc") or email_compose_context.get("bcc")
+        
+        # 답장인지 새 메일인지 확인
+        is_reply = any(k in query for k in ["답장", "응답", "reply", "회신"])
+        original_subject = None
+        original_sender = None
+        original_body = None
+        
+        # 답장인 경우, email_search_context에서 최근 검색한 메일 정보 가져오기
+        if is_reply:
+            email_search_context = state.get("email_search_context", {})
+            items = email_search_context.get("items", [])
+            if items:
+                # 가장 최근 검색한 메일 정보 사용
+                latest_item = items[0]
+                original_subject = latest_item.get("title", "")
+                original_sender = latest_item.get("from", "")
+                # original_body는 필요시 email_search_agent에서 가져와야 함
+        stored_draft_subject = email_compose_context.get("email_draft_subject")
+        stored_draft_body = email_compose_context.get("email_draft_body")
+        stored_to_email = email_compose_context.get("to_email")
+        
+        # 디버그: 저장된 초안 컨텍스트 확인
+        print(f"[EMAIL COMPOSE DEBUG] 저장된 초안 컨텍스트 확인:")
+        print(f"  - email_compose_context 존재: {bool(email_compose_context)}")
+        print(f"  - stored_draft_subject: {stored_draft_subject[:50] if stored_draft_subject else None}...")
+        print(f"  - stored_draft_body 길이: {len(stored_draft_body) if stored_draft_body else 0}")
+        print(f"  - stored_to_email: {stored_to_email}")
+        print(f"  - 전체 email_compose_context 키: {list(email_compose_context.keys())}")
+        
+        # 사용자 쿼리에서 승인/거부/피드백 감지
+        is_approval_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
+        is_reject_command = any(k in query.lower() for k in ["거부", "안 보내", "취소", "reject", "cancel"])
+        is_revision_command = any(k in query.lower() for k in ["수정", "다시", "revision", "추가", "변경"])
+        
+        # 디버그: 명령 감지
+        print(f"[EMAIL COMPOSE DEBUG] 명령 감지:")
+        print(f"  - query: {query}")
+        print(f"  - is_approval_command: {is_approval_command}")
+        print(f"  - is_reject_command: {is_reject_command}")
+        print(f"  - is_revision_command: {is_revision_command}")
+        
+        # 저장된 초안이 있고 "발송" 명령이면 approval_status를 "approved"로 설정
+        approval_status = None
+        user_feedback = None
+        
+        if is_approval_command and stored_draft_subject and stored_draft_body:
+            approval_status = "approved"
+            to_email = stored_to_email or to_email
+            print(f"[EMAIL COMPOSE DEBUG] ✅ 발송 명령 감지! approval_status='approved' 설정")
+            # 저장된 초안 정보를 사용하여 발송
+            print(f"--- [Email Master] Using stored draft for approval: subject={stored_draft_subject[:50]}...")
+        elif is_revision_command:
+            approval_status = "rejected"
+            # 피드백 추출 (저장된 피드백보다 새로운 쿼리에서 추출한 피드백 우선)
+            feedback_keywords = ["수정", "다시", "추가", "변경", "더"]
+            new_feedback = None
+            for keyword in feedback_keywords:
+                if keyword in query.lower():
+                    idx = query.lower().find(keyword.lower())
+                    new_feedback = query[idx + len(keyword):].strip()
+                    if new_feedback.startswith(":"):
+                        new_feedback = new_feedback[1:].strip()
+                    break
+            # 새로운 피드백이 있으면 사용, 없으면 이전 피드백 유지
+            if new_feedback:
+                user_feedback = new_feedback
+                print(f"[EMAIL COMPOSE DEBUG] 새로운 피드백 추출: {user_feedback}")
+            elif not user_feedback:
+                # 피드백이 없으면 저장된 초안이 있다는 것을 알림
+                user_feedback = email_compose_context.get("user_feedback")
+        elif is_reject_command:
+            approval_status = "rejected"
+        
+        # 디버그: 최종 설정
+        print(f"[EMAIL COMPOSE DEBUG] 최종 설정:")
+        print(f"  - approval_status: {approval_status}")
+        print(f"  - to_email: {to_email}")
+        print(f"  - user_feedback: {user_feedback}")
+        
+        # 사용자 메시지 추출 (이메일 주소 제외)
+        user_message = query
+        if to_email:
+            user_message = user_message.replace(to_email, "").strip()
+        # "에게", "에게 보내", "보내줘" 등 제거
+        user_message = re.sub(r'\s*(에게|에게\s+보내|보내줘|보내|전송|작성|작성해줘)\s*', '', user_message).strip()
+        
+        # email_compose_agent의 compose_and_send_email 호출 (LangGraph 사용)
+        try:
+            final_to_email = to_email or stored_to_email or state.get("to_email", "")
+            final_user_message = user_message or email_compose_context.get("user_message") or query
+            
+            # 디버그: compose_and_send_email 호출 파라미터
+            print(f"[EMAIL COMPOSE DEBUG] compose_and_send_email 호출 파라미터:")
+            print(f"  - to_email: {final_to_email}")
+            print(f"  - approval_status: {approval_status}")
+            print(f"  - email_draft_subject 전달: {stored_draft_subject[:50] if (stored_draft_subject if (is_approval_command or is_revision_command) else None) else None}...")
+            print(f"  - email_draft_body 전달: {'있음' if (stored_draft_body if (is_approval_command or is_revision_command) else None) else '없음'}")
+            
+            result = await compose_and_send_email(
+                to_email=final_to_email,
+                user_message=final_user_message,
+                original_subject=original_subject or email_compose_context.get("original_subject") or state.get("original_subject"),
+                original_sender=original_sender or email_compose_context.get("original_sender") or state.get("original_sender"),
+                original_body=original_body or email_compose_context.get("original_body") or state.get("original_body"),
+                cc=cc,
+                bcc=bcc,
+                session_id=session_id,
+                approval_status=approval_status,
+                user_feedback=user_feedback if user_feedback is not None else email_compose_context.get("user_feedback"),
+                email_draft_subject=stored_draft_subject if (is_approval_command or is_revision_command) else None,  # 저장된 초안 전달 (발송/수정 명령 시)
+                email_draft_body=stored_draft_body if (is_approval_command or is_revision_command) else None,  # 저장된 초안 전달 (발송/수정 명령 시)
+            )
+            
+            # 디버그: compose_and_send_email 결과
+            print(f"[EMAIL COMPOSE DEBUG] compose_and_send_email 결과:")
+            print(f"  - ok: {result.get('ok')}")
+            print(f"  - message: {result.get('message', '')[:100]}...")
+            print(f"  - draft 존재: {bool(result.get('draft'))}")
+            
+            # 발송 완료되면 email_compose_context 초기화
+            if result.get("ok") and is_approval_command:
+                print(f"[EMAIL COMPOSE DEBUG] ✅ 발송 완료, 컨텍스트 초기화")
+                return {
+                    "final_response": result.get("message", "이메일 처리가 완료되었습니다."),
+                    "messages": [result.get("message", "")],
+                    "email_draft": result.get("draft"),
+                    "email_compose_context": {},  # 컨텍스트 초기화
+                }
+            elif result.get("ok"):
+                # 초안 생성 완료 시 컨텍스트에 저장
+                compose_context = {
+                    "to_email": to_email or stored_to_email or state.get("to_email", ""),
+                    "user_message": user_message or email_compose_context.get("user_message") or query,
+                    "email_draft_subject": result.get("draft", {}).get("subject") if result.get("draft") else None,
+                    "email_draft_body": result.get("draft", {}).get("body") if result.get("draft") else None,
+                    "original_subject": original_subject or email_compose_context.get("original_subject"),
+                    "original_sender": original_sender or email_compose_context.get("original_sender"),
+                    "original_body": original_body or email_compose_context.get("original_body"),
+                    "user_feedback": user_feedback,
+                    "cc": state.get("cc") or email_compose_context.get("cc"),
+                    "bcc": state.get("bcc") or email_compose_context.get("bcc"),
+                }
+                
+                # 디버그: 초안 생성 완료, 컨텍스트 저장
+                print(f"[EMAIL COMPOSE DEBUG] ✅ 초안 생성 완료, 컨텍스트 저장:")
+                print(f"  - email_draft_subject: {compose_context.get('email_draft_subject')[:50] if compose_context.get('email_draft_subject') else None}...")
+                print(f"  - email_draft_body 길이: {len(compose_context.get('email_draft_body', ''))}")
+                print(f"  - to_email: {compose_context.get('to_email')}")
+                print(f"  - 전체 compose_context 키: {list(compose_context.keys())}")
+                
+                # state에도 직접 저장 (LangGraph가 state 업데이트를 인식하도록)
+                return {
+                    "final_response": result.get("message", "이메일 처리가 완료되었습니다."),
+                    "messages": [result.get("message", "")],
+                    "email_draft": result.get("draft"),
+                    "email_compose_context": compose_context,  # 컨텍스트 저장
+                }
+            else:
+                # ok가 False여도 draft가 있으면 저장해야 함 (pending/rejected 상태)
+                if result.get("draft"):
+                    compose_context = {
+                        "to_email": to_email or stored_to_email or state.get("to_email", ""),
+                        "user_message": user_message or email_compose_context.get("user_message") or query,
+                        "email_draft_subject": result.get("draft", {}).get("subject") if result.get("draft") else None,
+                        "email_draft_body": result.get("draft", {}).get("body") if result.get("draft") else None,
+                        "original_subject": original_subject or email_compose_context.get("original_subject"),
+                        "original_sender": original_sender or email_compose_context.get("original_sender"),
+                        "original_body": original_body or email_compose_context.get("original_body"),
+                        "user_feedback": user_feedback,
+                        "cc": state.get("cc") or email_compose_context.get("cc"),
+                        "bcc": state.get("bcc") or email_compose_context.get("bcc"),
+                    }
+                    
+                    print(f"[EMAIL COMPOSE DEBUG] ✅ 초안 저장 (ok=False, pending/rejected 상태):")
+                    print(f"  - email_draft_subject: {compose_context.get('email_draft_subject')[:50] if compose_context.get('email_draft_subject') else None}...")
+                    print(f"  - email_draft_body 길이: {len(compose_context.get('email_draft_body', ''))}")
+                    
+                    return {
+                        "final_response": result.get("message", result.get("error", "이메일 처리 중 오류가 발생했습니다.")),
+                        "messages": [result.get("message", result.get("error", ""))],
+                        "email_compose_context": compose_context,  # 컨텍스트 저장
+                    }
+                else:
+                    # draft가 없으면 오류로 처리
+                    return {
+                        "final_response": result.get("message", result.get("error", "이메일 처리 중 오류가 발생했습니다.")),
+                        "messages": [result.get("message", result.get("error", ""))],
+                    }
+        except Exception as e:
+            print(f"[EMAIL COMPOSE DEBUG] ❌ 이메일 작성/발송 실패: {e}")
+            import traceback
+            traceback.print_exc()
         return {
-            "final_response": "이메일이 발송되었습니다.",
-            "messages": ["이메일 발송이 완료되었습니다."],
+                "final_response": f"이메일 처리 중 오류가 발생했습니다: {str(e)}",
+                "messages": [f"오류: {str(e)}"],
         }
     
     async def detect_reception(self, state: OrchestratorState) -> Dict[str, Any]:

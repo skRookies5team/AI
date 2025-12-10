@@ -58,6 +58,22 @@ class OrchestratorState(TypedDict):
     #   "keyword_offsets": Dict[str, int]  # 키워드별 마지막 검색 위치
     # }
     
+    # Email Compose Context (Redis 숏텀 메모리로 관리)
+    email_compose_context: Optional[Dict[str, Any]]  # 이메일 작성 관련 컨텍스트
+    # 구조: {
+    #   "to_email": str,  # 수신자 이메일
+    #   "user_message": str,  # 사용자 메시지
+    #   "email_draft_subject": str,  # 초안 제목
+    #   "email_draft_body": str,  # 초안 본문
+    #   "original_subject": Optional[str],  # 답장인 경우 원본 제목
+    #   "original_sender": Optional[str],  # 답장인 경우 원본 발신자
+    #   "original_body": Optional[str],  # 답장인 경우 원본 본문
+    #   "approval_status": str,  # 'pending', 'approved', 'rejected'
+    #   "user_feedback": Optional[str],  # 사용자 피드백
+    #   "cc": Optional[str],  # 참조
+    #   "bcc": Optional[str],  # 숨은 참조
+    # }
+    
     # Tech Search Context (Redis 숏텀 메모리로 관리)
     tech_search_context: Optional[Dict[str, Any]]  # 기술 검색(특허/논문) 관련 컨텍스트
     # 구조: {
