@@ -139,6 +139,7 @@ class SessionManager:
             return {
                 "conversation_history": [],
                 "email_search_context": {},
+                "email_compose_context": {},
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
@@ -156,6 +157,7 @@ class SessionManager:
                     return {
                         "conversation_history": [],
                         "email_search_context": {},
+                        "email_compose_context": {},
                         "qa_search_context": {},
                         "tech_search_context": {},
                         "schedule_context": {},
@@ -166,6 +168,7 @@ class SessionManager:
                 return {
                     "conversation_history": data.get("conversation_history", []),
                     "email_search_context": data.get("email_search_context", {}),
+                    "email_compose_context": data.get("email_compose_context", {}),
                     "qa_search_context": data.get("qa_search_context", {}),
                     "tech_search_context": data.get("tech_search_context", {}),
                     "schedule_context": data.get("schedule_context", {}),
@@ -176,6 +179,7 @@ class SessionManager:
                 return {
                     "conversation_history": [],
                     "email_search_context": {},
+                    "email_compose_context": {},
                     "qa_search_context": {},
                     "tech_search_context": {},
                     "schedule_context": {},
@@ -220,6 +224,7 @@ class SessionManager:
                     existing_data = json.loads(value)
                     existing_contexts = {
                         "email_search_context": existing_data.get("email_search_context", {}),
+                        "email_compose_context": existing_data.get("email_compose_context", {}),
                         "qa_search_context": existing_data.get("qa_search_context", {}),
                         "tech_search_context": existing_data.get("tech_search_context", {}),
                         "schedule_context": existing_data.get("schedule_context", {}),
@@ -302,6 +307,7 @@ class SessionManager:
                     data = {
                         "conversation_history": [],
                         "email_search_context": {},
+                        "email_compose_context": {},
                         "qa_search_context": {},
                         "tech_search_context": {},
                         "schedule_context": {},
@@ -403,6 +409,7 @@ class SessionManager:
                 data = {
                     "conversation_history": conversation_history,
                     "email_search_context": state.get("email_search_context", existing_data.get("email_search_context", {})),
+                    "email_compose_context": state.get("email_compose_context", existing_data.get("email_compose_context", {})),
                     "qa_search_context": state.get("qa_search_context", existing_data.get("qa_search_context", {})),
                     "tech_search_context": state.get("tech_search_context", existing_data.get("tech_search_context", {})),
                     "schedule_context": state.get("schedule_context", existing_data.get("schedule_context", {})),
