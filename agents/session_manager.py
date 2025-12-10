@@ -150,7 +150,8 @@ class SessionManager:
         async with lock:
             key = self._get_key(session_id)
             try:
-                value = await self.redis.get(key)
+                # 타임아웃 설정으로 Redis 조회 (5초)
+                value = await asyncio.wait_for(self.redis.get(key), timeout=5.0)
                 
                 if value is None:
                     return {
@@ -170,6 +171,16 @@ class SessionManager:
                     "tech_search_context": data.get("tech_search_context") or {},
                     "schedule_context": data.get("schedule_context") or {},
                     "document_context": data.get("document_context") or {}
+                }
+            except asyncio.TimeoutError:
+                print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
+                return {
+                    "conversation_history": [],
+                    "email_search_context": {},
+                    "qa_search_context": {},
+                    "tech_search_context": {},
+                    "schedule_context": {},
+                    "document_context": {}
                 }
             except Exception as e:
                 print(f"[WARNING] 세션 데이터 로드 실패 (session_id={session_id}): {e}")
@@ -386,8 +397,13 @@ class SessionManager:
             key = self._get_key(session_id)
             
             try:
-                # 기존 데이터 로드
-                value = await self.redis.get(key)
+                # 기존 데이터 로드 (타임아웃 설정)
+                try:
+                    value = await asyncio.wait_for(self.redis.get(key), timeout=5.0)
+                except asyncio.TimeoutError:
+                    print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음, 새 데이터로 저장 시도")
+                    value = None
+                
                 if value:
                     existing_data = json.loads(value)
                 else:
@@ -410,7 +426,13 @@ class SessionManager:
                     "last_updated": datetime.now().isoformat()
                 }
                 
-                await self.redis.setex(key, self.ttl, json.dumps(data, ensure_ascii=False, default=str))
+                # 저장 시도 (타임아웃 설정)
+                await asyncio.wait_for(
+                    self.redis.setex(key, self.ttl, json.dumps(data, ensure_ascii=False, default=str)),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                print(f"[WARNING] 세션 state 저장 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
             except Exception as e:
                 print(f"[WARNING] 세션 state 저장 실패 (session_id={session_id}): {e}")
 
@@ -433,7 +455,8 @@ async def get_session_manager() -> Optional[SessionManager]:
             return None
         
         try:
-            redis_host = _get_env("HOST") or _get_env("REDIS_HOST") or "localhost"
+
+            redis_host = _get_env("HOST")
             redis_port_str = _get_env("REDIS_PORT")
             redis_password = _get_env("REDIS_PASSWORD")
             redis_db_str = _get_env("REDIS_DB") or "0"
@@ -452,7 +475,8 @@ async def get_session_manager() -> Optional[SessionManager]:
             except (ValueError, AttributeError):
                 redis_db = 0
             
-            if redis_password == "":
+            # 빈 문자열이거나 None인 경우 None으로 설정
+            if not redis_password or redis_password.strip() == "":
                 redis_password = None
             
             # 디버깅: 연결 정보 로그 (패스워드 제외)
@@ -470,17 +494,25 @@ async def get_session_manager() -> Optional[SessionManager]:
             except (ValueError, AttributeError):
                 redis_ttl = 1800  # 기본값: 30분
             
-            # Redis 연결 시 타임아웃 및 재시도 설정
+
+            # Redis 연결 타임아웃 설정 (환경 변수에서 읽기, 기본값: 10초)
+            redis_timeout_str = _get_env("REDIS_TIMEOUT")
+            try:
+                redis_timeout = int(redis_timeout_str.strip()) if redis_timeout_str else 10
+            except (ValueError, AttributeError):
+                redis_timeout = 10  # 기본값: 10초
+            
+            # Redis 연결 풀 설정으로 타임아웃 및 재시도 설정
             redis_client = AsyncRedis.from_url(
                 redis_url,
                 decode_responses=False,
-                socket_connect_timeout=5,  # 연결 타임아웃 5초
-                socket_timeout=5,  # 소켓 타임아웃 5초
-                retry_on_timeout=True,  # 타임아웃 시 재시도
-                health_check_interval=30  # 헬스 체크 30초마다
+                socket_connect_timeout=redis_timeout,
+                socket_timeout=redis_timeout,
+                retry_on_timeout=True,
+                health_check_interval=30,  # 30초마다 연결 상태 확인
             )
             _session_manager = SessionManager(redis_client, ttl=redis_ttl)
-            print(f"[INFO] 세션 관리자 초기화 완료 (TTL: {redis_ttl}초, 키 패턴: session:*)")
+            print(f"[INFO] 세션 관리자 초기화 완료 (호스트: {redis_host}:{redis_port}, TTL: {redis_ttl}초, 타임아웃: {redis_timeout}초)")
         except Exception as e:
             print(f"[ERROR] 세션 관리자 초기화 실패: {e}")
             if 'redis_host' in locals() and 'redis_port' in locals():

@@ -496,6 +496,157 @@
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
 
+        .file-attach-button {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            font-size: 24px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .file-attach-button:hover {
+            background: #667eea;
+            color: white;
+            transform: scale(1.1);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .file-attach-button.active {
+            display: flex;
+        }
+
+        .document-title-input-wrapper {
+            display: none;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .document-title-input-wrapper.active {
+            display: block;
+        }
+
+        .document-title-input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .document-title-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+            white-space: nowrap;
+        }
+
+        .document-title-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        .document-title-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .file-info-display {
+            display: none;
+            padding: 10px 15px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .file-info-display.active {
+            display: block;
+        }
+
+        .file-info-display .file-name {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .file-info-display .file-size {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .file-remove-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .file-remove-btn:hover {
+            background: #c82333;
+        }
+
+        .upload-submit-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .upload-submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .upload-submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .back-button {
+            padding: 8px 16px;
+            background: #e0e0e0;
+            border: none;
+            border-radius: 6px;
+            color: #333;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .back-button:hover {
+            background: #d0d0d0;
+            transform: translateX(-2px);
+        }
+
         .typing-indicator {
             display: none;
             gap: 5px;
@@ -789,7 +940,7 @@
                     <div class="tab-menu">
                         <button class="tab-btn active" onclick="switchTab('chat')">💬 챗봇</button>
                         <button class="tab-btn hidden" id="writerTabBtn" onclick="switchTab('writer')">📝 문서 작성</button>
-                        <button class="tab-btn hidden" id="uploadTabBtn" onclick="handleDocumentUpload()">📤 문서 업로드</button>
+                        <button class="tab-btn hidden" id="uploadTabBtn" onclick="handleDocumentUpload()">📤 문서 업데이트</button>
                     </div>
                 </div>
             </div>
@@ -863,6 +1014,8 @@
                 </div>
                 <div class="chat-input-container">
                     <div class="chat-input-wrapper">
+                        <button class="file-attach-button" id="fileAttachButton" onclick="document.getElementById('chatFileInput').click()" title="파일 첨부">+</button>
+                        <input type="file" id="chatFileInput" accept=".pdf,.docx" style="display: none;" onchange="handleChatFileSelect(event)">
                         <textarea 
                             id="chatInput" 
                             class="chat-input" 
@@ -872,13 +1025,25 @@
                         ></textarea>
                         <button class="send-button" onclick="sendMessage()">➤</button>
                     </div>
+                    <div class="document-title-input-wrapper" id="documentTitleInputWrapper">
+                        <div class="document-title-input-group">
+                            <label class="document-title-label">문서 제목:</label>
+                            <input type="text" id="chatDocumentTitle" class="document-title-input" placeholder="예: 2024년 신제품 개발 가이드라인">
+                        </div>
+                        <div class="file-info-display" id="chatFileInfo">
+                            <div class="file-name" id="chatFileName"></div>
+                            <div class="file-size" id="chatFileSize"></div>
+                            <button class="file-remove-btn" onclick="clearChatFile()">파일 제거</button>
+                        </div>
+                        <button class="upload-submit-btn" id="chatUploadSubmitBtn" onclick="submitChatDocumentUpdate()">📤 문서 업데이트</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- 문서 업로드 탭 -->
+            <!-- 문서 업데이트 탭 -->
             <div id="uploadTab" class="tab-content">
                 <div style="padding: 40px; max-width: 900px; margin: 0 auto; overflow-y: auto; height: 100%;">
-                    <h2 class="panel-title">📤 문서 업로드 (Milvus DB 저장)</h2>
+                    <h2 class="panel-title">📤 문서 업데이트 (Milvus DB 저장)</h2>
                     <div id="uploadAlertMessage" class="alert"></div>
                     
                     <form id="uploadForm" style="margin-top: 30px;">
@@ -894,7 +1059,7 @@
                             <label class="form-label">문서 파일 *</label>
                             <div class="file-upload-area" style="border: 2px dashed #667eea; border-radius: 12px; padding: 60px; text-align: center; background: #f8f9ff; cursor: pointer; transition: all 0.3s;" onclick="document.getElementById('fileInput').click()" onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background='#f8f9ff'">
                                 <div style="font-size: 64px; margin-bottom: 20px;">📎</div>
-                                <p style="color: #667eea; font-weight: 600; font-size: 18px; margin-bottom: 10px;">PDF 또는 Word 파일을 클릭하여 업로드</p>
+                                <p style="color: #667eea; font-weight: 600; font-size: 18px; margin-bottom: 10px;">PDF 또는 Word 파일을 클릭하여 업데이트</p>
                                 <p style="color: #999; font-size: 14px;">PDF (.pdf) 또는 Word (.docx) 파일만 가능</p>
                                 <input type="file" id="fileInput" accept=".pdf,.docx" style="display: none;" onchange="handleFileUpload(event)">
                             </div>
@@ -930,12 +1095,12 @@
                     
                     <!-- 안내 섹션 -->
                     <div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                        <h3 style="margin-bottom: 15px; color: #2c3e50;">💡 문서 업로드 안내</h3>
+                        <h3 style="margin-bottom: 15px; color: #2c3e50;">💡 문서 업데이트 안내</h3>
                         <ul style="color: #666; line-height: 1.8; padding-left: 20px;">
                             <li><strong>문서 제목:</strong> 동일한 제목의 문서가 있으면 기존 문서가 삭제되고 새로 저장됩니다.</li>
-                            <li><strong>파일 형식:</strong> PDF (.pdf) 또는 Word (.docx) 파일만 업로드 가능합니다.</li>
-                            <li><strong>처리 과정:</strong> 파일 업로드 → 텍스트 추출 → 임베딩 생성 → Milvus DB 저장/업데이트</li>
-                            <li><strong>활용:</strong> 업로드된 문서는 AI가 문서 자동 작성 시 참고 자료로 활용됩니다.</li>
+                            <li><strong>파일 형식:</strong> PDF (.pdf) 또는 Word (.docx) 파일만 업데이트 가능합니다.</li>
+                            <li><strong>처리 과정:</strong> 파일 업데이트 → 텍스트 추출 → 임베딩 생성 → Milvus DB 저장/업데이트</li>
+                            <li><strong>활용:</strong> 업데이트된 문서는 AI가 문서 자동 작성 시 참고 자료로 활용됩니다.</li>
                         </ul>
                     </div>
                 </div>
@@ -1169,7 +1334,7 @@
                 writerTabBtn.classList.add('active');
                 document.getElementById('writerTab').classList.add('active');
             } else if (tabName === 'upload') {
-                // 문서 업로드 탭 버튼이 숨겨져 있으면 표시
+                // 문서 업데이트 탭 버튼이 숨겨져 있으면 표시
                 const uploadTabBtn = document.getElementById('uploadTabBtn');
                 if (uploadTabBtn && uploadTabBtn.classList.contains('hidden')) {
                     uploadTabBtn.classList.remove('hidden');
@@ -1179,7 +1344,7 @@
             }
         }
 
-        // 문서 업로드 탭 열기 함수
+        // 문서 업데이트 탭 열기 함수
         function handleDocumentUpload() {
             switchTab('upload');
         }
@@ -1192,7 +1357,7 @@
             if (!file) return;
 
             if (!file.name.match(/\.(pdf|docx)$/i)) {
-                showUploadAlert('PDF 또는 DOCX 파일만 업로드 가능합니다.', 'error');
+                showUploadAlert('PDF 또는 DOCX 파일만 업데이트 가능합니다.', 'error');
                 document.getElementById('fileInput').value = '';
                 return;
             }
@@ -1207,7 +1372,7 @@
             fileSize.textContent = `파일 크기: ${sizeMB} MB`;
             fileInfo.style.display = 'block';
 
-            showUploadAlert(`'${file.name}' 파일이 선택되었습니다. 문서 제목을 입력하고 업로드 버튼을 클릭하세요.`, 'success');
+            showUploadAlert(`'${file.name}' 파일이 선택되었습니다. 문서 제목을 입력하고 업데이트 버튼을 클릭하세요.`, 'success');
         }
 
         // 선택된 파일 삭제
@@ -1243,9 +1408,9 @@
             const uploadProgressText = document.getElementById('uploadProgressText');
             
             uploadBtn.disabled = true;
-            uploadBtn.textContent = '업로드 중...';
+            uploadBtn.textContent = '업데이트 중...';
             uploadProgress.style.display = 'block';
-            uploadProgressText.textContent = '파일을 업로드하고 있습니다...';
+            uploadProgressText.textContent = '파일을 업데이트하고 있습니다...';
             hideUploadAlert();
 
             try {
@@ -1283,7 +1448,7 @@
 
             } catch (error) {
                 console.error('Error:', error);
-                showUploadAlert(`업로드 실패: ${error.message}\n\n서버가 실행 중인지 확인해주세요.`, 'error');
+                showUploadAlert(`업데이트 실패: ${error.message}\n\n서버가 실행 중인지 확인해주세요.`, 'error');
             } finally {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = '💾 Milvus DB에 저장 및 업데이트';
@@ -1321,10 +1486,62 @@
                 return;
             }
             
-            // 문서 옵션 선택 시 문서 관련 작업 메뉴 표시 (채팅 화면 유지)
+            // 문서 옵션 선택 시 문서 작성/업데이트 선택 메뉴 표시
             if (option === '문서') {
                 addUserMessage(option);
-                showDocumentMenu();
+                
+                // 기존 옵션 카드 숨기기
+                const optionCards = document.getElementById('optionCards');
+                if (optionCards) {
+                    optionCards.style.display = 'none';
+                }
+                
+                // 문서 작성 탭 버튼 표시 (헤더에 나타나도록)
+                const writerTabBtn = document.getElementById('writerTabBtn');
+                if (writerTabBtn && writerTabBtn.classList.contains('hidden')) {
+                    writerTabBtn.classList.remove('hidden');
+                }
+                
+                // 문서 업데이트 탭 버튼 표시 (헤더에 나타나도록)
+                const uploadTabBtn = document.getElementById('uploadTabBtn');
+                if (uploadTabBtn && uploadTabBtn.classList.contains('hidden')) {
+                    uploadTabBtn.classList.remove('hidden');
+                }
+                
+                // 즉시 문서 작성/업데이트 선택 메뉴 표시
+                const messagesContainer = document.getElementById('chatMessages');
+                if (messagesContainer) {
+                    const botMessage = document.createElement('div');
+                    botMessage.className = 'message bot';
+                    botMessage.id = 'documentMainMenuMessage';
+                    const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                    
+                    botMessage.innerHTML = `
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="message-bubble">
+                                어떤 문서 작업을 진행하시겠어요? 원하시는 작업을 선택해주세요! 📝
+                            </div>
+                            <div class="option-cards" id="documentMainMenuCards">
+                                <div class="option-card" onclick="selectDocumentMainAction('문서 작성')">
+                                    <div class="option-card-icon">✍️</div>
+                                    <div class="option-card-title">문서 작성</div>
+                                </div>
+                                <div class="option-card" onclick="selectDocumentMainAction('문서 업데이트')">
+                                    <div class="option-card-icon">📤</div>
+                                    <div class="option-card-title">문서 업데이트</div>
+                                </div>
+                            </div>
+                            <button class="back-button" onclick="goBackToMainOptions()">
+                                ← 뒤로가기
+                            </button>
+                            <div class="message-time">${now}</div>
+                        </div>
+                    `;
+                    
+                    messagesContainer.appendChild(botMessage);
+                    scrollToBottom();
+                }
                 return;
             }
             
@@ -1332,25 +1549,65 @@
             handleBotResponse(option);
         }
 
-        // 문서 작성 메뉴 표시 함수 (채팅 화면 유지)
+        // 문서 메인 액션 선택 함수 (문서 작성/업데이트)
+        function selectDocumentMainAction(action) {
+            if (action === '문서 작성') {
+                addUserMessage(action);
+                
+                // 문서 메인 메뉴 카드 숨기기
+                const documentMainMenuCards = document.getElementById('documentMainMenuCards');
+                if (documentMainMenuCards) {
+                    documentMainMenuCards.style.display = 'none';
+                }
+                
+                // 뒤로가기 버튼 숨기기
+                const documentMainMenuMessage = document.getElementById('documentMainMenuMessage');
+                if (documentMainMenuMessage) {
+                    const backButton = documentMainMenuMessage.querySelector('.back-button');
+                    if (backButton) {
+                        backButton.style.display = 'none';
+                    }
+                }
+                
+                // 문서 작성 카테고리 표시
+                showDocumentMenu();
+                return;
+            }
+            
+            if (action === '문서 업데이트') {
+                // 문서 업데이트는 채팅에서 진행
+                addUserMessage(action);
+                
+                // 문서 메인 메뉴 카드 숨기기
+                const documentMainMenuCards = document.getElementById('documentMainMenuCards');
+                if (documentMainMenuCards) {
+                    documentMainMenuCards.style.display = 'none';
+                }
+                
+                // 뒤로가기 버튼 숨기기
+                const documentMainMenuMessage = document.getElementById('documentMainMenuMessage');
+                if (documentMainMenuMessage) {
+                    const backButton = documentMainMenuMessage.querySelector('.back-button');
+                    if (backButton) {
+                        backButton.style.display = 'none';
+                    }
+                }
+                
+                // 파일 첨부 UI 표시
+                showDocumentUpdateUI();
+                
+                // 봇 응답 메시지 표시
+                setTimeout(() => {
+                    addBotMessage('문서를 업데이트하시려면 아래의 + 버튼을 클릭하여 파일을 선택하고, 문서 제목을 입력한 후 업데이트 버튼을 클릭해주세요! 📤', []);
+                }, 500);
+                
+                return;
+            }
+        }
+
+        // 문서 작성 메뉴 표시 함수 (문서 작성 카테고리)
         function showDocumentMenu() {
             const messagesContainer = document.getElementById('chatMessages');
-            const optionCards = document.getElementById('optionCards');
-            if (optionCards) {
-                optionCards.style.display = 'none';
-            }
-            
-            // 문서 작성 탭 버튼 표시 (헤더에 나타나도록)
-            const writerTabBtn = document.getElementById('writerTabBtn');
-            if (writerTabBtn && writerTabBtn.classList.contains('hidden')) {
-                writerTabBtn.classList.remove('hidden');
-            }
-            
-            // 문서 업로드 탭 버튼 표시 (헤더에 나타나도록)
-            const uploadTabBtn = document.getElementById('uploadTabBtn');
-            if (uploadTabBtn && uploadTabBtn.classList.contains('hidden')) {
-                uploadTabBtn.classList.remove('hidden');
-            }
             
             // 타이핑 인디케이터
             showTypingIndicator();
@@ -1361,13 +1618,14 @@
                 // 봇 응답 메시지
                 const botMessage = document.createElement('div');
                 botMessage.className = 'message bot';
+                botMessage.id = 'documentCategoryMessage';
                 const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
                 
                 botMessage.innerHTML = `
                     <div class="message-avatar">🤖</div>
                     <div class="message-content">
                         <div class="message-bubble">
-                            어떤 문서 작업을 진행하시겠어요? 원하시는 작업을 선택해주세요! 📝
+                            어떤 문서를 작성하시겠어요? 원하시는 문서 양식을 선택해주세요! 📝
                         </div>
                         <div class="option-cards" id="documentMenuCards">
                             <div class="option-card" onclick="selectDocumentAction('제품개발 계획서 작성')">
@@ -1395,6 +1653,9 @@
                                 <div class="option-card-title">상세 작성 폼</div>
                             </div>
                         </div>
+                        <button class="back-button" onclick="goBackToDocumentMainMenu()">
+                            ← 뒤로가기
+                        </button>
                         <div class="message-time">${now}</div>
                     </div>
                 `;
@@ -1402,6 +1663,74 @@
                 messagesContainer.appendChild(botMessage);
                 scrollToBottom();
             }, 1000);
+        }
+        
+        // 뒤로가기: 문서 작성 카테고리 → 문서 작성/업데이트 메뉴
+        function goBackToDocumentMainMenu() {
+            // 문서 작성 카테고리 메시지 제거
+            const documentCategoryMessage = document.getElementById('documentCategoryMessage');
+            if (documentCategoryMessage) {
+                documentCategoryMessage.remove();
+            }
+            
+            // 사용자 메시지 "문서 작성" 제거 (마지막 사용자 메시지가 "문서 작성"인 경우)
+            const messagesContainer = document.getElementById('chatMessages');
+            const messages = messagesContainer.querySelectorAll('.message.user');
+            if (messages.length > 0) {
+                const lastUserMessage = messages[messages.length - 1];
+                const messageText = lastUserMessage.querySelector('.message-bubble')?.textContent;
+                if (messageText === '문서 작성') {
+                    lastUserMessage.remove();
+                }
+            }
+            
+            // 문서 메인 메뉴 카드 다시 표시
+            const documentMainMenuCards = document.getElementById('documentMainMenuCards');
+            if (documentMainMenuCards) {
+                documentMainMenuCards.style.display = 'flex';
+            }
+            
+            // 뒤로가기 버튼 다시 표시
+            const documentMainMenuMessage = document.getElementById('documentMainMenuMessage');
+            if (documentMainMenuMessage) {
+                const backButton = documentMainMenuMessage.querySelector('.back-button');
+                if (backButton) {
+                    backButton.style.display = 'inline-flex';
+                }
+            }
+            
+            scrollToBottom();
+        }
+        
+        // 뒤로가기: 문서 작성/업데이트 메뉴 → 초기 옵션 카드
+        function goBackToMainOptions() {
+            // 문서 메인 메뉴 메시지 제거
+            const documentMainMenuMessage = document.getElementById('documentMainMenuMessage');
+            if (documentMainMenuMessage) {
+                documentMainMenuMessage.remove();
+            }
+            
+            // 사용자 메시지 "문서" 제거 (마지막 사용자 메시지가 "문서"인 경우)
+            const messagesContainer = document.getElementById('chatMessages');
+            const messages = messagesContainer.querySelectorAll('.message.user');
+            if (messages.length > 0) {
+                const lastUserMessage = messages[messages.length - 1];
+                const messageText = lastUserMessage.querySelector('.message-bubble')?.textContent;
+                if (messageText === '문서') {
+                    lastUserMessage.remove();
+                }
+            }
+            
+            // 초기 옵션 카드 다시 표시
+            const optionCards = document.getElementById('optionCards');
+            if (optionCards) {
+                optionCards.style.display = 'flex';
+            }
+            
+            // 문서 업데이트 UI 숨기기
+            hideDocumentUpdateUI();
+            
+            scrollToBottom();
         }
         
         // 문서 작업 선택 함수
@@ -1433,6 +1762,13 @@
             const message = input.value.trim();
             
             if (!message) return;
+
+            // 문서 업데이트 모드가 아닐 때만 일반 메시지 전송
+            const documentTitleWrapper = document.getElementById('documentTitleInputWrapper');
+            if (documentTitleWrapper && documentTitleWrapper.classList.contains('active')) {
+                // 문서 업데이트 모드에서는 일반 메시지 전송 불가
+                return;
+            }
 
             addUserMessage(message);
             input.value = '';
@@ -2012,6 +2348,150 @@
 
         // 초기 포커스
         chatInput.focus();
+
+        // ===== 문서 업데이트 채팅 기능 =====
+        let chatSelectedFile = null;
+
+        // 문서 업데이트 UI 표시
+        function showDocumentUpdateUI() {
+            const fileAttachButton = document.getElementById('fileAttachButton');
+            const documentTitleWrapper = document.getElementById('documentTitleInputWrapper');
+            const chatInput = document.getElementById('chatInput');
+            
+            if (fileAttachButton) {
+                fileAttachButton.classList.add('active');
+            }
+            if (documentTitleWrapper) {
+                documentTitleWrapper.classList.add('active');
+            }
+            if (chatInput) {
+                chatInput.placeholder = '문서 업데이트 모드입니다. 파일을 선택하고 제목을 입력해주세요.';
+            }
+        }
+
+        // 문서 업데이트 UI 숨기기
+        function hideDocumentUpdateUI() {
+            const fileAttachButton = document.getElementById('fileAttachButton');
+            const documentTitleWrapper = document.getElementById('documentTitleInputWrapper');
+            const fileInfo = document.getElementById('chatFileInfo');
+            const chatInput = document.getElementById('chatInput');
+            
+            if (fileAttachButton) {
+                fileAttachButton.classList.remove('active');
+            }
+            if (documentTitleWrapper) {
+                documentTitleWrapper.classList.remove('active');
+            }
+            if (fileInfo) {
+                fileInfo.classList.remove('active');
+            }
+            if (chatInput) {
+                chatInput.placeholder = '메시지를 입력하세요... (Enter: 전송, Shift+Enter: 줄바꿈)';
+            }
+            
+            // 초기화
+            chatSelectedFile = null;
+            document.getElementById('chatFileInput').value = '';
+            document.getElementById('chatDocumentTitle').value = '';
+        }
+
+        // 채팅에서 파일 선택 처리
+        function handleChatFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.match(/\.(pdf|docx)$/i)) {
+                addBotMessage('PDF 또는 DOCX 파일만 업데이트 가능합니다.', ['다시 시도']);
+                document.getElementById('chatFileInput').value = '';
+                return;
+            }
+
+            chatSelectedFile = file;
+            const fileInfo = document.getElementById('chatFileInfo');
+            const fileName = document.getElementById('chatFileName');
+            const fileSize = document.getElementById('chatFileSize');
+
+            if (fileInfo) {
+                fileInfo.classList.add('active');
+            }
+            if (fileName) {
+                fileName.textContent = `📄 ${file.name}`;
+            }
+            if (fileSize) {
+                const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                fileSize.textContent = `파일 크기: ${sizeMB} MB`;
+            }
+        }
+
+        // 채팅에서 선택된 파일 제거
+        function clearChatFile() {
+            chatSelectedFile = null;
+            document.getElementById('chatFileInput').value = '';
+            const fileInfo = document.getElementById('chatFileInfo');
+            if (fileInfo) {
+                fileInfo.classList.remove('active');
+            }
+        }
+
+        // 채팅에서 문서 업데이트 제출
+        async function submitChatDocumentUpdate() {
+            const documentTitle = document.getElementById('chatDocumentTitle').value.trim();
+            
+            if (!documentTitle) {
+                addBotMessage('문서 제목을 입력해주세요.', ['다시 시도']);
+                return;
+            }
+
+            if (!chatSelectedFile) {
+                addBotMessage('파일을 선택해주세요.', ['다시 시도']);
+                return;
+            }
+
+            const submitBtn = document.getElementById('chatUploadSubmitBtn');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '업데이트 중...';
+
+            // 상태 메시지 표시
+            showStatusMessage('문서를 업데이트하고 있습니다...');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', chatSelectedFile);
+                formData.append('document_title', documentTitle);
+                formData.append('employee_id', '1001');
+
+                const response = await fetch('/api/upload-document', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status} 오류` }));
+                    throw new Error(errorData.detail || `서버 오류: ${response.status}`);
+                }
+
+                const result = await response.json();
+                hideStatusMessage();
+
+                if (result.ok) {
+                    addBotMessage(`'${result.document_title}' 문서가 성공적으로 Milvus DB에 저장/업데이트되었습니다! ✅`, []);
+                    
+                    // UI 초기화
+                    hideDocumentUpdateUI();
+                } else {
+                    throw new Error(result.message || '업데이트 실패');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                hideStatusMessage();
+                addBotMessage(`업데이트 실패: ${error.message}\n\n서버가 실행 중인지 확인해주세요.`, ['다시 시도']);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '📤 문서 업데이트';
+            }
+        }
     </script>
 </body>
 </html>

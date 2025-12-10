@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # 분리된 모듈 import
-from . import utils
+from .. import utils
 from . import html_filler
 from . import llm_generator
 from . import db_query_generator
@@ -660,7 +660,7 @@ def doc_generate(
     try:
         # output/documents 디렉토리 경로 생성
         current_dir = Path(__file__).parent
-        project_root = current_dir.parent.parent.parent
+        project_root = current_dir.parent.parent.parent.parent
         output_dir = project_root / "output" / "documents"
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -711,3 +711,4 @@ def doc_generate(
         "file_path": document_path,  # 저장된 파일 경로
         "document_context": orchestrator_state.get("document_context", {})  # 컨텍스트 반환 (HTML 포함)
     }
+
