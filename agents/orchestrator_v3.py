@@ -35,6 +35,7 @@ from agents.master_graphs import (
     get_qa_master_graph,
     get_email_master_graph,
     get_tech_master_graph,
+    get_recruitment_master_graph,
 )
 
 
@@ -45,6 +46,7 @@ MASTER_GRAPHS = {
     "qa": get_qa_master_graph,
     "email": get_email_master_graph,
     "tech": get_tech_master_graph,
+    "recruitment": get_recruitment_master_graph,
 }
 
 
@@ -816,14 +818,22 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         result = await graph.ainvoke(state)
         return process_domain_node_result(state, result, "tech", "기술 검색 작업을 완료했습니다.")
     
+    async def recruitment_node(state: OrchestratorState) -> Dict[str, Any]:
+        """채용 마스터그래프 실행."""
+        print("--- [Orchestrator] Executing Recruitment Master Graph ---")
+        graph = get_recruitment_master_graph()
+        result = await graph.ainvoke(state)
+        return process_domain_node_result(state, result, "recruitment", "채용 작업을 완료했습니다.")
+    
     # 각 도메인별 노드 등록
     workflow.add_node("schedule", schedule_node)
     workflow.add_node("document", document_node)
     workflow.add_node("qa", qa_node)
     workflow.add_node("email", email_node)
     workflow.add_node("tech", tech_node)
+    workflow.add_node("recruitment", recruitment_node)
     
-    print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech")
+    print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech, recruitment")
     
     # 엣지 설정
     workflow.set_entry_point("route_to_domain")
