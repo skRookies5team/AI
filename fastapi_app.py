@@ -48,14 +48,20 @@ def cleanup_old_redis_sessions():
         from redis import Redis
         
         redis_host = os.environ.get("HOST") or os.environ.get("REDIS_HOST") or "localhost"
-        redis_port_str = os.environ.get("REDIS_PORT") or "6379"
+        redis_port_str = os.environ.get("REDIS_PORT")
         redis_password = os.environ.get("REDIS_PASSWORD")
         redis_db_str = os.environ.get("REDIS_DB") or "0"
         
+        # 포트 번호 필수 체크
+        if not redis_port_str:
+            print("[WARNING] REDIS_PORT 환경 변수가 설정되지 않아 백그라운드 세션 정리를 건너뜁니다.")
+            return
+        
         try:
             redis_port = int(redis_port_str.strip())
-        except (ValueError, AttributeError):
-            redis_port = 6379
+        except (ValueError, AttributeError) as e:
+            print(f"[WARNING] REDIS_PORT 값이 유효하지 않아 백그라운드 세션 정리를 건너뜁니다: {redis_port_str}")
+            return
         
         try:
             redis_db = int(redis_db_str.strip())

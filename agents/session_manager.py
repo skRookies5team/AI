@@ -165,11 +165,11 @@ class SessionManager:
                 data = json.loads(value)
                 return {
                     "conversation_history": data.get("conversation_history", []),
-                    "email_search_context": data.get("email_search_context", {}),
-                    "qa_search_context": data.get("qa_search_context", {}),
-                    "tech_search_context": data.get("tech_search_context", {}),
-                    "schedule_context": data.get("schedule_context", {}),
-                    "document_context": data.get("document_context", {})
+                    "email_search_context": data.get("email_search_context") or {},
+                    "qa_search_context": data.get("qa_search_context") or {},
+                    "tech_search_context": data.get("tech_search_context") or {},
+                    "schedule_context": data.get("schedule_context") or {},
+                    "document_context": data.get("document_context") or {}
                 }
             except Exception as e:
                 print(f"[WARNING] 세션 데이터 로드 실패 (session_id={session_id}): {e}")
@@ -434,14 +434,18 @@ async def get_session_manager() -> Optional[SessionManager]:
         
         try:
             redis_host = _get_env("HOST") or _get_env("REDIS_HOST") or "localhost"
-            redis_port_str = _get_env("REDIS_PORT") or "6379"
+            redis_port_str = _get_env("REDIS_PORT")
             redis_password = _get_env("REDIS_PASSWORD")
             redis_db_str = _get_env("REDIS_DB") or "0"
             
+            # 포트 번호 필수 체크
+            if not redis_port_str:
+                raise ValueError("REDIS_PORT 환경 변수가 설정되지 않았습니다. .env 파일에 REDIS_PORT를 설정해주세요.")
+            
             try:
                 redis_port = int(redis_port_str.strip())
-            except (ValueError, AttributeError):
-                redis_port = 6379
+            except (ValueError, AttributeError) as e:
+                raise ValueError(f"REDIS_PORT 값이 유효하지 않습니다: {redis_port_str}") from e
             
             try:
                 redis_db = int(redis_db_str.strip())
@@ -450,6 +454,9 @@ async def get_session_manager() -> Optional[SessionManager]:
             
             if redis_password == "":
                 redis_password = None
+            
+            # 디버깅: 연결 정보 로그 (패스워드 제외)
+            print(f"[INFO] Redis 연결 설정: host={redis_host}, port={redis_port}, db={redis_db}, password={'설정됨' if redis_password else 'None'}")
             
             if redis_password:
                 redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/{redis_db}"
@@ -463,11 +470,21 @@ async def get_session_manager() -> Optional[SessionManager]:
             except (ValueError, AttributeError):
                 redis_ttl = 1800  # 기본값: 30분
             
-            redis_client = AsyncRedis.from_url(redis_url, decode_responses=False)
+            # Redis 연결 시 타임아웃 및 재시도 설정
+            redis_client = AsyncRedis.from_url(
+                redis_url,
+                decode_responses=False,
+                socket_connect_timeout=5,  # 연결 타임아웃 5초
+                socket_timeout=5,  # 소켓 타임아웃 5초
+                retry_on_timeout=True,  # 타임아웃 시 재시도
+                health_check_interval=30  # 헬스 체크 30초마다
+            )
             _session_manager = SessionManager(redis_client, ttl=redis_ttl)
             print(f"[INFO] 세션 관리자 초기화 완료 (TTL: {redis_ttl}초, 키 패턴: session:*)")
         except Exception as e:
             print(f"[ERROR] 세션 관리자 초기화 실패: {e}")
+            if 'redis_host' in locals() and 'redis_port' in locals():
+                print(f"[ERROR] Redis 연결 시도 정보: host={redis_host}, port={redis_port}")
             import traceback
             traceback.print_exc()
             return None
