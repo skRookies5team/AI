@@ -39,6 +39,8 @@ dependencies = [
     "pyyaml>=6.0.0",
     "jsonpatch>=1.33",
     "pdfplumber>=0.11.8",
+    "google-auth-oauthlib>=1.2.3",
+    "google-api-python-client>=2.187.0",
 ]
 
 [tool.uv]
