@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: meeting-one-line
+  datasource:
+    url: jdbc:mariadb://meeting-one-line-db:3306/meeting_one_line
+    username: root
+    password: 1234
+    driver-class-name: org.mariadb.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MariaDBDialect
+
+  servlet:
+    multipart:
+      max-file-size: 1GB
+      max-request-size: 1GB
+
+server:
+  port: 8080
+
+jwt:
+  secret: bXktand0LXNlY3JldC1rZXktY2hhbmdlLWl0
+  expiration: 3600000 # 1 hour
+  access-expiration: 1800000      # 1분 120000 \ 1800000, 30분
+  refresh-expiration: 1209600000  # 2분 240000 \ 1209600000, 14일
+
+file:
+  upload-dir: ./uploads/meetings   # 업로드 디렉토리 경로 설정
+
+logging:
+  level:
+    org.hibernate.SQL: off
+    org.hibernate.type.descriptor.sql: off
+    org.springframework.security: info
+  file:
+    name: /app/logs/app.log   # ✅ 로그 파일 경로 (컨테이너 내부)
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+ai:
+  server:
+    url: http://ai-server:8000   # FastAPI 서버 주소

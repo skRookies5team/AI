@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 문서 작성 - COVISION</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .header {
+            background-color: #5E35B1;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px 10px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: white;
+            color: #5E35B1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: calc(100vh - 140px);
+        }
+
+        .left-panel {
+            padding: 30px;
+            border-right: 2px solid #e0e0e0;
+            background: #fafafa;
+        }
+
+        .right-panel {
+            padding: 30px;
+            background: white;
+        }
+
+        .panel-title {
+            font-size: 22px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+            font-size: 15px;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            font-size: 15px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .form-select:focus {
+            outline: none;
+            border-color: #764ba2;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 15px;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 200px;
+            font-family: inherit;
+            line-height: 1.6;
+            transition: border-color 0.3s;
+        }
+
+        .form-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result-preview {
+            display: none;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 0;
+            background: #f8f9fa;
+            min-height: 400px;
+            max-height: calc(100vh - 200px);
+            overflow: hidden;
+        }
+
+        .result-preview.active {
+            display: block;
+        }
+
+        .result-preview iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 600px;
+            border: none;
+            background: white;
+        }
+
+        .result-preview-content {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .action-buttons .btn {
+            flex: 1;
+        }
+
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .template-card {
+            padding: 20px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            background: white;
+        }
+
+        .template-card:hover {
+            border-color: #667eea;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+        }
+
+        .template-card.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+        }
+
+        .template-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .template-name {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 14px;
+        }
+
+        .upload-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .file-upload {
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .file-upload:hover {
+            background: #f0f4ff;
+            border-color: #764ba2;
+        }
+
+        .file-upload input[type="file"] {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.active {
+            display: block;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <!-- 상단 헤더 -->
+    <div class="header">
+        <div class="logo">🏢 COVISION AI 문서 작성 시스템</div>
+        <div class="user-info">
+            <div class="avatar">김</div>
+            <span>김하은 과장 (사번: 1001)</span>
+        </div>
+    </div>
+
+    <!-- 메인 컨테이너 -->
+    <div class="container">
+        <div class="main-content">
+            <!-- 좌측 패널: 입력 폼 -->
+            <div class="left-panel">
+                <h2 class="panel-title">📝 문서 작성 요청</h2>
+
+                <!-- 알림 메시지 -->
+                <div id="alertMessage" class="alert"></div>
+
+                <form id="documentForm">
+                    <!-- 문서 양식 선택 -->
+                    <div class="form-group">
+                        <label class="form-label">문서 양식 선택</label>
+                        <select id="templateSelect" class="form-select" required>
+                            <option value="">-- 양식을 선택하세요 --</option>
+                            <option value="product_development_plan">제품개발 계획서</option>
+                            <option value="purchase_order">발주서</option>
+                            <option value="hr_summary_report">인사정보 요약 리포트</option>
+                            <option value="monthly_profit_analysis_report">월별 수익 분석 리포트</option>
+                            <option value="work_performance_review">업무 성과 평가</option>
+                            <option value="supplier_evaluation_form">공급업체 평가서</option>
+                            <option value="contract_renewal_report">계약 갱신 보고서</option>
+                            <option value="activity_based_costing">활동기준 원가 계산서</option>
+                            <option value="project_schedule">프로젝트 일정표</option>
+                            <option value="product_comparison_table">제품 비교표</option>
+                        </select>
+                    </div>
+
+                    <!-- 제목 입력 -->
+                    <div class="form-group">
+                        <label class="form-label">문서 제목</label>
+                        <input type="text" id="documentTitle" class="form-input" placeholder="예: 2024년 신제품 개발 계획서" required>
+                    </div>
+
+                    <!-- 요구사항 입력 -->
+                    <div class="form-group">
+                        <label class="form-label">요구사항 (AI에게 전달할 지시사항)</label>
+                        <textarea id="requirements" class="form-textarea" placeholder="예:&#10;1. 신제품의 핵심 기능과 특징을 명확히 기술&#10;2. 개발 일정과 마일스톤을 포함&#10;3. 예산 계획과 리소스 배분 명시&#10;4. 마케팅 전략과 출시 계획 포함" required></textarea>
+                    </div>
+
+                    <!-- 참조 문서 검색 옵션 -->
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="useRAG" checked>
+                            <label for="useRAG">내 결재문서(완료함) 검색 및 참조</label>
+                        </div>
+                        <input type="text" id="searchKeyword" class="form-input" placeholder="검색 키워드 (선택사항)" style="margin-top: 10px;">
+                    </div>
+
+                    <!-- 작성 버튼 -->
+                    <button type="submit" class="btn btn-primary" id="generateBtn">
+                        ✨ AI 문서 작성 시작
+                    </button>
+                </form>
+
+                <!-- 로딩 인디케이터 -->
+                <div class="loading" id="loadingDiv">
+                    <div class="spinner"></div>
+                    <p>AI가 문서를 작성하고 있습니다...</p>
+                    <p style="margin-top: 10px; color: #666; font-size: 14px;">잠시만 기다려주세요</p>
+                </div>
+
+                <!-- 문서 업로드 섹션 -->
+                <div class="upload-section">
+                    <h3 style="margin-bottom: 15px; color: #2c3e50;">📤 문서 업로드 (Vector DB 저장)</h3>
+                    <div class="file-upload" onclick="document.getElementById('fileInput').click()">
+                        <div class="upload-icon">📎</div>
+                        <p style="color: #667eea; font-weight: 600;">PDF 또는 Word 파일을 클릭하여 업로드</p>
+                        <p style="color: #999; font-size: 12px; margin-top: 5px;">업로드된 문서는 AI 학습에 활용됩니다</p>
+                        <input type="file" id="fileInput" accept=".pdf,.docx" onchange="handleFileUpload(event)">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 우측 패널: 결과 미리보기 -->
+            <div class="right-panel">
+                <h2 class="panel-title">📄 생성된 문서 미리보기</h2>
+                
+                <div class="result-preview" id="resultPreview"></div>
+
+                <div id="placeholderMessage" style="text-align: center; padding: 100px 20px; color: #999;">
+                    <div style="font-size: 64px; margin-bottom: 20px;">📋</div>
+                    <p style="font-size: 18px;">좌측에서 문서 작성 요청을 시작하세요</p>
+                    <p style="font-size: 14px; margin-top: 10px;">AI가 요구사항을 분석하여 문서를 자동 생성합니다</p>
+                </div>
+
+                <!-- 액션 버튼 (결과 생성 후 표시) -->
+                <div class="action-buttons" id="actionButtons" style="display: none;">
+                    <button class="btn btn-secondary" onclick="copyToClipboard()">
+                        📋 클립보드 복사
+                    </button>
+                    <button class="btn btn-success" onclick="convertToPDF()">
+                        💾 PDF 변환 및 저장
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/api/chat';
+
+        // 폼 제출 처리
+        document.getElementById('documentForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const template = document.getElementById('templateSelect').value;
+            const title = document.getElementById('documentTitle').value;
+            const requirements = document.getElementById('requirements').value;
+            const useRAG = document.getElementById('useRAG').checked;
+            const keyword = document.getElementById('searchKeyword').value;
+
+            if (!template) {
+                showAlert('문서 양식을 선택해주세요.', 'error');
+                return;
+            }
+
+            // UI 상태 변경
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('loadingDiv').classList.add('active');
+            document.getElementById('resultPreview').classList.remove('active');
+            document.getElementById('placeholderMessage').style.display = 'none';
+            document.getElementById('actionButtons').style.display = 'none';
+            hideAlert();
+
+            try {
+                // 쿼리 구성
+                let query = `문서 작성해줘. 양식: ${template}, 제목: ${title}. 요구사항: ${requirements}`;
+                if (useRAG) {
+                    if (keyword) {
+                        query += ` (${keyword} 관련 이전 문서 참조해줘)`;
+                    } else {
+                        query += ` (이전 유사 문서 참조해줘)`;
+                    }
+                }
+
+                const payload = {
+                    query: query,
+                    session_id: 'doc_session_' + Date.now(),
+                    employee_id: 1001
+                };
+
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const aiMessage = result.message || '문서 생성에 실패했습니다.';
+                let documentPath = result.document_path;
+
+                console.log('서버 응답:', { documentPath, messageLength: aiMessage?.length, messagePreview: aiMessage?.substring(0, 200) });
+
+                // 결과 표시 - HTML 문서 렌더링
+                const previewDiv = document.getElementById('resultPreview');
+                previewDiv.innerHTML = ''; // 기존 내용 제거
+                
+                let htmlContent = null;
+                
+                // 1. document_path가 있으면 파일을 직접 로드 시도
+                if (documentPath) {
+                    // 파일명만 추출 (경로에서)
+                    const filename = documentPath.split(/[/\\]/).pop();
+                    console.log('📁 파일명 추출:', filename);
+                    
+                    try {
+                        const fileResponse = await fetch(`/api/documents/${encodeURIComponent(filename)}`);
+                        if (fileResponse.ok) {
+                            htmlContent = await fileResponse.text();
+                            console.log('✅ 파일 로드 성공, 길이:', htmlContent.length);
+                            
+                            // 파일 내용이 HTML인지 확인
+                            if (htmlContent.trim().match(/^\s*<!DOCTYPE\s+html/i) || htmlContent.trim().match(/^\s*<html/i)) {
+                                console.log('✅ 파일 내용이 HTML로 확인됨');
+                            } else {
+                                console.warn('⚠️ 파일 내용이 HTML로 보이지 않음');
+                            }
+                        } else {
+                            console.error('❌ 파일 로드 실패, 상태:', fileResponse.status);
+                            const errorText = await fileResponse.text();
+                            console.error('에러 내용:', errorText);
+                        }
+                    } catch (error) {
+                        console.error('❌ 파일 로드 오류:', error);
+                    }
+                }
+                
+                // 2. 파일 로드 실패 시 메시지에서 HTML 추출 시도
+                if (!htmlContent && aiMessage) {
+                    const trimmedMessage = aiMessage.trim();
+                    
+                    // HTML 문서인지 확인 (매우 넓은 범위로)
+                    const isHTML = trimmedMessage.match(/^\s*<!DOCTYPE\s+html/i) || 
+                                   trimmedMessage.match(/^\s*<html/i) ||
+                                   (trimmedMessage.includes('<!DOCTYPE') && trimmedMessage.includes('<html')) ||
+                                   (trimmedMessage.includes('<html') && trimmedMessage.includes('</html>')) ||
+                                   (trimmedMessage.includes('<html lang=')) ||
+                                   (trimmedMessage.startsWith('<!DOCTYPE')) ||
+                                   (trimmedMessage.startsWith('<html'));
+                    
+                    // 메시지가 매우 길면 (5000자 이상) HTML로 간주
+                    if (trimmedMessage.length > 5000 && trimmedMessage.includes('<')) {
+                        htmlContent = aiMessage;
+                        console.log('✅ 긴 메시지를 HTML로 간주, 길이:', htmlContent.length);
+                    } else if (isHTML) {
+                        htmlContent = aiMessage;
+                        console.log('✅ 메시지에서 HTML 감지, 길이:', htmlContent.length);
+                    } else {
+                        console.log('❌ HTML 감지 실패. 메시지 시작:', trimmedMessage.substring(0, 200));
+                        console.log('메시지 길이:', trimmedMessage.length);
+                    }
+                }
+                
+                // 3. HTML이 있으면 무조건 iframe으로 렌더링 (텍스트로 표시 절대 금지!)
+                if (htmlContent) {
+                    console.log('🚀 HTML 렌더링 시작, 길이:', htmlContent.length);
+                    
+                    // 기존 내용 완전히 제거
+                    previewDiv.innerHTML = '';
+                    
+                    const iframe = document.createElement('iframe');
+                    iframe.srcdoc = htmlContent;
+                    iframe.style.width = '100%';
+                    iframe.style.height = '100%';
+                    iframe.style.minHeight = '600px';
+                    iframe.style.border = 'none';
+                    iframe.style.background = 'white';
+                    
+                    previewDiv.appendChild(iframe);
+                    previewDiv.classList.add('active');
+                    document.getElementById('placeholderMessage').style.display = 'none';
+                    document.getElementById('actionButtons').style.display = 'flex';
+                    showAlert('문서가 성공적으로 생성되었습니다!', 'success');
+                } else {
+                    // HTML이 아닌 일반 텍스트인 경우에만 텍스트로 표시
+                    console.log('📝 일반 텍스트로 표시');
+                    console.log('메시지 전체:', aiMessage);
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'result-preview-content';
+                    contentDiv.textContent = aiMessage;
+                    previewDiv.innerHTML = '';
+                    previewDiv.appendChild(contentDiv);
+                    previewDiv.classList.add('active');
+                    document.getElementById('placeholderMessage').style.display = 'none';
+                    showAlert('문서 생성이 완료되었습니다.', 'success');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showAlert(`오류 발생: ${error.message}`, 'error');
+                const previewDiv = document.getElementById('resultPreview');
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'result-preview-content';
+                contentDiv.textContent = `오류 발생: ${error.message}\n\n서버가 실행 중인지 확인해주세요. (http://localhost:8000)`;
+                previewDiv.innerHTML = '';
+                previewDiv.appendChild(contentDiv);
+                previewDiv.classList.add('active');
+            } finally {
+                document.getElementById('loadingDiv').classList.remove('active');
+                document.getElementById('generateBtn').disabled = false;
+            }
+        });
+
+        // 클립보드 복사
+        function copyToClipboard() {
+            const previewDiv = document.getElementById('resultPreview');
+            let content = '';
+            
+            // iframe이 있으면 iframe 내용 가져오기
+            const iframe = previewDiv.querySelector('iframe');
+            if (iframe && iframe.contentDocument) {
+                content = iframe.contentDocument.documentElement.outerHTML;
+            } else {
+                // 일반 텍스트 또는 HTML
+                const contentDiv = previewDiv.querySelector('.result-preview-content');
+                if (contentDiv) {
+                    content = contentDiv.textContent;
+                } else {
+                    content = previewDiv.textContent;
+                }
+            }
+            
+            navigator.clipboard.writeText(content).then(() => {
+                showAlert('클립보드에 복사되었습니다!', 'success');
+            }).catch(err => {
+                console.error('복사 실패:', err);
+                showAlert('복사에 실패했습니다.', 'error');
+            });
+        }
+
+        // PDF 변환
+        function convertToPDF() {
+            showAlert('PDF 변환 기능은 개발 예정입니다. 곧 제공될 예정입니다.', 'success');
+            // TODO: 실제 PDF 변환 로직 구현
+            // - 현재 생성된 문서 내용을 PDF로 변환
+            // - 전자결재 시스템 연동
+        }
+
+        // 파일 업로드 처리
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.match(/\.(pdf|docx)$/i)) {
+                showAlert('PDF 또는 DOCX 파일만 업로드 가능합니다.', 'error');
+                return;
+            }
+
+            showAlert(`'${file.name}' 파일 업로드 준비 완료. (Vector DB 저장 기능은 개발 예정)`, 'success');
+            
+            // TODO: 실제 파일 업로드 및 Vector DB 저장 로직 구현
+            // - 파일을 서버로 업로드
+            // - 텍스트 추출
+            // - 임베딩 생성
+            // - Milvus에 저장
+        }
+
+        // 알림 메시지 표시
+        function showAlert(message, type) {
+            const alertDiv = document.getElementById('alertMessage');
+            alertDiv.textContent = message;
+            alertDiv.className = `alert alert-${type} active`;
+            
+            // 5초 후 자동 숨김
+            setTimeout(() => {
+                hideAlert();
+            }, 5000);
+        }
+
+        function hideAlert() {
+            const alertDiv = document.getElementById('alertMessage');
+            alertDiv.classList.remove('active');
+        }
+    </script>
+</body>
+</html>
+

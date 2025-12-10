@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>월간 수익 분석 리포트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+        }
+
+        .header-info {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+            font-size: 16px;
+            color: #495057;
+        }
+
+        .header-info input {
+            padding: 8px 15px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #667eea;
+            width: 150px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+        }
+
+        .section-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            white-space: nowrap;
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .no-cell {
+            font-weight: 600;
+            color: #667eea;
+            background: #f0f4ff;
+            width: 60px;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+            font-family: inherit;
+            text-align: center;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input[type="number"] {
+            text-align: right;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+            transition: all 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .currency {
+            font-weight: 600;
+            color: #28a745;
+        }
+
+        .percentage {
+            font-weight: 600;
+            color: #dc3545;
+        }
+
+        .actions {
+            margin-top: 40px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .summary-card {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .summary-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .summary-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-info {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>월간 수익 분석 리포트</h1>
+            <div class="header-info">
+                <div>
+                    <label>년도:</label>
+                    <input type="number" id="year" placeholder="2025" min="2000" max="2100">
+                </div>
+                <div>
+                    <label>월:</label>
+                    <input type="number" id="month" placeholder="월" min="1" max="12">
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-cards">
+            <div class="summary-card">
+                <div class="summary-label">총 매출</div>
+                <div class="summary-value" id="totalSales">₩0</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">총 수익</div>
+                <div class="summary-value" id="totalProfit">₩0</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">평균 수익률</div>
+                <div class="summary-value" id="avgProfitMargin">0%</div>
+            </div>
+        </div>
+
+        <!-- 1. 지역별 수익현황 -->
+        <div class="section">
+            <h2 class="section-title">1. 지역별 수익현황</h2>
+            <div class="table-container">
+                <table id="regionalTable">
+                    <thead>
+                        <tr>
+                            <th>NO</th>
+                            <th>지역</th>
+                            <th>국가</th>
+                            <th>총매출(₩)</th>
+                            <th>총수익(₩)</th>
+                            <th>수익률(%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="regionalBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="addRow('regional')">행 추가</button>
+                <button class="btn btn-secondary" onclick="removeRow('regional')">행 삭제</button>
+            </div>
+        </div>
+
+        <!-- 2. 제품별 손익분석 -->
+        <div class="section">
+            <h2 class="section-title">2. 제품별 손익분석</h2>
+            <div class="table-container">
+                <table id="productTable">
+                    <thead>
+                        <tr>
+                            <th>NO</th>
+                            <th>제품명</th>
+                            <th>제품 카테고리</th>
+                            <th>제조업체</th>
+                            <th>매출액(₩)</th>
+                            <th>원가(₩)</th>
+                            <th>수익(₩)</th>
+                            <th>수익률(%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="addRow('product')">행 추가</button>
+                <button class="btn btn-secondary" onclick="removeRow('product')">행 삭제</button>
+            </div>
+        </div>
+
+        <!-- 3. 프로모션 효과분석 -->
+        <div class="section">
+            <h2 class="section-title">3. 프로모션 효과분석</h2>
+            <div class="table-container">
+                <table id="promotionTable">
+                    <thead>
+                        <tr>
+                            <th>NO</th>
+                            <th>프로모션명</th>
+                            <th>참여제품</th>
+                            <th>총비용(₩)</th>
+                            <th>추가매출(₩)</th>
+                            <th>ROI(%)</th>
+                            <th>비고</th>
+                        </tr>
+                    </thead>
+                    <tbody id="promotionBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="addRow('promotion')">행 추가</button>
+                <button class="btn btn-secondary" onclick="removeRow('promotion')">행 삭제</button>
+            </div>
+        </div>
+
+        <!-- 4. 판매채널별 요약 -->
+        <div class="section">
+            <h2 class="section-title">4. 판매채널별 요약</h2>
+            <div class="table-container">
+                <table id="channelTable">
+                    <thead>
+                        <tr>
+                            <th>채널</th>
+                            <th>총매출(₩)</th>
+                            <th>총수익(₩)</th>
+                            <th>비중(%)</th>
+                            <th>증감률(%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="channelBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="addRow('channel')">행 추가</button>
+                <button class="btn btn-secondary" onclick="removeRow('channel')">행 삭제</button>
+            </div>
+        </div>
+
+        <!-- 5. 결론 및 제언 -->
+        <div class="section">
+            <h2 class="section-title">5. 결론 및 제언</h2>
+            <div class="table-container">
+                <table id="conclusionTable">
+                    <thead>
+                        <tr>
+                            <th>구분</th>
+                            <th>내용</th>
+                        </tr>
+                    </thead>
+                    <tbody id="conclusionBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="addRow('conclusion')">행 추가</button>
+                <button class="btn btn-secondary" onclick="removeRow('conclusion')">행 삭제</button>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-success" onclick="calculateAll()">전체 계산</button>
+            <button class="btn btn-primary" onclick="printReport()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        let rowCounters = {
+            regional: 0,
+            product: 0,
+            promotion: 0,
+            channel: 0,
+            conclusion: 0
+        };
+
+        // 날짜 자동 설정
+        function setDefaultDate() {
+            const today = new Date();
+            document.getElementById('year').value = today.getFullYear();
+            document.getElementById('month').value = today.getMonth() + 1;
+        }
+
+        // 초기 행 생성
+        function initializeTables() {
+            addRow('regional', 2);
+            addRow('product', 2);
+            addRow('promotion', 2);
+            addRow('channel', 2);
+            addRow('conclusion', 3);
+        }
+
+        // 행 추가
+        function addRow(type, count = 1) {
+            for (let i = 0; i < count; i++) {
+                rowCounters[type]++;
+                const tbody = document.getElementById(`${type}Body`);
+                let row;
+
+                switch(type) {
+                    case 'regional':
+                        row = createRegionalRow(rowCounters[type]);
+                        break;
+                    case 'product':
+                        row = createProductRow(rowCounters[type]);
+                        break;
+                    case 'promotion':
+                        row = createPromotionRow(rowCounters[type]);
+                        break;
+                    case 'channel':
+                        row = createChannelRow();
+                        break;
+                    case 'conclusion':
+                        row = createConclusionRow();
+                        break;
+                }
+
+                tbody.appendChild(row);
+            }
+        }
+
+        // 행 삭제
+        function removeRow(type) {
+            const tbody = document.getElementById(`${type}Body`);
+            if (tbody.children.length > 0) {
+                const lastRow = tbody.lastElementChild;
+                tbody.removeChild(lastRow);
+                
+                // NO가 있는 경우 카운터 조정
+                if (type !== 'channel' && type !== 'conclusion') {
+                    rowCounters[type] = Math.max(0, rowCounters[type] - 1);
+                }
+                
+                // 계산 업데이트
+                calculateAll();
+            } else {
+                alert('삭제할 행이 없습니다.');
+            }
+        }
+
+        // 지역별 행 생성
+        function createRegionalRow(no) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="no-cell">${no}</td>
+                <td><input type="text" placeholder="지역명"></td>
+                <td><input type="text" placeholder="국가명"></td>
+                <td><input type="number" class="sales-input" placeholder="0" min="0" step="1000"></td>
+                <td><input type="number" class="profit-input" placeholder="0" min="0" step="1000"></td>
+                <td><span class="percentage margin-display">0%</span></td>
+            `;
+            addCalculationListeners(row, 'regional');
+            return row;
+        }
+
+        // 제품별 행 생성
+        function createProductRow(no) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="no-cell">${no}</td>
+                <td><input type="text" placeholder="제품명"></td>
+                <td><input type="text" placeholder="카테고리"></td>
+                <td><input type="text" placeholder="제조업체"></td>
+                <td><input type="number" class="sales-input" placeholder="0" min="0" step="1000"></td>
+                <td><input type="number" class="cost-input" placeholder="0" min="0" step="1000"></td>
+                <td><span class="currency profit-display">₩0</span></td>
+                <td><span class="percentage margin-display">0%</span></td>
+            `;
+            addCalculationListeners(row, 'product');
+            return row;
+        }
+
+        // 프로모션 행 생성
+        function createPromotionRow(no) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="no-cell">${no}</td>
+                <td><input type="text" placeholder="프로모션명"></td>
+                <td><input type="text" placeholder="참여제품"></td>
+                <td><input type="number" class="cost-input" placeholder="0" min="0" step="1000"></td>
+                <td><input type="number" class="sales-input" placeholder="0" min="0" step="1000"></td>
+                <td><span class="percentage roi-display">0%</span></td>
+                <td><textarea placeholder="비고"></textarea></td>
+            `;
+            addCalculationListeners(row, 'promotion');
+            return row;
+        }
+
+        // 채널 행 생성
+        function createChannelRow() {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="text" placeholder="채널명"></td>
+                <td><input type="number" class="sales-input" placeholder="0" min="0" step="1000"></td>
+                <td><input type="number" class="profit-input" placeholder="0" min="0" step="1000"></td>
+                <td><span class="percentage proportion-display">0%</span></td>
+                <td><input type="number" class="change-input" placeholder="0" step="0.1"></td>
+            `;
+            addCalculationListeners(row, 'channel');
+            return row;
+        }
+
+        // 결론 행 생성
+        function createConclusionRow() {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="text" placeholder="구분 (예: 주요 성과, 개선사항)"></td>
+                <td><textarea placeholder="내용을 입력하세요"></textarea></td>
+            `;
+            return row;
+        }
+
+        // 계산 리스너 추가
+        function addCalculationListeners(row, type) {
+            const inputs = row.querySelectorAll('input[type="number"]');
+            inputs.forEach(input => {
+                input.addEventListener('input', () => {
+                    calculateRow(row, type);
+                    calculateAll();
+                });
+            });
+        }
+
+        // 행별 계산
+        function calculateRow(row, type) {
+            switch(type) {
+                case 'regional':
+                    const sales = parseFloat(row.querySelector('.sales-input')?.value || 0);
+                    const profit = parseFloat(row.querySelector('.profit-input')?.value || 0);
+                    const margin = sales > 0 ? (profit / sales * 100).toFixed(2) : 0;
+                    row.querySelector('.margin-display').textContent = `${margin}%`;
+                    break;
+                case 'product':
+                    const productSales = parseFloat(row.querySelector('.sales-input')?.value || 0);
+                    const cost = parseFloat(row.querySelector('.cost-input')?.value || 0);
+                    const productProfit = productSales - cost;
+                    const productMargin = productSales > 0 ? (productProfit / productSales * 100).toFixed(2) : 0;
+                    row.querySelector('.profit-display').textContent = `₩${productProfit.toLocaleString()}`;
+                    row.querySelector('.margin-display').textContent = `${productMargin}%`;
+                    break;
+                case 'promotion':
+                    const promoCost = parseFloat(row.querySelector('.cost-input')?.value || 0);
+                    const additionalSales = parseFloat(row.querySelector('.sales-input')?.value || 0);
+                    const roi = promoCost > 0 ? ((additionalSales - promoCost) / promoCost * 100).toFixed(2) : 0;
+                    row.querySelector('.roi-display').textContent = `${roi}%`;
+                    break;
+                case 'channel':
+                    calculateChannelProportion();
+                    break;
+            }
+        }
+
+        // 채널 비중 계산
+        function calculateChannelProportion() {
+            const rows = document.querySelectorAll('#channelBody tr');
+            const totalSales = Array.from(rows).reduce((sum, row) => {
+                return sum + parseFloat(row.querySelector('.sales-input')?.value || 0);
+            }, 0);
+
+            rows.forEach(row => {
+                const sales = parseFloat(row.querySelector('.sales-input')?.value || 0);
+                const proportion = totalSales > 0 ? (sales / totalSales * 100).toFixed(2) : 0;
+                row.querySelector('.proportion-display').textContent = `${proportion}%`;
+            });
+        }
+
+        // 전체 계산
+        function calculateAll() {
+            // 모든 행 계산
+            document.querySelectorAll('#regionalBody tr').forEach(row => calculateRow(row, 'regional'));
+            document.querySelectorAll('#productBody tr').forEach(row => calculateRow(row, 'product'));
+            document.querySelectorAll('#promotionBody tr').forEach(row => calculateRow(row, 'promotion'));
+            calculateChannelProportion();
+
+            // 전체 요약 계산
+            let totalSales = 0;
+            let totalProfit = 0;
+
+            // 지역별 합계
+            document.querySelectorAll('#regionalBody .sales-input').forEach(input => {
+                totalSales += parseFloat(input.value || 0);
+            });
+            document.querySelectorAll('#regionalBody .profit-input').forEach(input => {
+                totalProfit += parseFloat(input.value || 0);
+            });
+
+            // 제품별 합계
+            document.querySelectorAll('#productBody .sales-input').forEach(input => {
+                totalSales += parseFloat(input.value || 0);
+            });
+            document.querySelectorAll('#productBody .profit-display').forEach(span => {
+                const profit = parseFloat(span.textContent.replace(/[₩,]/g, '') || 0);
+                totalProfit += profit;
+            });
+
+            // 채널별 합계
+            document.querySelectorAll('#channelBody .sales-input').forEach(input => {
+                totalSales += parseFloat(input.value || 0);
+            });
+            document.querySelectorAll('#channelBody .profit-input').forEach(input => {
+                totalProfit += parseFloat(input.value || 0);
+            });
+
+            const avgMargin = totalSales > 0 ? (totalProfit / totalSales * 100).toFixed(2) : 0;
+
+            document.getElementById('totalSales').textContent = `₩${totalSales.toLocaleString()}`;
+            document.getElementById('totalProfit').textContent = `₩${totalProfit.toLocaleString()}`;
+            document.getElementById('avgProfitMargin').textContent = `${avgMargin}%`;
+        }
+
+        // 인쇄
+        function printReport() {
+            window.print();
+        }
+
+        // 데이터 내보내기
+        function exportData() {
+            let csv = '월간 수익 분석 리포트\n\n';
+            
+            // 지역별
+            csv += '1. 지역별 수익현황\n';
+            csv += 'NO,지역,국가,총매출(₩),총수익(₩),수익률(%)\n';
+            document.querySelectorAll('#regionalBody tr').forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const data = Array.from(cells).map(cell => {
+                    const input = cell.querySelector('input');
+                    const span = cell.querySelector('span');
+                    return `"${input ? input.value : (span ? span.textContent : cell.textContent)}"`;
+                });
+                csv += data.join(',') + '\n';
+            });
+
+            csv += '\n2. 제품별 손익분석\n';
+            csv += 'NO,제품명,제품 카테고리,제조업체,매출액(₩),원가(₩),수익(₩),수익률(%)\n';
+            document.querySelectorAll('#productBody tr').forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const data = Array.from(cells).map(cell => {
+                    const input = cell.querySelector('input');
+                    const span = cell.querySelector('span');
+                    return `"${input ? input.value : (span ? span.textContent : cell.textContent)}"`;
+                });
+                csv += data.join(',') + '\n';
+            });
+
+            csv += '\n3. 프로모션 효과분석\n';
+            csv += 'NO,프로모션명,참여제품,총비용(₩),추가매출(₩),ROI(%),비고\n';
+            document.querySelectorAll('#promotionBody tr').forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const data = Array.from(cells).map(cell => {
+                    const input = cell.querySelector('input');
+                    const textarea = cell.querySelector('textarea');
+                    const span = cell.querySelector('span');
+                    return `"${input ? input.value : (textarea ? textarea.value : (span ? span.textContent : cell.textContent))}"`;
+                });
+                csv += data.join(',') + '\n';
+            });
+
+            csv += '\n4. 판매채널별 요약\n';
+            csv += '채널,총매출(₩),총수익(₩),비중(%),증감률(%)\n';
+            document.querySelectorAll('#channelBody tr').forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const data = Array.from(cells).map(cell => {
+                    const input = cell.querySelector('input');
+                    const span = cell.querySelector('span');
+                    return `"${input ? input.value : (span ? span.textContent : cell.textContent)}"`;
+                });
+                csv += data.join(',') + '\n';
+            });
+
+            csv += '\n5. 결론 및 제언\n';
+            csv += '구분,내용\n';
+            document.querySelectorAll('#conclusionBody tr').forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const data = Array.from(cells).map(cell => {
+                    const input = cell.querySelector('input');
+                    const textarea = cell.querySelector('textarea');
+                    return `"${input ? input.value : (textarea ? textarea.value : cell.textContent)}"`;
+                });
+                csv += data.join(',') + '\n';
+            });
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const year = document.getElementById('year').value || new Date().getFullYear();
+            const month = document.getElementById('month').value || new Date().getMonth() + 1;
+            link.setAttribute('download', `월간_수익_분석_리포트_${year}년_${month}월.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setDefaultDate();
+            initializeTables();
+            calculateAll();
+        });
+    </script>
+</body>
+</html>
+

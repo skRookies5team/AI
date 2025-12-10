@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+env/
+.git/
+.gitignore
+.DS_Store
+pytest_cache/
+.cache/
+.env
+audio/
+embeddings/
+tests/

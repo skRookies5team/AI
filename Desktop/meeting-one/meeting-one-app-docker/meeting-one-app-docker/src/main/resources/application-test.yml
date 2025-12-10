@@ -1,0 +1,11 @@
+springdoc:
+  api-docs:
+    enabled: true        # API Docs(JSON) 노출 여부 (기본 true, 운영 배포 시 false로 막기도 함)
+  swagger-ui:
+    enabled: true        # Swagger UI 노출 여부
+    operations-sorter: alpha   # API 정렬 (alpha: 알파벳순, method: HTTP 메서드순)
+    tags-sorter: alpha
+    doc-expansion: list   # UI에서 API 펼침 여부 (none, list, full)
+    path: /swagger-ui.html
+    use-root-path: true
+  writer-with-default-pretty-printer: true   # JSON 스펙 출력 시 보기 좋게

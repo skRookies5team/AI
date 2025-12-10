@@ -1,0 +1,40 @@
+[project]
+name = "ai-module"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ruff>=0.14.3",
+    "pandas>=2.2.2",
+    "python-dateutil>=2.9.0.post0",
+    "langgraph>=0.2.20",
+    "pydantic>=2.9.2",
+    "python-docx>=1.1.2",
+    "requests>=2.32.3",
+    "beautifulsoup4>=4.12.3",
+    "langchain-openai>=0.2.7",
+    "pymilvus>=2.4.6",
+    "pypdf>=4.3.1",
+    "rank-bm25>=0.2.2",
+    "python-dotenv>=1.2.1",
+    "langchain-core>=1.0.5",
+    "openai>=2.8.1",
+    "sentence-transformers>=5.1.2",
+    "xmltodict>=1.0.2",
+    "langchain-text-splitters>=1.0.0",
+    "playwright>=1.56.0",
+    "fastapi>=0.121.2",
+    "pymysql>=1.1.2",
+    "pypdf2>=3.0.1",
+    "sqlalchemy>=2.0.44",
+    "uvicorn>=0.38.0",
+    "python-multipart>=0.0.20",
+    "asyncmy>=0.2.10",
+    "aiomysql>=0.3.2",
+    "pydantic-settings>=2.12.0",
+    "redis>=5.0.0",
+    "langgraph-checkpoint>=0.2.0",
+    "langgraph-checkpoint-redis>=0.2.0",
+    "pyyaml>=6.0.0",
+]

@@ -1,0 +1,2203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI  작성 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        /* 메인 컨테이너 */
+        .main-container {
+            width: 100%;
+            max-width: 1400px;
+            height: 90vh;
+            max-height: 900px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 헤더 */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex: 1;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .session-info {
+            font-size: 12px;
+            opacity: 0.9;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .session-info:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .session-button {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .session-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .session-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .session-modal.active {
+            display: flex;
+        }
+
+        .session-modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .session-modal-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .session-input-group {
+            margin-bottom: 15px;
+        }
+
+        .session-input-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .session-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .session-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .session-modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .session-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .session-btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .session-btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .session-btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .session-btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .bot-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+        }
+
+        .header-info {
+            flex: 1;
+        }
+
+        .bot-name {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+
+        .bot-status {
+            font-size: 13px;
+            opacity: 0.9;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #4caf50;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* 탭 메뉴 */
+        .tab-menu {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .tab-btn {
+            padding: 8px 20px;
+            background: rgba(255,255,255,0.1);
+            border: 2px solid transparent;
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .tab-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: #667eea;
+            border-color: white;
+        }
+
+        .tab-btn.hidden {
+            display: none;
+        }
+
+        /* 콘텐츠 영역 */
+        .content-area {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .tab-content {
+            display: none;
+            width: 100%;
+            height: 100%;
+            flex-direction: column;
+        }
+
+        .tab-content.active {
+            display: flex;
+        }
+
+        /* ===== 챗봇 스타일 ===== */
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 25px;
+            background: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.bot {
+            justify-content: flex-start;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .message.bot .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.user .message-avatar {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .message-content {
+            max-width: 70%;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .message.bot .message-content {
+            align-items: flex-start;
+        }
+
+        .message.user .message-content {
+            align-items: flex-end;
+        }
+
+        .message-bubble {
+            padding: 12px 18px;
+            border-radius: 18px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .message.bot .message-bubble {
+            background: white;
+            color: #333;
+            border-top-left-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .message.user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-top-right-radius: 4px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: #999;
+            padding: 0 5px;
+        }
+
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .quick-reply-btn {
+            padding: 10px 18px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 20px;
+            color: #667eea;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .quick-reply-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        /* 채용 인재 카드 스타일 */
+        .recruitment-message {
+            margin-bottom: 15px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .recruitment-cards-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .recruitment-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 18px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .recruitment-card:hover {
+            border-color: #667eea;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.25);
+        }
+
+        .recruitment-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .recruitment-card-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+            flex: 1;
+            line-height: 1.4;
+        }
+
+        .recruitment-card-score {
+            font-size: 12px;
+            color: #667eea;
+            background: #f0f4ff;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            margin-left: 10px;
+        }
+
+        .recruitment-card-preview {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .recruitment-card-footer {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding-top: 10px;
+            border-top: 1px solid #f0f0f0;
+        }
+
+        .recruitment-card-click {
+            font-size: 12px;
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .recruitment-card:hover .recruitment-card-click {
+            color: #5568d3;
+        }
+
+        .option-cards {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 12px;
+            margin-top: 10px;
+            justify-content: flex-start;
+            overflow-x: auto;
+            padding-bottom: 5px;
+        }
+
+        .option-card {
+            padding: 15px 20px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            flex: 1;
+            min-width: 120px;
+            max-width: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .option-card:hover {
+            border-color: #667eea;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+        }
+
+        .option-card-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .option-card-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .chat-input-container {
+            padding: 20px 25px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 18px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 15px;
+            resize: none;
+            max-height: 100px;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .send-button {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .send-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .typing-indicator {
+            display: none;
+            gap: 5px;
+            padding: 12px 18px;
+        }
+
+        .typing-indicator.active {
+            display: flex;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #999;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+            }
+            30% {
+                transform: translateY(-10px);
+            }
+        }
+
+        /* ===== 문서 작성 스타일 ===== */
+        .document-writer-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .left-panel {
+            padding: 30px;
+            border-right: 2px solid #e0e0e0;
+            background: #fafafa;
+            overflow-y: auto;
+        }
+
+        .right-panel {
+            padding: 30px;
+            background: white;
+            overflow-y: auto;
+        }
+
+        .panel-title {
+            font-size: 22px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+            font-size: 15px;
+        }
+
+        .form-select,
+        .form-input,
+        .form-textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 15px;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        .form-select:focus,
+        .form-input:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 200px;
+            line-height: 1.6;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            flex: 1;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+            flex: 1;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result-preview {
+            display: none;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 0;
+            background: #f8f9fa;
+            min-height: 400px;
+            max-height: calc(100vh - 200px);
+            overflow: hidden;
+        }
+
+        .result-preview.active {
+            display: block;
+        }
+
+        .result-preview iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 600px;
+            border: none;
+            background: white;
+        }
+
+        .result-preview-content {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.active {
+            display: block;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* 옵션 카드 스크롤바 */
+        .option-cards::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        .option-cards::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        .option-cards::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 3px;
+        }
+
+        /* 스크롤바 */
+        .chat-messages::-webkit-scrollbar,
+        .left-panel::-webkit-scrollbar,
+        .right-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track,
+        .left-panel::-webkit-scrollbar-track,
+        .right-panel::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb,
+        .left-panel::-webkit-scrollbar-thumb,
+        .right-panel::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- 헤더 -->
+        <div class="header">
+            <div class="header-left">
+                <div class="bot-avatar">🤖</div>
+                <div class="header-info">
+                    <div class="bot-name">깐부 AI Agent 시스템</div>
+                    <div class="bot-status">
+                        <span class="status-dot"></span>
+                        <span>온라인 · 지금 바로 도와드릴 수 있어요</span>
+                    </div>
+                    <div class="tab-menu">
+                        <button class="tab-btn active" onclick="switchTab('chat')">💬 챗봇</button>
+                        <button class="tab-btn hidden" id="writerTabBtn" onclick="switchTab('writer')">📝 문서 작성</button>
+                        <button class="tab-btn hidden" id="uploadTabBtn" onclick="handleDocumentUpload()">📤 문서 업로드</button>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="session-info" id="sessionInfo" onclick="showSessionModal()" title="세션 변경">
+                    📌 세션: <span id="sessionIdDisplay">로딩 중...</span>
+                </div>
+                <button class="session-button" onclick="showSessionModal()">세션 변경</button>
+            </div>
+        </div>
+
+        <!-- 세션 변경 모달 -->
+        <div class="session-modal" id="sessionModal" onclick="closeSessionModal(event)">
+            <div class="session-modal-content" onclick="event.stopPropagation()">
+                <div class="session-modal-title">세션 변경</div>
+                <div class="session-input-group">
+                    <label class="session-input-label">새 세션 ID (비워두면 새로 생성)</label>
+                    <input type="text" id="newSessionId" class="session-input" placeholder="예: session_1001_abc123">
+                </div>
+                <div class="session-modal-buttons">
+                    <button class="session-btn session-btn-secondary" onclick="closeSessionModal()">취소</button>
+                    <button class="session-btn session-btn-primary" onclick="createNewSession()">새 세션 생성</button>
+                    <button class="session-btn session-btn-primary" onclick="changeSession()">세션 변경</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 콘텐츠 영역 -->
+        <div class="content-area">
+            <!-- 챗봇 탭 -->
+            <div id="chatTab" class="tab-content active">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message bot">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="message-bubble">
+                                안녕하세요! 👋<br>
+                                저는 깐부 AI 사내 도우미입니다.<br><br>
+                                어떤 도움이 필요하신가요? 아래 옵션 중 하나를 선택하거나 직접 질문해주세요!
+                            </div>
+                            <div class="message-time">지금</div>
+                        </div>
+                    </div>
+                    <div class="message bot">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="option-cards" id="optionCards">
+                                <div class="option-card" onclick="selectOption('스케줄')">
+                                    <div class="option-card-icon">📅</div>
+                                    <div class="option-card-title">스케줄</div>
+                                </div>
+                                <div class="option-card" onclick="selectOption('문서')">
+                                    <div class="option-card-icon">📝</div>
+                                    <div class="option-card-title">문서</div>
+                                </div>
+                                <div class="option-card" onclick="selectOption('Q&A')">
+                                    <div class="option-card-icon">❓</div>
+                                    <div class="option-card-title">Q&A</div>
+                                </div>
+                                <div class="option-card" onclick="selectOption('이메일')">
+                                    <div class="option-card-icon">📧</div>
+                                    <div class="option-card-title">이메일</div>
+                                </div>
+                                <div class="option-card" onclick="selectOption('기술')">
+                                    <div class="option-card-icon">🔬</div>
+                                    <div class="option-card-title">기술</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <textarea 
+                            id="chatInput" 
+                            class="chat-input" 
+                            placeholder="메시지를 입력하세요... (Enter: 전송, Shift+Enter: 줄바꿈)"
+                            rows="1"
+                            onkeydown="handleKeyPress(event)"
+                        ></textarea>
+                        <button class="send-button" onclick="sendMessage()">➤</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 문서 업로드 탭 -->
+            <div id="uploadTab" class="tab-content">
+                <div style="padding: 40px; max-width: 900px; margin: 0 auto; overflow-y: auto; height: 100%;">
+                    <h2 class="panel-title">📤 문서 업로드 (Milvus DB 저장)</h2>
+                    <div id="uploadAlertMessage" class="alert"></div>
+                    
+                    <form id="uploadForm" style="margin-top: 30px;">
+                        <!-- 문서 제목 입력 -->
+                        <div class="form-group">
+                            <label class="form-label">문서 제목 *</label>
+                            <input type="text" id="uploadDocumentTitle" class="form-input" placeholder="예: 2024년 신제품 개발 가이드라인" required>
+                            <p style="font-size: 12px; color: #666; margin-top: 5px;">⚠️ 동일한 제목의 문서가 있으면 기존 문서가 삭제되고 새로 저장됩니다.</p>
+                        </div>
+                        
+                        <!-- 파일 업로드 영역 -->
+                        <div class="form-group">
+                            <label class="form-label">문서 파일 *</label>
+                            <div class="file-upload-area" style="border: 2px dashed #667eea; border-radius: 12px; padding: 60px; text-align: center; background: #f8f9ff; cursor: pointer; transition: all 0.3s;" onclick="document.getElementById('fileInput').click()" onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background='#f8f9ff'">
+                                <div style="font-size: 64px; margin-bottom: 20px;">📎</div>
+                                <p style="color: #667eea; font-weight: 600; font-size: 18px; margin-bottom: 10px;">PDF 또는 Word 파일을 클릭하여 업로드</p>
+                                <p style="color: #999; font-size: 14px;">PDF (.pdf) 또는 Word (.docx) 파일만 가능</p>
+                                <input type="file" id="fileInput" accept=".pdf,.docx" style="display: none;" onchange="handleFileUpload(event)">
+                            </div>
+                            
+                            <!-- 선택된 파일 정보 -->
+                            <div id="uploadedFileInfo" style="margin-top: 20px; display: none;">
+                                <div style="background: white; border: 2px solid #667eea; border-radius: 8px; padding: 20px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                        <div>
+                                            <p id="fileName" style="font-weight: 600; color: #333; margin-bottom: 5px;"></p>
+                                            <p id="fileSize" style="color: #666; font-size: 14px;"></p>
+                                        </div>
+                                        <button type="button" onclick="clearSelectedFile()" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;">삭제</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 업로드 버튼 -->
+                        <button type="submit" class="btn btn-primary" id="uploadBtn">
+                            💾 Milvus DB에 저장 및 업데이트
+                        </button>
+                    </form>
+                    
+                    <!-- 업로드 진행 상태 -->
+                    <div id="uploadProgress" style="margin-top: 30px; display: none;">
+                        <div class="loading active">
+                            <div class="spinner"></div>
+                            <p id="uploadProgressText">문서를 처리하고 있습니다...</p>
+                            <p style="margin-top: 10px; color: #666; font-size: 14px;">잠시만 기다려주세요</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 안내 섹션 -->
+                    <div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                        <h3 style="margin-bottom: 15px; color: #2c3e50;">💡 문서 업로드 안내</h3>
+                        <ul style="color: #666; line-height: 1.8; padding-left: 20px;">
+                            <li><strong>문서 제목:</strong> 동일한 제목의 문서가 있으면 기존 문서가 삭제되고 새로 저장됩니다.</li>
+                            <li><strong>파일 형식:</strong> PDF (.pdf) 또는 Word (.docx) 파일만 업로드 가능합니다.</li>
+                            <li><strong>처리 과정:</strong> 파일 업로드 → 텍스트 추출 → 임베딩 생성 → Milvus DB 저장/업데이트</li>
+                            <li><strong>활용:</strong> 업로드된 문서는 AI가 문서 자동 작성 시 참고 자료로 활용됩니다.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 문서 작성 탭 -->
+            <div id="writerTab" class="tab-content">
+                <div class="document-writer-content">
+                    <div class="left-panel">
+                        <h2 class="panel-title">📝 문서 작성 요청</h2>
+                        <div id="alertMessage" class="alert"></div>
+                        <form id="documentForm">
+                            <div class="form-group">
+                                <label class="form-label">문서 양식 선택</label>
+                                <select id="templateSelect" class="form-select" required>
+                                    <option value="">-- 양식을 선택하세요 --</option>
+                                    <option value="product_development_plan">제품개발 계획서</option>
+                                    <option value="purchase_order">발주서</option>
+                                    <option value="hr_summary_report">인사정보 요약 리포트</option>
+                                    <option value="monthly_profit_analysis_report">월별 수익 분석 리포트</option>
+                                    <option value="work_performance_review">업무 성과 평가</option>
+                                    <option value="supplier_evaluation_form">공급업체 평가서</option>
+                                    <option value="contract_renewal_report">계약 갱신 보고서</option>
+                                    <option value="activity_based_costing">활동기준 원가 계산서</option>
+                                    <option value="project_schedule">프로젝트 일정표</option>
+                                    <option value="product_comparison_table">제품 비교표</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">문서 제목</label>
+                                <input type="text" id="documentTitle" class="form-input" placeholder="예: 2024년 신제품 개발 계획서" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">요구사항 (AI에게 전달할 지시사항)</label>
+                                <textarea id="requirements" class="form-textarea" placeholder="예:&#10;1. 신제품의 핵심 기능과 특징을 명확히 기술&#10;2. 개발 일정과 마일스톤을 포함&#10;3. 예산 계획과 리소스 배분 명시&#10;4. 마케팅 전략과 출시 계획 포함" required></textarea>
+                            </div>
+                            <div class="form-group">
+                                <div class="checkbox-group">
+                                    <input type="checkbox" id="useRAG" checked>
+                                    <label for="useRAG">문서 검색 및 참조</label>
+                                </div>
+                                <input type="text" id="searchKeyword" class="form-input" placeholder="검색 키워드 (선택사항)" style="margin-top: 10px;">
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="generateBtn">
+                                ✨ AI 문서 작성 시작
+                            </button>
+                        </form>
+                        <div class="loading" id="loadingDiv">
+                            <div class="spinner"></div>
+                            <p>AI가 문서를 작성하고 있습니다...</p>
+                            <p style="margin-top: 10px; color: #666; font-size: 14px;">잠시만 기다려주세요</p>
+                        </div>
+                    </div>
+                    <div class="right-panel">
+                        <h2 class="panel-title">📄 생성된 문서 미리보기</h2>
+                        <div id="placeholderMessage" style="text-align: center; padding: 100px 20px; color: #999;">
+                            <div style="font-size: 64px; margin-bottom: 20px;">📋</div>
+                            <p style="font-size: 18px;">좌측에서 문서 작성 요청을 시작하세요</p>
+                            <p style="font-size: 14px; margin-top: 10px;">AI가 요구사항을 분석하여 문서를 자동 생성합니다</p>
+                        </div>
+                        <div class="result-preview" id="resultPreview"></div>
+                        <div class="action-buttons" id="actionButtons" style="display: none;">
+                            <button class="btn btn-secondary" onclick="copyToClipboard()">📋 클립보드 복사</button>
+                            <button class="btn btn-success" onclick="convertToPDF()">💾 PDF 변환 및 저장</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 상대 경로 사용 (같은 서버에서 서빙되므로)
+        const API_URL = '/api/chat';
+        
+        // 세션 ID 관리 (멀티턴 대화 지원)
+        let currentSessionId = localStorage.getItem('chat_session_id');
+        if (!currentSessionId) {
+            // 초기 세션은 employee_id 기반으로 생성
+            currentSessionId = 'session_1001_' + Date.now().toString(36);
+            localStorage.setItem('chat_session_id', currentSessionId);
+        }
+        
+        // 세션 ID 표시 업데이트
+        function updateSessionDisplay() {
+            const displayElement = document.getElementById('sessionIdDisplay');
+            if (displayElement) {
+                // 세션 ID를 짧게 표시 (마지막 12자만)
+                const shortId = currentSessionId.length > 20 
+                    ? '...' + currentSessionId.slice(-12) 
+                    : currentSessionId;
+                displayElement.textContent = shortId;
+            }
+        }
+        
+        // 페이지 로드 시 세션 ID 표시
+        updateSessionDisplay();
+        
+        // 세션 정보 조회
+        async function loadSessionInfo() {
+            try {
+                const response = await fetch(`/api/session/current/${currentSessionId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const displayElement = document.getElementById('sessionIdDisplay');
+                    if (displayElement) {
+                        const shortId = currentSessionId.length > 20 
+                            ? '...' + currentSessionId.slice(-12) 
+                            : currentSessionId;
+                        displayElement.textContent = `${shortId} (${data.message_count}개 대화)`;
+                    }
+                }
+            } catch (error) {
+                console.error('세션 정보 조회 실패:', error);
+            }
+        }
+        
+        // 페이지 로드 시 세션 정보 조회
+        loadSessionInfo();
+        
+        // 세션 모달 표시
+        function showSessionModal() {
+            document.getElementById('sessionModal').classList.add('active');
+            document.getElementById('newSessionId').value = '';
+        }
+        
+        // 세션 모달 닫기
+        function closeSessionModal(event) {
+            if (!event || event.target.id === 'sessionModal') {
+                document.getElementById('sessionModal').classList.remove('active');
+            }
+        }
+        
+        // 새 세션 생성
+        async function createNewSession() {
+            try {
+                const response = await fetch('/api/session/new', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ employee_id: 1001 })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentSessionId = data.session_id;
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                    updateSessionDisplay();
+                    closeSessionModal();
+                    
+                    // 채팅 메시지 초기화
+                    document.getElementById('chatMessages').innerHTML = '';
+                    
+                    alert('새 세션이 생성되었습니다.');
+                } else {
+                    alert('세션 생성에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('세션 생성 실패:', error);
+                alert('세션 생성 중 오류가 발생했습니다.');
+            }
+        }
+        
+        // 세션 변경
+        async function changeSession() {
+            const newSessionId = document.getElementById('newSessionId').value.trim();
+            
+            if (!newSessionId) {
+                alert('세션 ID를 입력해주세요.');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/session/change', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        session_id: newSessionId,
+                        employee_id: 1001 
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentSessionId = data.session_id;
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                    updateSessionDisplay();
+                    loadSessionInfo();
+                    closeSessionModal();
+                    
+                    // 채팅 메시지 초기화
+                    document.getElementById('chatMessages').innerHTML = '';
+                    
+                    alert(`세션이 변경되었습니다. (대화 ${data.message_count}개)`);
+                } else {
+                    alert('세션 변경에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('세션 변경 실패:', error);
+                alert('세션 변경 중 오류가 발생했습니다.');
+            }
+        }
+        
+        // 세션 초기화 버튼 (선택적, 개발용)
+        function resetSession() {
+            if (confirm('세션을 초기화하시겠습니까? 이전 대화 내용이 삭제됩니다.')) {
+                localStorage.removeItem('chat_session_id');
+                createNewSession();
+            }
+        }
+
+        // 탭 전환
+        function switchTab(tabName) {
+            // 탭 버튼 상태 변경
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            if (tabName === 'chat') {
+                document.querySelector('.tab-btn[onclick="switchTab(\'chat\')"]').classList.add('active');
+                document.getElementById('chatTab').classList.add('active');
+                document.getElementById('chatInput').focus();
+            } else if (tabName === 'writer') {
+                // 문서 작성 탭 버튼이 숨겨져 있으면 표시
+                const writerTabBtn = document.getElementById('writerTabBtn');
+                if (writerTabBtn && writerTabBtn.classList.contains('hidden')) {
+                    writerTabBtn.classList.remove('hidden');
+                }
+                writerTabBtn.classList.add('active');
+                document.getElementById('writerTab').classList.add('active');
+            } else if (tabName === 'upload') {
+                // 문서 업로드 탭 버튼이 숨겨져 있으면 표시
+                const uploadTabBtn = document.getElementById('uploadTabBtn');
+                if (uploadTabBtn && uploadTabBtn.classList.contains('hidden')) {
+                    uploadTabBtn.classList.remove('hidden');
+                }
+                uploadTabBtn.classList.add('active');
+                document.getElementById('uploadTab').classList.add('active');
+            }
+        }
+
+        // 문서 업로드 탭 열기 함수
+        function handleDocumentUpload() {
+            switchTab('upload');
+        }
+
+        // 파일 선택 처리
+        let selectedFile = null;
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.match(/\.(pdf|docx)$/i)) {
+                showUploadAlert('PDF 또는 DOCX 파일만 업로드 가능합니다.', 'error');
+                document.getElementById('fileInput').value = '';
+                return;
+            }
+
+            selectedFile = file;
+            const fileInfo = document.getElementById('uploadedFileInfo');
+            const fileName = document.getElementById('fileName');
+            const fileSize = document.getElementById('fileSize');
+
+            fileName.textContent = `📄 ${file.name}`;
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            fileSize.textContent = `파일 크기: ${sizeMB} MB`;
+            fileInfo.style.display = 'block';
+
+            showUploadAlert(`'${file.name}' 파일이 선택되었습니다. 문서 제목을 입력하고 업로드 버튼을 클릭하세요.`, 'success');
+        }
+
+        // 선택된 파일 삭제
+        function clearSelectedFile() {
+            selectedFile = null;
+            document.getElementById('uploadedFileInfo').style.display = 'none';
+            document.getElementById('fileInput').value = '';
+            showUploadAlert('선택된 파일이 삭제되었습니다.', 'success');
+        }
+
+        // 업로드 폼 제출 처리
+        document.getElementById('uploadForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const documentTitle = document.getElementById('uploadDocumentTitle').value.trim();
+            if (!documentTitle) {
+                showUploadAlert('문서 제목을 입력해주세요.', 'error');
+                return;
+            }
+
+            if (!selectedFile) {
+                showUploadAlert('파일을 선택해주세요.', 'error');
+                return;
+            }
+
+            await uploadToVectorDB(documentTitle, selectedFile);
+        });
+
+        // Milvus DB에 업로드
+        async function uploadToVectorDB(documentTitle, file) {
+            const uploadBtn = document.getElementById('uploadBtn');
+            const uploadProgress = document.getElementById('uploadProgress');
+            const uploadProgressText = document.getElementById('uploadProgressText');
+            
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = '업로드 중...';
+            uploadProgress.style.display = 'block';
+            uploadProgressText.textContent = '파일을 업로드하고 있습니다...';
+            hideUploadAlert();
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('document_title', documentTitle);
+                formData.append('employee_id', '1001'); // 현재 사용자 ID
+
+                uploadProgressText.textContent = '텍스트를 추출하고 있습니다...';
+                const response = await fetch('/api/upload-document', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status} 오류` }));
+                    throw new Error(errorData.detail || `서버 오류: ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                uploadProgressText.textContent = '임베딩을 생성하고 Milvus DB에 저장하고 있습니다...';
+                
+                // 성공 메시지
+                if (result.ok) {
+                    showUploadAlert(`'${result.document_title}' 문서가 성공적으로 Milvus DB에 저장/업데이트되었습니다! ✅`, 'success');
+                    
+                    // 폼 초기화
+                    document.getElementById('uploadForm').reset();
+                    document.getElementById('uploadedFileInfo').style.display = 'none';
+                    selectedFile = null;
+                } else {
+                    throw new Error(result.message || '업로드 실패');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showUploadAlert(`업로드 실패: ${error.message}\n\n서버가 실행 중인지 확인해주세요.`, 'error');
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = '💾 Milvus DB에 저장 및 업데이트';
+                uploadProgress.style.display = 'none';
+            }
+        }
+
+        // 업로드 알림 표시
+        function showUploadAlert(message, type) {
+            const alertDiv = document.getElementById('uploadAlertMessage');
+            alertDiv.innerHTML = message.replace(/\n/g, '<br>');
+            alertDiv.className = `alert alert-${type} active`;
+            
+            setTimeout(() => {
+                hideUploadAlert();
+            }, 8000);
+        }
+
+        function hideUploadAlert() {
+            const alertDiv = document.getElementById('uploadAlertMessage');
+            alertDiv.classList.remove('active');
+        }
+
+        // ===== 챗봇 기능 =====
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function selectOption(option) {
+            if (option === '문서 작성 폼' || option.includes('폼')) {
+                switchTab('writer');
+                return;
+            }
+            
+            // 문서 옵션 선택 시 문서 관련 작업 메뉴 표시 (채팅 화면 유지)
+            if (option === '문서') {
+                addUserMessage(option);
+                showDocumentMenu();
+                return;
+            }
+            
+            addUserMessage(option);
+            handleBotResponse(option);
+        }
+
+        // 문서 작성 메뉴 표시 함수 (채팅 화면 유지)
+        function showDocumentMenu() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const optionCards = document.getElementById('optionCards');
+            if (optionCards) {
+                optionCards.style.display = 'none';
+            }
+            
+            // 문서 작성 탭 버튼 표시 (헤더에 나타나도록)
+            const writerTabBtn = document.getElementById('writerTabBtn');
+            if (writerTabBtn && writerTabBtn.classList.contains('hidden')) {
+                writerTabBtn.classList.remove('hidden');
+            }
+            
+            // 문서 업로드 탭 버튼 표시 (헤더에 나타나도록)
+            const uploadTabBtn = document.getElementById('uploadTabBtn');
+            if (uploadTabBtn && uploadTabBtn.classList.contains('hidden')) {
+                uploadTabBtn.classList.remove('hidden');
+            }
+            
+            // 타이핑 인디케이터
+            showTypingIndicator();
+            
+            setTimeout(() => {
+                hideTypingIndicator();
+                
+                // 봇 응답 메시지
+                const botMessage = document.createElement('div');
+                botMessage.className = 'message bot';
+                const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                
+                botMessage.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble">
+                            어떤 문서 작업을 진행하시겠어요? 원하시는 작업을 선택해주세요! 📝
+                        </div>
+                        <div class="option-cards" id="documentMenuCards">
+                            <div class="option-card" onclick="selectDocumentAction('제품개발 계획서 작성')">
+                                <div class="option-card-icon">📊</div>
+                                <div class="option-card-title">제품개발 계획서</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('발주서 작성')">
+                                <div class="option-card-icon">🛒</div>
+                                <div class="option-card-title">발주서</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('인사정보 리포트 작성')">
+                                <div class="option-card-icon">👥</div>
+                                <div class="option-card-title">인사정보 리포트</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('수익 분석 리포트 작성')">
+                                <div class="option-card-icon">📈</div>
+                                <div class="option-card-title">수익 분석 리포트</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('업무 성과 평가 작성')">
+                                <div class="option-card-icon">⭐</div>
+                                <div class="option-card-title">업무 성과 평가</div>
+                            </div>
+                            <div class="option-card" onclick="selectDocumentAction('문서 작성 폼 열기')">
+                                <div class="option-card-icon">📝</div>
+                                <div class="option-card-title">상세 작성 폼</div>
+                            </div>
+                        </div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+                
+                messagesContainer.appendChild(botMessage);
+                scrollToBottom();
+            }, 1000);
+        }
+        
+        // 문서 작업 선택 함수
+        function selectDocumentAction(action) {
+            if (action === '문서 작성 폼 열기') {
+                // 문서 작성 탭 버튼 표시
+                const writerTabBtn = document.getElementById('writerTabBtn');
+                if (writerTabBtn) {
+                    writerTabBtn.classList.remove('hidden');
+                }
+                switchTab('writer');
+                return;
+            }
+            
+            addUserMessage(action);
+            
+            // 문서 메뉴 카드 숨기기
+            const documentMenuCards = document.getElementById('documentMenuCards');
+            if (documentMenuCards) {
+                documentMenuCards.style.display = 'none';
+            }
+            
+            // 선택한 작업에 따라 처리
+            handleBotResponse(action);
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+
+            addUserMessage(message);
+            input.value = '';
+            input.style.height = 'auto';
+            
+            handleBotResponse(message);
+        }
+
+        function addUserMessage(text) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message user';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">👤</div>
+                <div class="message-content">
+                    <div class="message-bubble">${text}</div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+            
+            const optionCards = document.getElementById('optionCards');
+            if (optionCards) {
+                optionCards.style.display = 'none';
+            }
+        }
+
+        // 상태 메시지를 표시하는 함수
+        let statusMessageElement = null;
+        
+        function showStatusMessage(message) {
+            const messagesContainer = document.getElementById('chatMessages');
+            
+            // 기존 상태 메시지가 있으면 업데이트, 없으면 생성
+            if (!statusMessageElement) {
+                statusMessageElement = document.createElement('div');
+                statusMessageElement.className = 'message bot status-message';
+                statusMessageElement.style.opacity = '0.7';
+                statusMessageElement.style.fontStyle = 'italic';
+                
+                const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                statusMessageElement.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble" id="statusMessageContent">${message}</div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+                messagesContainer.appendChild(statusMessageElement);
+            } else {
+                const statusContent = document.getElementById('statusMessageContent');
+                if (statusContent) {
+                    statusContent.textContent = message;
+                }
+            }
+            scrollToBottom();
+        }
+        
+        function hideStatusMessage() {
+            if (statusMessageElement) {
+                statusMessageElement.remove();
+                statusMessageElement = null;
+            }
+        }
+
+        async function handleBotResponse(userMessage) {
+            showTypingIndicator();
+
+            try {
+                if (userMessage === '문서 작성' || userMessage.includes('문서 작성')) {
+                    setTimeout(() => {
+                        hideTypingIndicator();
+                        addBotMessage('문서 작성을 시작하시겠어요? 어떤 문서가 필요하신지 알려주세요! 📝<br><br>또는 상단의 "📝 문서 작성" 탭을 클릭하여 상세한 문서 작성 폼을 사용할 수 있습니다.', [
+                            '제품개발 계획서',
+                            '발주서',
+                            '인사정보 리포트',
+                            '수익 분석 리포트',
+                            '문서 작성 폼 열기'
+                        ]);
+                    }, 1000);
+                    return;
+                }
+
+                const payload = {
+                    query: userMessage,
+                    session_id: currentSessionId,  // 세션 ID 유지 (멀티턴 대화 지원)
+                    employee_id: 1001
+                };
+
+                // 스트리밍 엔드포인트 사용
+                const response = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let finalResult = null;
+
+                hideTypingIndicator();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // 마지막 불완전한 라인은 버퍼에 보관
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.type === 'status') {
+                                    // 상태 메시지 표시
+                                    showStatusMessage(data.message);
+                                } else if (data.type === 'complete') {
+                                    // 최종 결과 처리
+                                    finalResult = data;
+                                    hideStatusMessage();
+                                    
+                                    // 세션 ID 업데이트
+                                    if (data.session_id && data.session_id !== currentSessionId) {
+                                        currentSessionId = data.session_id;
+                                        localStorage.setItem('chat_session_id', currentSessionId);
+                                        console.log('세션 ID 업데이트:', currentSessionId);
+                                    }
+                                    
+                                    const botMessage = data.message || '죄송합니다. 응답을 생성할 수 없습니다.';
+                                    const documentPath = data.document_path;
+                                    const requiresInput = data.requires_input || false;
+                                    const recruitmentCards = data.recruitment_cards || null;
+                                    
+                                    // 디버깅 로그
+                                    console.log('📋 [프론트엔드] 응답 데이터:', {
+                                        message: botMessage,
+                                        hasRecruitmentCards: !!recruitmentCards,
+                                        recruitmentCardsLength: recruitmentCards ? recruitmentCards.length : 0,
+                                        recruitmentCards: recruitmentCards
+                                    });
+                                    
+                                    // 채용 카드가 있는 경우 카드 형식으로 표시 (최우선)
+                                    if (recruitmentCards && recruitmentCards.length > 0) {
+                                        console.log('✅ 채용 인재 카드 표시:', recruitmentCards.length, '개');
+                                        addRecruitmentCards(botMessage, recruitmentCards);
+                                    }
+                                    // 사용자 입력이 필요한 경우 (예시문 표시)
+                                    else if (requiresInput || (botMessage && (botMessage.includes('📋') || botMessage.includes('예시') || botMessage.includes('입력 형식')))) {
+                                        console.log('✅ 예시문 표시 (requires_input 또는 예시 키워드 감지)');
+                                        // 예시문만 표시 (입력 폼 없음)
+                                        addBotMessage(botMessage);
+                                    }
+                                    // HTML 문서가 생성된 경우 채팅창에 표시 (예시문이 아닐 때만)
+                                    else if (documentPath || (botMessage && (botMessage.includes('<!DOCTYPE') || botMessage.includes('<html') || botMessage.length > 5000))) {
+                                        console.log('✅ HTML 문서 표시');
+                                        await addHTMLDocumentToChat(botMessage, documentPath);
+                                    } else if (botMessage.includes('문서') || botMessage.includes('작성') || botMessage.includes('계획서')) {
+                                        addBotMessage(botMessage, ['자세히 알려주세요', '문서 작성 폼 열기']);
+                                    } else {
+                                        console.log('⚠️ 채용 카드가 없거나 비어있습니다. 일반 메시지로 표시.');
+                                        addBotMessage(botMessage, []);
+                                    }
+                                } else if (data.type === 'error') {
+                                    hideStatusMessage();
+                                    addBotMessage(data.message, ['다시 시도']);
+                                }
+                            } catch (e) {
+                                console.error('JSON 파싱 오류:', e, line);
+                            }
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                hideTypingIndicator();
+                hideStatusMessage();
+                
+                let errorMessage = '죄송합니다. 오류가 발생했습니다.\n\n';
+                if (error.message === 'Failed to fetch') {
+                    errorMessage += '서버에 연결할 수 없습니다. 다음을 확인해주세요:\n';
+                    errorMessage += '1. FastAPI 서버가 실행 중인지 확인 (uvicorn fastapi_app:app --reload)\n';
+                    errorMessage += '2. 서버 주소가 올바른지 확인\n';
+                    errorMessage += '3. 네트워크 연결 상태 확인\n\n';
+                    errorMessage += '또는 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.';
+                } else {
+                    errorMessage += `오류 내용: ${error.message}\n\n`;
+                    errorMessage += '서버가 실행 중인지 확인해주세요.';
+                }
+                
+                addBotMessage(errorMessage, ['다시 시도', '문서 작성 폼 열기']);
+            }
+        }
+
+        function addBotMessage(text, quickReplies = []) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            let quickRepliesHTML = '';
+            if (quickReplies.length > 0) {
+                quickRepliesHTML = '<div class="quick-replies">' +
+                    quickReplies.map(reply => {
+                        const onclick = reply === '문서 작성 폼 열기' ? "switchTab('writer')" : `selectOption('${reply}')`;
+                        return `<button class="quick-reply-btn" onclick="${onclick}">${reply}</button>`;
+                    }).join('') +
+                    '</div>';
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble">${text}</div>
+                    ${quickRepliesHTML}
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // HTML 문서를 채팅창에 표시하는 함수
+        async function addHTMLDocumentToChat(botMessage, documentPath) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            let htmlContent = null;
+            
+            // 1. document_path가 있으면 파일을 직접 로드
+            if (documentPath) {
+                try {
+                    const filename = documentPath.split(/[/\\]/).pop();
+                    const fileResponse = await fetch(`/api/documents/${filename}`);
+                    if (fileResponse.ok) {
+                        htmlContent = await fileResponse.text();
+                        console.log('✅ HTML 파일 로드 성공:', filename);
+                    }
+                } catch (error) {
+                    console.error('파일 로드 실패:', error);
+                }
+            }
+            
+            // 2. 파일 로드 실패 시 메시지에서 HTML 추출
+            if (!htmlContent && botMessage) {
+                const trimmedMessage = botMessage.trim();
+                const isHTML = trimmedMessage.match(/^\s*<!DOCTYPE\s+html/i) || 
+                               trimmedMessage.match(/^\s*<html/i) ||
+                               (trimmedMessage.includes('<!DOCTYPE') && trimmedMessage.includes('<html')) ||
+                               (trimmedMessage.includes('<html') && trimmedMessage.includes('</html>')) ||
+                               trimmedMessage.length > 5000;
+                
+                if (isHTML) {
+                    htmlContent = botMessage;
+                    console.log('✅ 메시지에서 HTML 감지');
+                }
+            }
+            
+            // 3. HTML이 있으면 iframe으로 렌더링
+            if (htmlContent) {
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble" style="padding: 0; max-width: 100%; overflow: hidden;">
+                            <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <iframe 
+                                    srcdoc='${htmlContent.replace(/'/g, "&#39;")}'
+                                    style="width: 100%; height: 600px; border: none; display: block;"
+                                    scrolling="auto"
+                                ></iframe>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                                📄 생성된 문서가 위에 표시됩니다. 문서를 스크롤하여 전체 내용을 확인하세요.
+                            </div>
+                        </div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+            } else {
+                // HTML이 없으면 일반 메시지로 표시
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-bubble">${botMessage}</div>
+                        <div class="message-time">${now}</div>
+                    </div>
+                `;
+            }
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        function showTypingIndicator() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message bot';
+            typingDiv.id = 'typingIndicator';
+            
+            typingDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="typing-indicator active">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(typingDiv);
+            scrollToBottom();
+        }
+
+        function hideTypingIndicator() {
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+        }
+
+        function scrollToBottom() {
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // 채용 인재 카드 표시 함수
+        function addRecruitmentCards(message, cards) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            let cardsHTML = '<div class="recruitment-cards-container">';
+            cards.forEach(card => {
+                const preview = card.preview || '';
+                const title = card.title || '이력서 제목 없음';
+                const score = card.score || 0;
+                
+                // HTML 이스케이프 처리
+                const safeTitle = title.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+                const safePreview = preview.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+                
+                cardsHTML += `
+                    <div class="recruitment-card" onclick="showResumeDetail(${card.id}, '${safeTitle}')">
+                        <div class="recruitment-card-header">
+                            <h3 class="recruitment-card-title">${title}</h3>
+                            <span class="recruitment-card-score">매칭도: ${score}</span>
+                        </div>
+                        <div class="recruitment-card-preview">
+                            ${safePreview.length > 150 ? safePreview.substring(0, 150) + '...' : safePreview}
+                        </div>
+                        <div class="recruitment-card-footer">
+                            <span class="recruitment-card-click">클릭하여 상세 정보 보기 →</span>
+                        </div>
+                    </div>
+                `;
+            });
+            cardsHTML += '</div>';
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble">
+                        <div class="recruitment-message">${message}</div>
+                        ${cardsHTML}
+                    </div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // 이력서 상세 정보 표시 함수
+        function showResumeDetail(cardId, documentTitle) {
+            console.log('📋 [카드 클릭] cardId:', cardId, 'documentTitle:', documentTitle);
+            
+            // 카드 클릭 시 상세 정보만 요청 (요약 키워드 제거)
+            let query = `${cardId}번`;
+            
+            if (documentTitle && documentTitle !== '이력서 제목 없음') {
+                // 제목에서 이름 패턴 추출 (한글 이름 2-4자)
+                const nameMatch = documentTitle.match(/[가-힣]{2,4}/);
+                if (nameMatch) {
+                    const name = nameMatch[0];
+                    // 숫자와 이름만 전달 (요약 키워드 제거)
+                    query = `${cardId}번 ${name}`;
+                    console.log('✅ [카드 클릭] 이름 추출:', name, '-> 쿼리:', query);
+                } else {
+                    // 이름이 없으면 숫자만 전달
+                    query = `${cardId}번`;
+                    console.log('✅ [카드 클릭] 숫자만 전달:', query);
+                }
+            }
+            
+            // 입력 필드에 자동 입력 (chatInput ID 사용)
+            const inputField = document.getElementById('chatInput');
+            if (inputField) {
+                inputField.value = query;
+                console.log('✅ [카드 클릭] 입력 필드에 쿼리 설정:', query);
+            } else {
+                console.error('❌ [카드 클릭] 입력 필드를 찾을 수 없습니다.');
+            }
+            
+            // 메시지 전송
+            sendMessage();
+        }
+
+        // ===== 문서 작성 기능 =====
+        document.getElementById('documentForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const template = document.getElementById('templateSelect').value;
+            const title = document.getElementById('documentTitle').value;
+            const requirements = document.getElementById('requirements').value;
+            const useRAG = document.getElementById('useRAG').checked;
+            const keyword = document.getElementById('searchKeyword').value;
+
+            if (!template) {
+                showAlert('문서 양식을 선택해주세요.', 'error');
+                return;
+            }
+
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('loadingDiv').classList.add('active');
+            document.getElementById('resultPreview').classList.remove('active');
+            document.getElementById('placeholderMessage').style.display = 'none';
+            document.getElementById('actionButtons').style.display = 'none';
+            hideAlert();
+
+            try {
+                let query = `문서 작성해줘. 양식: ${template}, 제목: ${title}. 요구사항: ${requirements}`;
+                if (useRAG) {
+                    if (keyword) {
+                        query += ` (${keyword} 관련 이전 문서 참조해줘)`;
+                    } else {
+                        query += ` (이전 유사 문서 참조해줘)`;
+                    }
+                }
+
+                // 문서 작성도 같은 세션 ID 사용 (멀티턴 대화 지원)
+                // currentSessionId가 없으면 새로 생성하되, localStorage에 저장
+                if (!currentSessionId) {
+                    currentSessionId = 'chat_session_' + Date.now();
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                }
+                
+                const payload = {
+                    query: query,
+                    session_id: currentSessionId,  // 챗봇과 동일한 세션 ID 사용
+                    employee_id: 1001
+                };
+
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const aiMessage = result.message || '문서 생성에 실패했습니다.';
+                let documentPath = result.document_path;
+
+                // 세션 ID 업데이트 (서버에서 반환된 세션 ID 사용, 멀티턴 대화 지원)
+                if (result.session_id && result.session_id !== currentSessionId) {
+                    currentSessionId = result.session_id;
+                    localStorage.setItem('chat_session_id', currentSessionId);
+                    console.log('문서 작성 세션 ID 업데이트:', currentSessionId);
+                }
+
+                console.log('서버 응답:', { documentPath, messageLength: aiMessage?.length, messagePreview: aiMessage?.substring(0, 200), sessionId: result.session_id });
+
+                // 결과 표시 - HTML 문서 렌더링
+                const previewDiv = document.getElementById('resultPreview');
+                previewDiv.innerHTML = ''; // 기존 내용 제거
+                
+                let htmlContent = null;
+                
+                // 1. document_path가 있으면 파일을 직접 로드 시도
+                if (documentPath) {
+                    // 파일명만 추출 (경로에서)
+                    const filename = documentPath.split(/[/\\]/).pop();
+                    console.log('📁 파일명 추출:', filename);
+                    
+                    try {
+                        const fileResponse = await fetch(`/api/documents/${encodeURIComponent(filename)}`);
+                        if (fileResponse.ok) {
+                            htmlContent = await fileResponse.text();
+                            console.log('✅ 파일 로드 성공, 길이:', htmlContent.length);
+                            
+                            // 파일 내용이 HTML인지 확인
+                            if (htmlContent.trim().match(/^\s*<!DOCTYPE\s+html/i) || htmlContent.trim().match(/^\s*<html/i)) {
+                                console.log('✅ 파일 내용이 HTML로 확인됨');
+                            } else {
+                                console.warn('⚠️ 파일 내용이 HTML로 보이지 않음');
+                            }
+                        } else {
+                            console.error('❌ 파일 로드 실패, 상태:', fileResponse.status);
+                            const errorText = await fileResponse.text();
+                            console.error('에러 내용:', errorText);
+                        }
+                    } catch (error) {
+                        console.error('❌ 파일 로드 오류:', error);
+                    }
+                }
+                
+                // 2. 파일 로드 실패 시 메시지에서 HTML 추출 시도
+                if (!htmlContent && aiMessage) {
+                    const trimmedMessage = aiMessage.trim();
+                    
+                    // HTML 문서인지 확인 (매우 넓은 범위로)
+                    const isHTML = trimmedMessage.match(/^\s*<!DOCTYPE\s+html/i) || 
+                                   trimmedMessage.match(/^\s*<html/i) ||
+                                   (trimmedMessage.includes('<!DOCTYPE') && trimmedMessage.includes('<html')) ||
+                                   (trimmedMessage.includes('<html') && trimmedMessage.includes('</html>')) ||
+                                   (trimmedMessage.includes('<html lang=')) ||
+                                   (trimmedMessage.startsWith('<!DOCTYPE')) ||
+                                   (trimmedMessage.startsWith('<html'));
+                    
+                    // 메시지가 매우 길면 (5000자 이상) HTML로 간주
+                    if (trimmedMessage.length > 5000 && trimmedMessage.includes('<')) {
+                        htmlContent = aiMessage;
+                        console.log('✅ 긴 메시지를 HTML로 간주, 길이:', htmlContent.length);
+                    } else if (isHTML) {
+                        htmlContent = aiMessage;
+                        console.log('✅ 메시지에서 HTML 감지, 길이:', htmlContent.length);
+                    } else {
+                        console.log('❌ HTML 감지 실패. 메시지 시작:', trimmedMessage.substring(0, 200));
+                        console.log('메시지 길이:', trimmedMessage.length);
+                    }
+                }
+                
+                // 3. HTML이 있으면 무조건 iframe으로 렌더링 (텍스트로 표시 절대 금지!)
+                if (htmlContent) {
+                    console.log('🚀 HTML 렌더링 시작, 길이:', htmlContent.length);
+                    
+                    // 기존 내용 완전히 제거
+                    previewDiv.innerHTML = '';
+                    
+                    const iframe = document.createElement('iframe');
+                    iframe.srcdoc = htmlContent;
+                    iframe.style.width = '100%';
+                    iframe.style.height = '100%';
+                    iframe.style.minHeight = '600px';
+                    iframe.style.border = 'none';
+                    iframe.style.background = 'white';
+                    
+                    previewDiv.appendChild(iframe);
+                    previewDiv.classList.add('active');
+                    document.getElementById('placeholderMessage').style.display = 'none';
+                    document.getElementById('actionButtons').style.display = 'flex';
+                    showAlert('문서가 성공적으로 생성되었습니다!', 'success');
+                } else {
+                    // HTML이 아닌 일반 텍스트인 경우에만 텍스트로 표시
+                    console.log('📝 일반 텍스트로 표시');
+                    console.log('메시지 전체:', aiMessage);
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'result-preview-content';
+                    contentDiv.textContent = aiMessage;
+                    previewDiv.innerHTML = '';
+                    previewDiv.appendChild(contentDiv);
+                    previewDiv.classList.add('active');
+                    document.getElementById('placeholderMessage').style.display = 'none';
+                    showAlert('문서 생성이 완료되었습니다.', 'success');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                
+                let errorMessage = '';
+                if (error.message === 'Failed to fetch') {
+                    errorMessage = '서버에 연결할 수 없습니다.\n\n';
+                    errorMessage += '다음을 확인해주세요:\n';
+                    errorMessage += '1. FastAPI 서버가 실행 중인지 확인\n';
+                    errorMessage += '  (터미널에서: uvicorn fastapi_app:app --reload)\n';
+                    errorMessage += '2. 서버 주소가 올바른지 확인\n';
+                    errorMessage += '3. 브라우저 콘솔(F12)에서 자세한 오류 확인\n\n';
+                    errorMessage += '개발 환경에서는 http://localhost:8000 에서 서버를 실행해야 합니다.';
+                    showAlert('서버 연결 실패. 서버가 실행 중인지 확인해주세요.', 'error');
+                } else {
+                    errorMessage = `오류 발생: ${error.message}\n\n서버가 실행 중인지 확인해주세요.`;
+                    showAlert(`오류 발생: ${error.message}`, 'error');
+                }
+                
+                const previewDiv = document.getElementById('resultPreview');
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'result-preview-content';
+                contentDiv.textContent = errorMessage;
+                previewDiv.innerHTML = '';
+                previewDiv.appendChild(contentDiv);
+                previewDiv.classList.add('active');
+            } finally {
+                document.getElementById('loadingDiv').classList.remove('active');
+                document.getElementById('generateBtn').disabled = false;
+            }
+        });
+
+        function copyToClipboard() {
+            const previewDiv = document.getElementById('resultPreview');
+            let content = '';
+            
+            // iframe이 있으면 iframe 내용 가져오기
+            const iframe = previewDiv.querySelector('iframe');
+            if (iframe && iframe.contentDocument) {
+                content = iframe.contentDocument.documentElement.outerHTML;
+            } else {
+                // 일반 텍스트 또는 HTML
+                const contentDiv = previewDiv.querySelector('.result-preview-content');
+                if (contentDiv) {
+                    content = contentDiv.textContent;
+                } else {
+                    content = previewDiv.textContent;
+                }
+            }
+            
+            navigator.clipboard.writeText(content).then(() => {
+                showAlert('클립보드에 복사되었습니다!', 'success');
+            }).catch(err => {
+                console.error('복사 실패:', err);
+                showAlert('복사에 실패했습니다.', 'error');
+            });
+        }
+
+        function convertToPDF() {
+            showAlert('PDF 변환 기능은 개발 예정입니다. 곧 제공될 예정입니다.', 'success');
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.getElementById('alertMessage');
+            alertDiv.textContent = message;
+            alertDiv.className = `alert alert-${type} active`;
+            
+            setTimeout(() => {
+                hideAlert();
+            }, 5000);
+        }
+
+        function hideAlert() {
+            const alertDiv = document.getElementById('alertMessage');
+            alertDiv.classList.remove('active');
+        }
+
+        // 입력창 높이 자동 조절
+        const chatInput = document.getElementById('chatInput');
+        chatInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+        });
+
+        // 초기 포커스
+        chatInput.focus();
+    </script>
+</body>
+</html>
