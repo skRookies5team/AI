@@ -243,7 +243,7 @@ def classify_intent_with_llm(
 		if route_type in ["qa", "supervisor", "email", "tech", "schedule", "document"]:
 			try:
 				from agents.master_graphs.email.email_search_agent import has_pending_email_results
-				from agents.master_graphs.tech.tech_patent_agent import has_pending_patent_results
+				from agents.master_graphs.tech.patent.patent_config import has_pending_patent_results
 				from agents.master_graphs.tech.tech_article_agent import has_pending_article_results
 
 				has_email = has_pending_email_results(session_id) if session_id else False
