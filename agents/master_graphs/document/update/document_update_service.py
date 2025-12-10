@@ -498,10 +498,14 @@ def upsert_to_milvus(
     
     try:
         # Milvus 컬렉션 확인/생성
+        print(f"🔍 [Document Update] Milvus 컬렉션 확인/생성 중: {collection_name}")
         collection = ensure_milvus_collection(collection_name)
+        print(f"✅ [Document Update] Milvus 컬렉션 준비 완료: {collection_name}")
         
         # 컬렉션의 모든 기존 문서 삭제
+        print(f"🗑️ [Document Update] 기존 문서 삭제 중...")
         delete_all_documents_in_collection(collection)
+        print(f"✅ [Document Update] 기존 문서 삭제 완료")
         
         # 문서 제목 가져오기
         document_title = metadata.get("source", Path(file_path).stem)
@@ -515,13 +519,32 @@ def upsert_to_milvus(
             embeddings,  # embedding
         ]
         
+        print(f"📤 [Document Update] Milvus에 삽입 중... (청크 수: {len(chunks)}, 컬렉션: {collection_name})")
+        
         # Milvus에 삽입
-        collection.insert(entities)
+        insert_result = collection.insert(entities)
+        print(f"✅ [Document Update] Milvus 삽입 완료 (IDs: {insert_result.primary_keys[:5] if len(insert_result.primary_keys) > 0 else 'N/A'}...)")
+        
+        # 데이터 영구 저장을 위해 flush
         collection.flush()
+        print(f"💾 [Document Update] Milvus flush 완료")
+        
+        # 삽입된 데이터 개수 확인
+        collection.load()
+        num_entities = collection.num_entities
+        print(f"📊 [Document Update] 컬렉션 '{collection_name}' 현재 문서 수: {num_entities}")
+        
+        if num_entities == 0:
+            print(f"⚠️ [Document Update] 경고: 삽입 후에도 문서 수가 0입니다!")
+            return {
+                "ok": False,
+                "error": "데이터가 저장되지 않았습니다.",
+                "message": f"Milvus에 데이터 삽입 후 문서 수가 0입니다. ({len(chunks)}개 청크 시도)",
+            }
         
         return {
             "ok": True,
-            "message": f"문서가 성공적으로 저장되었습니다. ({len(chunks)}개 청크)",
+            "message": f"문서가 성공적으로 저장되었습니다. ({len(chunks)}개 청크, 총 {num_entities}개 문서)",
             "document_title": document_title,
             "chunks_count": len(chunks),
             "embeddings_count": len(embeddings),
@@ -596,12 +619,12 @@ def update_document_to_milvus(
         처리 결과 딕셔너리
     """
     try:
-        # 업데이트 가능한 문서인지 확인
-        if not is_document_updatable(document_title):
-            updatable_docs = get_updatable_documents()
+        # 문서 타입이 업데이트 가능한 문서인지 확인 (document_type으로 확인)
+        updatable_docs = get_updatable_documents()
+        if document_type not in updatable_docs:
             return {
                 "ok": False,
-                "message": f"업데이트 가능한 문서가 아닙니다. 업데이트 가능한 문서: {', '.join(updatable_docs)}",
+                "message": f"업데이트 가능한 문서 타입이 아닙니다. 문서 타입: {document_type}, 업데이트 가능한 문서: {', '.join(updatable_docs)}",
                 "error": "document_not_updatable",
                 "document_title": document_title,
             }
@@ -648,6 +671,7 @@ def update_document_to_milvus(
         print(f"✅ [Document Update] 임베딩 생성 완료: {len(embeddings)}개 벡터")
         
         # 4. Milvus에 Upsert (컬렉션의 모든 문서 삭제 후 새로 삽입)
+        print(f"🚀 [Document Update] Milvus 업로드 시작 (컬렉션: {collection_name}, 청크 수: {len(chunks)})")
         result = upsert_to_milvus(
             file_path=str(file_path),
             chunks=chunks,
@@ -655,6 +679,7 @@ def update_document_to_milvus(
             metadata={"source": document_title, "updated_at": datetime.now().isoformat()},
             collection_name=collection_name,
         )
+        print(f"📋 [Document Update] Milvus 업로드 결과: ok={result.get('ok')}, message={result.get('message', 'N/A')}")
         
         if result.get("ok"):
             return {
@@ -941,20 +966,11 @@ def process_update_file(
         file_content: 파일 내용 (bytes)
         filename: 파일명
         document_title: 문서 제목
-        document_type: 문서 타입 ("복리후생", "식단", "메뉴얼"). None이면 파일 내용에서 추론
+        document_type: 문서 타입 ("복리후생", "식단", "메뉴얼", "이력서"). None이면 파일 내용에서 추론
         
     Returns:
         처리 결과 딕셔너리
     """
-    # 업데이트 가능한 문서인지 확인
-    if not is_document_updatable(document_title):
-        updatable_docs = get_updatable_documents()
-        return {
-            "ok": False,
-            "message": f"업데이트 가능한 문서가 아닙니다. 업데이트 가능한 문서: {', '.join(updatable_docs)}",
-            "error": "document_not_updatable",
-        }
-    
     # 임시 파일로 저장 (한 번만 생성)
     suffix = Path(filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
@@ -987,6 +1003,15 @@ def process_update_file(
                     # 추론 실패 시 기본값
                     document_type = "복리후생"
                     print(f"⚠️ 문서 타입을 추론할 수 없어 기본값 사용: {document_type}")
+        
+        # 추론된 문서 타입이 업데이트 가능한 문서인지 확인
+        updatable_docs = get_updatable_documents()
+        if document_type not in updatable_docs:
+            return {
+                "ok": False,
+                "message": f"업데이트 가능한 문서 타입이 아닙니다. 추론된 타입: {document_type}, 업데이트 가능한 문서: {', '.join(updatable_docs)}",
+                "error": "document_not_updatable",
+            }
         
         # 이력서가 아닌 경우 일반 추출로 재추출 (표 추출만으로는 부족할 수 있음)
         if document_type != "이력서" and extracted_text:

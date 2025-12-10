@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union
 import re
 import logging
-import json
 import os
 from collections import Counter
 from pydantic import BaseModel, Field, model_validator
@@ -392,12 +391,11 @@ class AnswerGenerator:
         document_texts = []
         for i, doc in enumerate(documents, 1):
             doc_text = doc.get("document", "").strip()
-            metadata = doc.get("metadata", {})
-            file_name = metadata.get("file_name", "")
-            chunk_info = f" (청크 {metadata.get('chunk_index', '?')}/{metadata.get('total_chunks', '?')})" if metadata.get('chunk_index') is not None else ""
+            if not doc_text:
+                logger.warning(f"[AnswerGenerator] 문서 {i}의 내용이 비어있습니다.")
+                continue
+            
             doc_header = f"[문서 {i}]"
-            if file_name:
-                doc_header += f" - {file_name}{chunk_info}"
             document_texts.append(f"{doc_header}\n{doc_text}")
 
         if not document_texts:
@@ -440,13 +438,14 @@ class AnswerGenerator:
 
         **답변 작성 지침:**
         1) 제공된 문서에서 질문과 관련된 내용을 찾아 답변하세요. 문서 내용을 최대한 활용하세요.
-        2) 질문의 핵심 키워드(예: "출근", "연차", "휴가" 등)가 문서에 언급되어 있으면, 그 내용을 바탕으로 답변하세요.
+        2) 질문의 핵심 키워드(예: "출근", "연차", "휴가", "연차사용", "연차 사용" 등)가 문서에 언급되어 있으면, 그 내용을 바탕으로 답변하세요.
         3) 문서 내용이 질문과 직접적으로 관련이 없어도, 간접적으로 관련이 있거나 유사한 내용이 있으면 그 내용을 참고하여 답변하세요.
         4) 문서에서 구체적인 정보(숫자, 날짜, 절차 등)를 찾을 수 있으면 반드시 포함하세요.
-        5) 문서 내용을 기반으로 답변할 수 없을 때만 "제공된 문서에는 관련 내용이 없습니다"라고 말하세요.
+        5) 문서에 질문과 관련된 내용이 조금이라도 있으면, 그 내용을 바탕으로 답변하세요. "제공된 문서에는 관련 내용이 없습니다"라고 말하는 것은 정말로 전혀 관련이 없을 때만 사용하세요.
         6) 여러 문서가 제공되었을 때, 질문과 가장 직접적으로 관련된 문서의 내용을 우선적으로 사용하세요.
-        7) 문서의 전체 내용을 검토하여, 부분적으로라도 관련 있는 정보가 있으면 활용하세요.
+        7) 문서의 전체 내용을 검토하여, 부분적으로라도 관련 있는 정보가 있으면 반드시 활용하세요. 관련 키워드가 문서에 언급되어 있으면 그 내용을 인용하여 답변하세요.
         8) 이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요.
+        9) 문서에서 질문과 관련된 내용을 찾았으면, 그 내용을 직접 인용하거나 요약하여 답변하세요. 추측하거나 일반적인 답변을 하지 마세요.
 
 
         **답변:**"""
@@ -603,14 +602,6 @@ class DocumentRetriever:
                 f"존재하는 필드: {existing_fields}"
             )
 
-        if self.config.metadata_field in existing_fields:
-            output_fields.append(self.config.metadata_field)
-        else:
-            logger.warning(
-                f"⚠️ 경고: 컬렉션에 '{self.config.metadata_field}' 필드가 없습니다. "
-                f"메타데이터 없이 진행합니다."
-            )
-
         search_params = {
             "metric_type": self.config.metric_type,
             "params": {"nprobe": 10},
@@ -626,22 +617,15 @@ class DocumentRetriever:
         )
 
         documents = []
+        filtered_count = 0
         for hit in results[0]:
-            # 거리가 너무 큰 결과는 필터링 (임계값: 2.5)
+            # 거리가 너무 큰 결과는 필터링 (임계값: 3.0으로 완화)
             # L2 distance의 경우, 거리가 클수록 유사도가 낮음
             # 하지만 너무 엄격한 필터링은 피해야 함
-            if hit.distance > 2.5:
-                logger.debug(f"[DocumentRetriever] 거리 {hit.distance:.4f}가 너무 커서 필터링됨")
+            if hit.distance > 3.0:
+                filtered_count += 1
+                logger.debug(f"[DocumentRetriever] 거리 {hit.distance:.4f}가 너무 커서 필터링됨 (임계값: 3.0)")
                 continue
-            
-            if self.config.metadata_field in output_fields:
-                metadata_str = hit.entity.get(self.config.metadata_field, "{}")
-                try:
-                    metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-                except (json.JSONDecodeError, TypeError):
-                    metadata = {}
-            else:
-                metadata = {}
 
             normalized_score = 1 / (1 + hit.distance)
             if hit.distance > 0:
@@ -654,11 +638,16 @@ class DocumentRetriever:
                 "distance": hit.distance,
                 "score": adjusted_score,
                 "document": hit.entity.get(self.config.document_field, ""),
-                "metadata": metadata,
+                "metadata": {},  # metadata 필드 사용 안 함
             }
             documents.append(doc)
 
-        logger.info(f"[DocumentRetriever] 검색 완료: {len(documents)}개 유효한 문서 (전체 결과: {len(results[0])}개)")
+        logger.info(
+            f"[DocumentRetriever] 검색 완료: {len(documents)}개 유효한 문서 "
+            f"(전체 결과: {len(results[0])}개, 필터링됨: {filtered_count}개)"
+        )
+        if documents:
+            logger.info(f"[DocumentRetriever] 최상위 문서 거리: {documents[0].get('distance', 0):.4f}, 점수: {documents[0].get('score', 0):.4f}")
         return documents
 
     def hybrid_search(
@@ -1079,11 +1068,15 @@ class RetrievalNode(RunnableLambda):
                 doc_text = doc.get("document", "") or ""
                 # 문서 전체 내용 로깅 (너무 길면 앞부분만)
                 preview_text = doc_text[:300] if len(doc_text) > 300 else doc_text
-                metadata = doc.get("metadata", {})
-                file_name = metadata.get("file_name", "Unknown")
-                logger.info(f"  [{i}] Score: {doc.get('score', 0):.4f}, Distance: {doc.get('distance', 0):.4f}, "
-                           f"File: {file_name}")
+                score = doc.get('score', 0)
+                distance = doc.get('distance', 0)
+                logger.info(f"  [{i}] Score: {score:.4f}, Distance: {distance:.4f}")
                 logger.info(f"      Content: {preview_text}{'...' if len(doc_text) > 300 else ''}")
+            
+            # 검색 결과 요약
+            top_score = results[0].get('score', 0) if results else 0
+            top_distance = results[0].get('distance', 0) if results else 0
+            logger.info(f"[Manual Search] 최상위 결과 - Score: {top_score:.4f}, Distance: {top_distance:.4f}")
         else:
             logger.warning(f"[Manual Search] ⚠️ 검색 결과가 없습니다! 쿼리: '{query_text}'")
 
