@@ -546,27 +546,106 @@ class DocumentMasterGraph(BaseMasterGraph):
                 }
                 orchestrator_state["document_context"]["last_update"] = update_info
                 
+                # conversation_history 업데이트 (다른 agent들과 동일한 방식)
+                if "conversation_history" not in orchestrator_state:
+                    orchestrator_state["conversation_history"] = []
+                if not isinstance(orchestrator_state.get("conversation_history"), list):
+                    orchestrator_state["conversation_history"] = []
+                
+                conversation_history = orchestrator_state["conversation_history"]
+                
+                # 사용자 메시지가 없으면 추가
+                user_message_text = f"문서 '{document_title}' 업데이트 요청"
+                if not conversation_history or conversation_history[-1].get("role") != "user":
+                    conversation_history.append({
+                        "role": "user",
+                        "content": user_message_text,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                
+                # Assistant 답변 추가
+                assistant_message_text = result.get("message", "문서가 지식 베이스에 업데이트되었습니다.")
+                conversation_history.append({
+                    "role": "assistant",
+                    "content": assistant_message_text,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
                 return {
-                    "final_response": result.get("message", "문서가 지식 베이스에 업데이트되었습니다."),
+                    "final_response": assistant_message_text,
                     "messages": [f"문서 업데이트 완료: {result.get('chunks_count', 0)}개 청크 저장됨"],
                     "document_context": orchestrator_state["document_context"],
+                    "conversation_history": conversation_history,
                 }
             else:
+                # 실패 시에도 conversation_history 업데이트 (다른 agent들과 동일한 방식)
+                if "conversation_history" not in orchestrator_state:
+                    orchestrator_state["conversation_history"] = []
+                if not isinstance(orchestrator_state.get("conversation_history"), list):
+                    orchestrator_state["conversation_history"] = []
+                
+                conversation_history = orchestrator_state["conversation_history"]
+                
+                # 사용자 메시지가 없으면 추가
+                user_message_text = f"문서 '{document_title}' 업데이트 요청"
+                if not conversation_history or conversation_history[-1].get("role") != "user":
+                    conversation_history.append({
+                        "role": "user",
+                        "content": user_message_text,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                
+                # Assistant 답변 추가 (실패 메시지)
+                error_message = f"문서 업데이트 실패: {result.get('message', '알 수 없는 오류')}"
+                conversation_history.append({
+                    "role": "assistant",
+                    "content": error_message,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
                 return {
-                    "final_response": f"문서 업데이트 실패: {result.get('message', '알 수 없는 오류')}",
+                    "final_response": error_message,
                     "messages": ["문서 업데이트에 실패했습니다."],
                     "document_context": orchestrator_state["document_context"],
+                    "conversation_history": conversation_history,
                 }
                 
         except Exception as e:
             print(f"❌ 문서 업데이트 중 오류 발생: {e}")
             import traceback
             traceback.print_exc()
+            
+            # 오류 발생 시에도 conversation_history 업데이트 (다른 agent들과 동일한 방식)
+            if "conversation_history" not in orchestrator_state:
+                orchestrator_state["conversation_history"] = []
+            if not isinstance(orchestrator_state.get("conversation_history"), list):
+                orchestrator_state["conversation_history"] = []
+            
+            conversation_history = orchestrator_state["conversation_history"]
+            
+            # 사용자 메시지가 없으면 추가
+            user_message_text = query or "문서 업데이트 요청"
+            if not conversation_history or conversation_history[-1].get("role") != "user":
+                conversation_history.append({
+                    "role": "user",
+                    "content": user_message_text,
+                    "timestamp": datetime.now().isoformat()
+                })
+            
+            # Assistant 답변 추가 (오류 메시지)
+            error_message = f"문서 업데이트 중 오류가 발생했습니다: {str(e)}"
+            conversation_history.append({
+                "role": "assistant",
+                "content": error_message,
+                "timestamp": datetime.now().isoformat()
+            })
+            
             return {
                 "ok": False,
-                "final_response": f"문서 업데이트 중 오류가 발생했습니다: {str(e)}",
+                "final_response": error_message,
                 "messages": [f"오류: {str(e)}"],
                 "document_context": orchestrator_state.get("document_context", {}),
+                "conversation_history": conversation_history,
             }
 
 
