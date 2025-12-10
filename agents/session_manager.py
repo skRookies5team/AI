@@ -162,7 +162,8 @@ class SessionManager:
                         "qa_search_context": {},
                         "tech_search_context": {},
                         "schedule_context": {},
-                        "document_context": {}
+                        "document_context": {},
+                        "recruitment_context": {}
                     }
                 
                 data = json.loads(value)
@@ -173,7 +174,8 @@ class SessionManager:
                     "qa_search_context": data.get("qa_search_context") or {},
                     "tech_search_context": data.get("tech_search_context") or {},
                     "schedule_context": data.get("schedule_context") or {},
-                    "document_context": data.get("document_context") or {}
+                    "document_context": data.get("document_context") or {},
+                    "recruitment_context": data.get("recruitment_context") or {}
                 }
             except asyncio.TimeoutError:
                 print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
@@ -184,7 +186,8 @@ class SessionManager:
                     "qa_search_context": {},
                     "tech_search_context": {},
                     "schedule_context": {},
-                    "document_context": {}
+                    "document_context": {},
+                    "recruitment_context": {}
                 }
             except Exception as e:
                 print(f"[WARNING] 세션 데이터 로드 실패 (session_id={session_id}): {e}")
@@ -429,6 +432,7 @@ class SessionManager:
                     "tech_search_context": state.get("tech_search_context", existing_data.get("tech_search_context", {})),
                     "schedule_context": state.get("schedule_context", existing_data.get("schedule_context", {})),
                     "document_context": state.get("document_context", existing_data.get("document_context", {})),
+                    "recruitment_context": state.get("recruitment_context", existing_data.get("recruitment_context", {})),
                     "last_updated": datetime.now().isoformat()
                 }
                 
