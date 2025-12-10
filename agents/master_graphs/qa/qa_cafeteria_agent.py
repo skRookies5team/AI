@@ -13,6 +13,44 @@ from agents.embedding_utils import get_embedding_generator
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
+from pathlib import Path
+import yaml
+
+# =========================
+# YAML 설정 로드
+# =========================
+_qa_cafeteria_config = None
+
+def _load_qa_cafeteria_config() -> Dict[str, Any]:
+    """QA Cafeteria Agent 설정을 YAML 파일에서 로드합니다."""
+    global _qa_cafeteria_config
+    
+    if _qa_cafeteria_config is not None:
+        return _qa_cafeteria_config
+    
+    try:
+        current_dir = Path(__file__).parent.parent.parent.parent
+        yaml_path = current_dir / "agents" / "agent_prompts.yaml"
+        
+        if not yaml_path.exists():
+            # Fallback: 상대 경로로 시도
+            yaml_path = Path(__file__).parent.parent.parent / "agent_prompts.yaml"
+        
+        if yaml_path.exists():
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                all_config = yaml.safe_load(f)
+            _qa_cafeteria_config = all_config.get("qa_cafeteria", {})
+        else:
+            _qa_cafeteria_config = {}
+    except Exception as e:
+        print(f"[WARNING] QA Cafeteria 설정 로드 실패: {e}, 기본값 사용")
+        _qa_cafeteria_config = {}
+    
+    return _qa_cafeteria_config
+
+def load_qa_cafeteria_config() -> Dict[str, Any]:
+    """QA Cafeteria Agent 설정을 반환합니다."""
+    return _load_qa_cafeteria_config()
 
 # =========================
 # 환경 변수 로드
@@ -20,17 +58,69 @@ from langgraph.graph import StateGraph, END
 load_dotenv()
 
 # =========================
-# Milvus 연결 설정
+# 환경 변수 유틸리티 함수
 # =========================
-# 환경 변수에서 읽기 (공백 제거)
 def _get_env_trimmed(key: str, default: str = "") -> str:
     """환경 변수 조회 (공백 제거)."""
     value = os.getenv(key, default)
     return value.strip() if value else default
 
-MILVUS_HOST = _get_env_trimmed("HOST") or _get_env_trimmed("MILVUS_HOST") or "175.114.229.152"
-MILVUS_PORT = int(_get_env_trimmed("MILVUS_PORT") or "19530")
-COLLECTION_NAME_MENU = _get_env_trimmed("CAFETERIA_COLLECTION") or _get_env_trimmed("COLLECTION_NAME_MENU") or "Employee_Meal_Menu_embeddings"
+def _get_env_int(key: str, default: Optional[int] = None) -> Optional[int]:
+    """환경 변수를 정수로 조회."""
+    value = _get_env_trimmed(key)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+def _get_env_float(key: str, default: Optional[float] = None) -> Optional[float]:
+    """환경 변수를 실수로 조회."""
+    value = _get_env_trimmed(key)
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+def _get_env_bool(key: str, default: bool = False) -> bool:
+    """환경 변수를 불린으로 조회."""
+    value = _get_env_trimmed(key)
+    if not value:
+        return default
+    return value.lower() in ("true", "1", "yes", "on")
+
+# =========================
+# Milvus 연결 설정 (.env 우선, YAML fallback)
+# =========================
+def _get_milvus_config() -> Dict[str, Any]:
+    """Milvus 설정을 .env에서 우선 로드, 없으면 YAML에서 로드."""
+    config = load_qa_cafeteria_config()
+    
+    # .env 우선, 없으면 YAML 기본값
+    milvus_config = config.get("milvus", {})
+    
+    host = _get_env_trimmed("HOST") or _get_env_trimmed("MILVUS_HOST") or milvus_config.get("host", "")
+    port_env = _get_env_int("MILVUS_PORT")
+    port = port_env if port_env is not None else milvus_config.get("port", 19530)
+    collection = (
+        _get_env_trimmed("CAFETERIA_COLLECTION") or 
+        _get_env_trimmed("MILVUS_COLLECTION_NAME_CAFETERIA") or
+        milvus_config.get("collection_name", "")
+    )
+    
+    return {
+        "host": host,
+        "port": port,
+        "collection_name": collection
+    }
+
+_milvus_config = _get_milvus_config()
+MILVUS_HOST = _milvus_config["host"]
+MILVUS_PORT = _milvus_config["port"]
+COLLECTION_NAME_MENU = _milvus_config["collection_name"]
 
 # =========================
 # 싱글톤 패턴으로 초기화 (한 번만 실행)
@@ -55,6 +145,7 @@ def _initialize_connections() -> tuple[Collection, SentenceTransformer]:
         raise RuntimeError(f"Milvus 연결 실패: {e}")
 
     try:
+        # 임베딩 모델은 get_embedding_generator()가 .env의 EMBEDDING_MODEL을 자동으로 읽음
         _embedding_model = get_embedding_generator()
     except Exception as e:
         raise RuntimeError(f"임베딩 모델 로딩 실패: {e}")
@@ -76,26 +167,42 @@ class GraphState(TypedDict):
     answer: str
     timings: Dict[str, float]
     conversation_history: Optional[List[Dict[str, str]]]  # 이전 대화 히스토리 (Redis 숏텀 메모리)
+    current_date: Optional[str]  # 현재 날짜 (예: "2024년 12월 10일")
+    current_time: Optional[str]  # 현재 시간 (예: "14시 30분")
+    current_datetime: Optional[str]  # ISO 형식 (예: "2024-12-10T14:30:00")
+    current_weekday: Optional[str]  # 현재 요일 (예: "월요일")
 
 
 # =========================
 # 키워드 추출 함수
 # =========================
-def extract_keywords(text: str, min_length: int = 2) -> List[str]:
+def extract_keywords(text: str, min_length: Optional[int] = None, top_count: Optional[int] = None) -> List[str]:
     """텍스트에서 키워드 추출 (한글, 영문, 숫자).
 
     Args:
         text: 추출할 텍스트
-        min_length: 최소 키워드 길이
+        min_length: 최소 키워드 길이 (None이면 YAML에서 로드)
+        top_count: 상위 키워드 개수 (None이면 YAML에서 로드)
 
     Returns:
-        추출된 키워드 리스트 (상위 10개)
+        추출된 키워드 리스트
     """
+    # 키워드 추출 파라미터 (.env 우선, YAML fallback)
+    if min_length is None or top_count is None:
+        config = load_qa_cafeteria_config()
+        search_params = config.get("search_params", {})
+        if min_length is None:
+            min_length_env = _get_env_int("KEYWORD_MIN_LENGTH")
+            min_length = min_length_env if min_length_env is not None else search_params.get("keyword_min_length", 2)
+        if top_count is None:
+            top_count_env = _get_env_int("KEYWORD_TOP_COUNT")
+            top_count = top_count_env if top_count_env is not None else search_params.get("keyword_top_count", 10)
+    
     pattern = r'[가-힣a-zA-Z0-9]+'
     keywords = re.findall(pattern, text.lower())
     keywords = [kw for kw in keywords if len(kw) >= min_length]
     keyword_counts = Counter(keywords)
-    return [kw for kw, _ in keyword_counts.most_common(10)]
+    return [kw for kw, _ in keyword_counts.most_common(top_count)]
 
 
 # =========================
@@ -111,19 +218,31 @@ def calculate_keyword_score(text: str, keywords: List[str]) -> float:
     Returns:
         키워드 매칭 점수
     """
+    # 키워드 점수 가중치 (.env 우선, YAML fallback)
+    config = load_qa_cafeteria_config()
+    search_params = config.get("search_params", {})
+    exact_match_score_env = _get_env_float("KEYWORD_EXACT_MATCH_SCORE")
+    exact_match_score = exact_match_score_env if exact_match_score_env is not None else search_params.get("keyword_exact_match_score", 2.0)
+    
+    count_multiplier_env = _get_env_float("KEYWORD_COUNT_MULTIPLIER")
+    count_multiplier = count_multiplier_env if count_multiplier_env is not None else search_params.get("keyword_count_multiplier", 0.1)
+    
+    substring_score_env = _get_env_float("KEYWORD_SUBSTRING_SCORE")
+    substring_score = substring_score_env if substring_score_env is not None else search_params.get("keyword_substring_score", 0.1)
+    
     text_lower = text.lower()
     score = 0.0
 
     for keyword in keywords:
         if keyword in text_lower:
-            score += 2.0
-            score += text_lower.count(keyword) * 0.1
+            score += exact_match_score
+            score += text_lower.count(keyword) * count_multiplier
 
         if len(keyword) > 3:
             for i in range(len(keyword) - 2):
                 substring = keyword[i:i+3]
                 if substring in text_lower:
-                    score += 0.1
+                    score += substring_score
 
     return score
 
@@ -155,11 +274,25 @@ def vector_search(state: GraphState, collection: Collection) -> GraphState:
     start_time = time.time()
     query_embedding = state["query_embedding"]
 
+    # 검색 파라미터 (.env 우선, YAML fallback)
+    config = load_qa_cafeteria_config()
+    search_params = config.get("search_params", {})
+    vector_search_limit_env = _get_env_int("VECTOR_SEARCH_LIMIT")
+    vector_search_limit = vector_search_limit_env if vector_search_limit_env is not None else search_params.get("vector_search_limit", 15)
+    
+    milvus_metric_type = (
+        _get_env_trimmed("MILVUS_METRIC_TYPE") or 
+        search_params.get("milvus_metric_type", "L2")
+    )
+    
+    milvus_nprobe_env = _get_env_int("MILVUS_NPROBE")
+    milvus_nprobe = milvus_nprobe_env if milvus_nprobe_env is not None else search_params.get("milvus_nprobe", 10)
+    
     search_results = collection.search(
         data=[query_embedding],
         anns_field="embedding",
-        param={"metric_type": "L2", "params": {"nprobe": 10}},
-        limit=15,
+        param={"metric_type": milvus_metric_type, "params": {"nprobe": milvus_nprobe}},
+        limit=vector_search_limit,
         output_fields=["content"]
     )
 
@@ -255,8 +388,14 @@ def hybrid_merge(state: GraphState) -> GraphState:
             merged_results[content]["keyword_score"] = result["score"]
             merged_results[content]["source"] = "hybrid"
 
-    VECTOR_WEIGHT = 0.6
-    KEYWORD_WEIGHT = 0.4
+    # 하이브리드 검색 가중치 (.env 우선, YAML fallback)
+    config = load_qa_cafeteria_config()
+    hybrid_search = config.get("hybrid_search", {})
+    vector_weight_env = _get_env_float("HYBRID_SEARCH_VECTOR_WEIGHT")
+    VECTOR_WEIGHT = vector_weight_env if vector_weight_env is not None else hybrid_search.get("vector_weight", 0.6)
+    
+    keyword_weight_env = _get_env_float("HYBRID_SEARCH_KEYWORD_WEIGHT")
+    KEYWORD_WEIGHT = keyword_weight_env if keyword_weight_env is not None else hybrid_search.get("keyword_weight", 0.4)
 
     if vector_results:
         max_vector_score = max(r["score"] for r in vector_results)
@@ -288,7 +427,12 @@ def hybrid_merge(state: GraphState) -> GraphState:
         })
 
     final_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
-    top_results = final_results[:7]
+    # 상위 결과 개수 (.env 우선, YAML fallback)
+    config = load_qa_cafeteria_config()
+    search_params = config.get("search_params", {})
+    top_results_count_env = _get_env_int("TOP_RESULTS_COUNT")
+    top_results_count = top_results_count_env if top_results_count_env is not None else search_params.get("top_results_count", 7)
+    top_results = final_results[:top_results_count]
     retrieved_contexts = [r["content"] for r in top_results]
 
     elapsed_time = time.time() - start_time
@@ -309,26 +453,71 @@ def generate_answer(state: GraphState) -> GraphState:
 
     context_text = "\n\n".join([f"[문서 {i+1}]\n{ctx}" for i, ctx in enumerate(contexts)])
     conversation_history = state.get("conversation_history")
+    
+    # state에서 날짜/시간 정보 가져오기
+    current_date = state.get("current_date", "")
+    current_time = state.get("current_time", "")
+    current_weekday = state.get("current_weekday", "")
+    
+    # 날짜 정보가 없으면 기본값 사용 (fallback, YAML 설정 사용)
+    if not current_date:
+        from datetime import datetime
+        config = load_qa_cafeteria_config()
+        date_time_config = config.get("date_time", {})
+        weekday_names = date_time_config.get("weekday_names", ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"])
+        date_format = date_time_config.get("date_format", "%Y년 %m월 %d일")
+        time_format = date_time_config.get("time_format", "%H시 %M분")
+        
+        now = datetime.now()
+        current_date = now.strftime(date_format)
+        current_time = now.strftime(time_format)
+        current_weekday = weekday_names[now.weekday()]
 
-    # 이전 대화 히스토리 구성
-    messages = [
-        ("system", """당신은 깐부전자의 직원 식단표를 안내하는 전문 AI 어시스턴트입니다.
+    # 프롬프트 및 설정 (YAML에서 로드)
+    config = load_qa_cafeteria_config()
+    prompts = config.get("prompts", {})
+    system_prompt_template = prompts.get("system_prompt", """당신은 깐부전자의 직원 식단표를 안내하는 전문 AI 어시스턴트입니다.
+
+**현재 날짜와 시간: {current_date} ({current_weekday}) {current_time}**
+
+**날짜 계산 규칙:**
+- "오늘" → 현재 날짜 ({current_date})
+- "내일" → 현재 날짜 + 1일
+- "모레" → 현재 날짜 + 2일  
+- "내일 모레" → 현재 날짜 + 2일 (내일의 다음 날)
+- "다음주 [요일]" → 다음 주의 해당 요일
+- "이번주 [요일]" → 이번 주의 해당 요일
+
 제공된 식단표 데이터를 기반으로 직원들의 식단 관련 질문에 대해 정확하고 상세한 답변을 제공하세요.
+사용자가 "내일 모레", "다음주 월요일" 같은 상대적 날짜 표현을 사용하면, 위의 현재 날짜를 기준으로 정확한 날짜를 계산한 후 해당 날짜의 식단을 찾아 답변하세요.
 답변할 때는 식단표의 내용을 직접 참고하여 답변하며, 날짜, 요일, 메뉴, 칼로리 등의 정보를 명확히 안내하세요.
 식단표에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.
 이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변하세요.
-답변은 친절하고 이해하기 쉽게 작성해주세요."""),
+답변은 친절하고 이해하기 쉽게 작성해주세요.""")
+    
+    # 시스템 프롬프트에 날짜/시간 정보 치환
+    system_prompt = system_prompt_template.format(
+        current_date=current_date,
+        current_weekday=current_weekday,
+        current_time=current_time
+    )
+    
+    # 이전 대화 히스토리 구성
+    messages = [
+        ("system", system_prompt),
     ]
     
-    # 이전 대화 히스토리 추가 (최근 5개)
+    # 이전 대화 히스토리 추가 (YAML 설정 사용)
+    search_params = config.get("search_params", {})
+    conversation_history_max = search_params.get("conversation_history_max_messages", 5)
     if conversation_history:
-        for msg in conversation_history[-5:]:
+        for msg in conversation_history[-conversation_history_max:]:
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role and content:
                 messages.append((role, content))
     
-    messages.append(("user", """다음은 깐부전자의 직원 식단표 데이터에서 검색된 관련 내용입니다:
+    user_prompt = prompts.get("user_prompt", """다음은 깐부전자의 직원 식단표 데이터에서 검색된 관련 내용입니다:
 
 {context}
 
@@ -336,7 +525,8 @@ def generate_answer(state: GraphState) -> GraphState:
 
 위 식단표 데이터를 참고하여 질문에 대한 상세하고 실용적인 답변을 한국어로 제공해주세요.
 답변에는 가능한 한 구체적인 날짜, 요일, 메뉴 정보, 칼로리 등을 포함해주세요.
-이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요."""))
+이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요.""")
+    messages.append(("user", user_prompt))
     
     prompt_template = ChatPromptTemplate.from_messages(messages)
 
@@ -344,9 +534,16 @@ def generate_answer(state: GraphState) -> GraphState:
     if not api_key:
         raise ValueError("OpenAI API 키가 없습니다. .env 파일에 OPENAI_API_KEY를 설정하세요.")
 
+    # LLM 설정 (.env 우선, YAML fallback)
+    llm_config = config.get("llm", {})
+    llm_model = (
+        _get_env_trimmed("OPENAI_MODEL")
+    )
+    llm_temperature = 0
+
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0,
+        model=llm_model,
+        temperature=llm_temperature,
         api_key=api_key
     )
 
@@ -444,6 +641,22 @@ async def cafeteria_menu(
                     if isinstance(msg, dict) and msg.get("role") and msg.get("content")
                 ]
 
+        # OrchestratorState에서 날짜/시간 정보 가져오기
+        current_date = orchestrator_state.get("current_date") if orchestrator_state else None
+        current_time = orchestrator_state.get("current_time") if orchestrator_state else None
+        current_datetime = orchestrator_state.get("current_datetime") if orchestrator_state else None
+        current_weekday = orchestrator_state.get("current_weekday") if orchestrator_state else None
+        
+        # 날짜 정보가 없으면 기본값 사용 (fallback)
+        if not current_date:
+            from datetime import datetime
+            now = datetime.now()
+            weekday_names = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+            current_date = now.strftime("%Y년 %m월 %d일")
+            current_time = now.strftime("%H시 %M분")
+            current_datetime = now.isoformat()
+            current_weekday = weekday_names[now.weekday()]
+
         # 초기 상태 설정
         initial_state: GraphState = {
             "question": user_text,
@@ -455,6 +668,10 @@ async def cafeteria_menu(
             "answer": "",
             "timings": {},
             "conversation_history": conversation_history,
+            "current_date": current_date,
+            "current_time": current_time,
+            "current_datetime": current_datetime,
+            "current_weekday": current_weekday,
         }
 
         # 그래프 실행 (비동기)
@@ -471,11 +688,15 @@ async def cafeteria_menu(
             if not isinstance(orchestrator_state.get("qa_search_context"), dict):
                 orchestrator_state["qa_search_context"] = {}
             
-            # 검색 컨텍스트 저장
+            # 검색 컨텍스트 저장 (YAML 설정 사용)
+            config = load_qa_cafeteria_config()
+            search_params = config.get("search_params", {})
+            retrieved_contexts_max = search_params.get("retrieved_contexts_max_count", 3)
+            
             orchestrator_state["qa_search_context"]["cafeteria"] = {
                 "last_query": user_text,
                 "last_answer": answer_text,
-                "retrieved_contexts": result.get("retrieved_contexts", [])[:3],
+                "retrieved_contexts": result.get("retrieved_contexts", [])[:retrieved_contexts_max],
             }
             
             # conversation_history에 답변 추가 (Redis 저장용)
@@ -502,10 +723,15 @@ async def cafeteria_menu(
                 "timestamp": datetime.now().isoformat()
             })
 
+        # 반환할 컨텍스트 개수 (YAML 설정 사용)
+        config = load_qa_cafeteria_config()
+        search_params = config.get("search_params", {})
+        retrieved_contexts_max = search_params.get("retrieved_contexts_max_count", 3)
+        
         return {
             "ok": True,
             "message": answer_text,
-            "retrieved_contexts": result.get("retrieved_contexts", [])[:3],  # 상위 3개만 반환
+            "retrieved_contexts": result.get("retrieved_contexts", [])[:retrieved_contexts_max],
             "timings": result.get("timings", {}),
             "echo": user_text
         }

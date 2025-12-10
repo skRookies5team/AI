@@ -46,8 +46,8 @@ def cleanup_old_redis_sessions():
     try:
         from redis import Redis
         
-        redis_host = os.environ.get("HOST") or os.environ.get("REDIS_HOST") or "localhost"
-        redis_port_str = os.environ.get("REDIS_PORT") or "6379"
+        redis_host = os.environ.get("HOST")
+        redis_port_str = os.environ.get("REDIS_PORT")
         redis_password = os.environ.get("REDIS_PASSWORD")
         redis_db_str = os.environ.get("REDIS_DB") or "0"
         
@@ -61,7 +61,8 @@ def cleanup_old_redis_sessions():
         except (ValueError, AttributeError):
             redis_db = 0
         
-        if redis_password == "":
+        # 빈 문자열이거나 None인 경우 None으로 설정
+        if not redis_password or redis_password.strip() == "":
             redis_password = None
         
         client = Redis(
@@ -173,6 +174,7 @@ class ChatResponse(BaseModel):
     session_id: Optional[str] = Field(default=None, description="세션 ID")
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
     requires_input: Optional[bool] = Field(default=False, description="사용자 입력 필요 여부 (예시문 표시 시)")
+    last_domain: Optional[str] = Field(default=None, description="LLM 라우팅 시 결정된 도메인 (schedule, document, qa, email, tech)")
 
 
 class SessionRequest(BaseModel):
@@ -196,6 +198,7 @@ class DocumentUploadResponse(BaseModel):
     message: str = Field(..., description="응답 메시지")
     document_title: Optional[str] = Field(default=None, description="업로드된 문서 제목")
     error: Optional[str] = Field(default=None, description="오류 메시지")
+    last_domain: Optional[str] = Field(default="document", description="LLM 라우팅 시 결정된 도메인 (문서 업로드는 항상 'document')")
 
 
 # ===== 엔드포인트 =====
@@ -332,6 +335,10 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 
                 requires_input = final_state.get("requires_input", False)
                 
+                # 도메인 정보 추출 (LLM 라우팅 시 결정된 도메인)
+                # domain이 없으면 last_domain을 fallback으로 사용
+                last_domain = final_state.get("domain") or final_state.get("last_domain")
+                
                 result = {
                     "type": "complete",
                     "ok": True,
@@ -339,6 +346,7 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
+                    "last_domain": last_domain,  # LLM 라우팅 시 결정된 도메인
                 }
                 yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
                 
@@ -519,6 +527,10 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         
         # requires_input 플래그 추출 (예시문 표시 시)
         requires_input = final_state.get("requires_input", False)
+        
+        # 도메인 정보 추출 (LLM 라우팅 시 결정된 도메인)
+        # domain이 없으면 last_domain을 fallback으로 사용
+        last_domain = final_state.get("domain") or final_state.get("last_domain")
 
         return ChatResponse(
             ok=True,
@@ -527,6 +539,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
+            last_domain=last_domain,  # LLM 라우팅 시 결정된 도메인
         )
 
     except Exception as exc:  # pragma: no cover
@@ -557,22 +570,92 @@ async def upload_document_endpoint(
         # 파일 내용 읽기
         content = await file.read()
         
-        # 문서 업데이트 서비스 호출 (동기 함수를 비동기로 실행)
-        from fastapi.concurrency import run_in_threadpool
-        from agents.master_graphs.document.update.document_update_service import process_update_file
-        
-        result = await run_in_threadpool(
-            process_update_file,
-            file_content=content,
-            filename=file.filename,
-            document_title=document_title
-        )
+        # 임시 파일로 저장 (master_graph의 update_document는 파일 경로를 받음)
+        import tempfile
+        import os
+        temp_file = None
+        try:
+            # 임시 파일 생성
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+                tmp.write(content)
+                temp_file = tmp.name
+            
+            # 세션 관리자로 이전 세션 데이터 로드
+            session_manager = await get_session_manager()
+            session_id = f"session_{employee_id}"
+            session_data = {
+                "conversation_history": [],
+                "email_search_context": {},
+                "qa_search_context": {},
+                "tech_search_context": {},
+                "schedule_context": {},
+                "document_context": {}
+            }
+            if session_manager:
+                session_data = await session_manager.load_session_data(session_id)
+            
+            # master_graph의 update_document를 직접 호출하여 conversation_history를 포함한 결과 받기
+            from agents.master_graphs.document.master_graph import DocumentMasterGraph
+            from agents.state import OrchestratorState
+            
+            # input_state 구성
+            input_state: OrchestratorState = {
+                "query": f"문서 '{document_title}' 업데이트 요청",
+                "user_id": employee_id,
+                "session_id": session_id,
+                "employee_id": employee_id,
+                "conversation_history": session_data.get("conversation_history", []),
+                "email_search_context": session_data.get("email_search_context", {}),
+                "qa_search_context": session_data.get("qa_search_context", {}),
+                "tech_search_context": session_data.get("tech_search_context", {}),
+                "schedule_context": session_data.get("schedule_context", {}),
+                "document_context": session_data.get("document_context", {}),
+                "document_path": temp_file,  # 임시 파일 경로 전달
+                "document_title": document_title,  # 문서 제목 전달
+            }
+            
+            # DocumentMasterGraph 인스턴스 생성 및 update_document 호출
+            document_master = DocumentMasterGraph()
+            result_state = await document_master.update_document(input_state)
+            
+            # 결과 추출
+            result = {
+                "ok": result_state.get("final_response") and "실패" not in result_state.get("final_response", ""),
+                "message": result_state.get("final_response", "문서 업데이트 완료"),
+                "chunks_count": result_state.get("document_context", {}).get("last_update", {}).get("chunks_count", 0)
+            }
+            
+            # Redis에 세션 데이터 저장 (다른 agent들과 동일한 방식)
+            if session_manager:
+                # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
+                session_state = {
+                    "conversation_history": result_state.get("conversation_history", session_data.get("conversation_history", [])),
+                    "email_search_context": result_state.get("email_search_context", session_data.get("email_search_context", {})),
+                    "qa_search_context": result_state.get("qa_search_context", session_data.get("qa_search_context", {})),
+                    "tech_search_context": result_state.get("tech_search_context", session_data.get("tech_search_context", {})),
+                    "schedule_context": result_state.get("schedule_context", session_data.get("schedule_context", {})),
+                    "document_context": result_state.get("document_context", session_data.get("document_context", {}))
+                }
+                await session_manager.save_session_state(session_id, session_state)
+                print(f"✅ [Document Update] Redis에 문서 업데이트 정보 및 대화 내역 저장 완료 (session_id: {session_id})")
+            else:
+                print(f"⚠️ [Document Update] 세션 관리자가 없어 Redis 저장을 건너뜁니다.")
+            
+        finally:
+            # 임시 파일 삭제
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                except Exception as e:
+                    print(f"⚠️ 임시 파일 삭제 실패: {e}")
         
         if result.get("ok"):
+            
             return DocumentUploadResponse(
                 ok=True,
                 message=result.get("message", "문서가 성공적으로 업로드되었습니다."),
-                document_title=document_title
+                document_title=document_title,
+                last_domain="document"  # 문서 업로드는 항상 document 도메인
             )
         else:
             raise HTTPException(
