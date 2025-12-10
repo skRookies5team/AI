@@ -258,6 +258,7 @@ async def chat_loop_async() -> None:
 				session_state = {
 					"conversation_history": conversation_history,
 					"email_search_context": final_state.get("email_search_context", {}),
+					"email_compose_context": final_state.get("email_compose_context", {}),
 					"qa_search_context": final_state.get("qa_search_context", {}),
 					"tech_search_context": final_state.get("tech_search_context", {}),
 					"schedule_context": final_state.get("schedule_context", {}),
