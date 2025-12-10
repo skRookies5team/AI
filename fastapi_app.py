@@ -279,7 +279,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
-                "document_context": session_data.get("document_context", {})
+                "document_context": session_data.get("document_context", {}),
+                "recruitment_context": session_data.get("recruitment_context", {})
             }
             
             config = {"configurable": {"thread_id": session_id}}
@@ -348,10 +349,18 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 # domain이 없으면 last_domain을 fallback으로 사용
                 last_domain = final_state.get("domain") or final_state.get("last_domain")
                 
+                # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+                rows = []
+                if last_domain == "recruitment":
+                    search_results = final_state.get("search_results", [])
+                    if search_results:
+                        rows = search_results
+                
                 result = {
                     "type": "complete",
                     "ok": True,
                     "message": final_msg,
+                    "rows": rows,  # Recruitment 검색 결과 또는 빈 배열
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
@@ -391,7 +400,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                         "qa_search_context": final_state.get("qa_search_context", {}),
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
-                        "document_context": final_state.get("document_context", {})
+                        "document_context": final_state.get("document_context", {}),
+                        "recruitment_context": final_state.get("recruitment_context", {})
                     }
                     print(f"[FASTAPI DEBUG] session_state 저장:")
                     print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
@@ -441,7 +451,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "qa_search_context": {},
             "tech_search_context": {},
             "schedule_context": {},
-            "document_context": {}
+            "document_context": {},
+            "recruitment_context": {}
         }
         if session_manager:
             session_data = await session_manager.load_session_data(session_id)
@@ -505,7 +516,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
                 "qa_search_context": final_state.get("qa_search_context", {}),
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),
-                "document_context": final_state.get("document_context", {})
+                "document_context": final_state.get("document_context", {}),
+                "recruitment_context": final_state.get("recruitment_context", {})
             }
             print(f"[FASTAPI DEBUG] session_state 저장 (non-stream):")
             print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
@@ -552,11 +564,19 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # 도메인 정보 추출 (LLM 라우팅 시 결정된 도메인)
         # domain이 없으면 last_domain을 fallback으로 사용
         last_domain = final_state.get("domain") or final_state.get("last_domain")
+        
+        # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+        rows = []
+        if last_domain == "recruitment":
+            search_results = final_state.get("search_results", [])
+            if search_results:
+                # 카드 형식으로 변환
+                rows = search_results
 
         return ChatResponse(
             ok=True,
             message=final_msg,
-            rows=[],  # 오케스트레이터는 주로 텍스트 응답을 반환하므로 rows는 비움
+            rows=rows,  # Recruitment 검색 결과 또는 빈 배열
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
