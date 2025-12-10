@@ -28,6 +28,45 @@ except ImportError:
 	LLM_AVAILABLE = False
 
 from langgraph.graph import StateGraph, END
+from pathlib import Path
+import yaml
+
+
+# ───────────────────────────────────────────────────────────
+# YAML 설정 로드
+# ───────────────────────────────────────────────────────────
+_qa_benefit_config = None
+
+def _load_qa_benefit_config() -> Dict[str, Any]:
+	"""QA Benefit Agent 설정을 YAML 파일에서 로드합니다."""
+	global _qa_benefit_config
+	
+	if _qa_benefit_config is not None:
+		return _qa_benefit_config
+	
+	try:
+		current_dir = Path(__file__).parent.parent.parent.parent
+		yaml_path = current_dir / "agents" / "agent_prompts.yaml"
+		
+		if not yaml_path.exists():
+			# Fallback: 상대 경로로 시도
+			yaml_path = Path(__file__).parent.parent.parent / "agent_prompts.yaml"
+		
+		if yaml_path.exists():
+			with open(yaml_path, "r", encoding="utf-8") as f:
+				all_config = yaml.safe_load(f)
+			_qa_benefit_config = all_config.get("qa_benefit", {})
+		else:
+			_qa_benefit_config = {}
+	except Exception as e:
+		print(f"[WARNING] QA Benefit 설정 로드 실패: {e}, 기본값 사용")
+		_qa_benefit_config = {}
+	
+	return _qa_benefit_config
+
+def load_qa_benefit_config() -> Dict[str, Any]:
+	"""QA Benefit Agent 설정을 반환합니다."""
+	return _load_qa_benefit_config()
 
 
 # ───────────────────────────────────────────────────────────
@@ -207,11 +246,16 @@ def vector_search(state: BenefitState) -> BenefitState:
 	start_time = time.time()
 	query_embedding = state["query_embedding"]
 	
+	# 검색 파라미터 (YAML에서 로드)
+	config = load_qa_benefit_config()
+	search_params = config.get("search_params", {})
+	vector_search_limit = search_params.get("vector_search_limit", 15)
+	
 	search_results = _collection.search(
 		data=[query_embedding],
 		anns_field="embedding",
 		param={"metric_type": "L2", "params": {"nprobe": 10}},
-		limit=15,
+		limit=vector_search_limit,
 		output_fields=["content"]
 	)
 	
@@ -307,8 +351,11 @@ def hybrid_merge(state: BenefitState) -> BenefitState:
 			merged_results[content]["keyword_score"] = result["score"]
 			merged_results[content]["source"] = "hybrid"
 	
-	VECTOR_WEIGHT = 0.6
-	KEYWORD_WEIGHT = 0.4
+	# 하이브리드 검색 가중치 (YAML에서 로드)
+	config = load_qa_benefit_config()
+	hybrid_search = config.get("hybrid_search", {})
+	VECTOR_WEIGHT = hybrid_search.get("vector_weight", 0.6)
+	KEYWORD_WEIGHT = hybrid_search.get("keyword_weight", 0.4)
 	
 	if vector_results:
 		max_vector_score = max(r["score"] for r in vector_results)
@@ -339,7 +386,11 @@ def hybrid_merge(state: BenefitState) -> BenefitState:
 		})
 	
 	final_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
-	top_results = final_results[:7]
+	# 상위 결과 개수 (YAML에서 로드)
+	config = load_qa_benefit_config()
+	search_params = config.get("search_params", {})
+	top_results_count = search_params.get("top_results_count", 7)
+	top_results = final_results[:top_results_count]
 	retrieved_contexts = [r["content"] for r in top_results]
 	
 	elapsed_time = time.time() - start_time
@@ -376,25 +427,32 @@ def generate_answer(state: BenefitState) -> BenefitState:
 	context_text = "\n\n".join([f"[문서 {i+1}]\n{ctx}" for i, ctx in enumerate(contexts)])
 	conversation_history = state.get("conversation_history")
 	
-	# 이전 대화 히스토리 구성
-	messages = [
-		("system", """당신은 회사의 복리후생(Benefits) 정책을 안내하는 전문 AI 어시스턴트입니다.
+	# 프롬프트 및 설정 (YAML에서 로드)
+	config = load_qa_benefit_config()
+	prompts = config.get("prompts", {})
+	system_prompt = prompts.get("system_prompt", """당신은 회사의 복리후생(Benefits) 정책을 안내하는 전문 AI 어시스턴트입니다.
 제공된 복리후생 관련 문서를 기반으로 직원들의 복리후생 혜택, 휴가, 건강보험, 연금, 각종 보상 및 복지 제도에 대해 정확하고 상세한 답변을 제공하세요.
 답변할 때는 문서의 내용을 직접 인용하거나 참고하여 답변하며, 구체적인 절차, 자격요건, 신청방법 등을 명확히 안내하세요.
 만약 문서에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.
 이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변하세요.
-주의: 답변에는 "[참고 문서]" 섹션을 포함하지 마세요. 답변 내용만 제공하세요."""),
+주의: 답변에는 "[참고 문서]" 섹션을 포함하지 마세요. 답변 내용만 제공하세요.""")
+	
+	# 이전 대화 히스토리 구성
+	messages = [
+		("system", system_prompt),
 	]
 	
-	# 이전 대화 히스토리 추가 (최근 5개)
+	# 이전 대화 히스토리 추가 (YAML 설정 사용)
+	search_params = config.get("search_params", {})
+	conversation_history_max = search_params.get("conversation_history_max_messages", 5)
 	if conversation_history:
-		for msg in conversation_history[-5:]:
+		for msg in conversation_history[-conversation_history_max:]:
 			role = msg.get("role", "")
 			content = msg.get("content", "")
 			if role and content:
 				messages.append((role, content))
 	
-	messages.append(("user", """다음은 회사의 복리후생 정책 문서에서 검색된 관련 내용입니다:
+	user_prompt = prompts.get("user_prompt", """다음은 회사의 복리후생 정책 문서에서 검색된 관련 내용입니다:
 
 {context}
 
@@ -403,7 +461,8 @@ def generate_answer(state: BenefitState) -> BenefitState:
 위 문서들을 참고하여 복리후생 관련 질문에 대한 상세하고 실용적인 답변을 한국어로 제공해주세요.
 답변에는 가능한 한 구체적인 절차, 자격요건, 신청방법, 문의처 등을 포함해주세요.
 이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요.
-주의: 답변 끝에 "[참고 문서]" 섹션을 추가하지 마세요."""))
+주의: 답변 끝에 "[참고 문서]" 섹션을 추가하지 마세요.""")
+	messages.append(("user", user_prompt))
 	
 	prompt_template = ChatPromptTemplate.from_messages(messages)
 	
