@@ -17,6 +17,12 @@ class OrchestratorState(TypedDict):
     user_id: Optional[str]
     session_id: Optional[str]
     
+    # Current Date/Time (모든 agent가 공통으로 사용)
+    current_date: Optional[str]  # 현재 날짜 (예: "2024년 12월 10일")
+    current_time: Optional[str]  # 현재 시간 (예: "14시 30분")
+    current_datetime: Optional[str]  # ISO 형식 (예: "2024-12-10T14:30:00")
+    current_weekday: Optional[str]  # 현재 요일 (예: "월요일")
+    
     # Workflow Context
     domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech'
     last_domain: Optional[str]  # 이전 대화의 도메인 (단순 답변 시 라우팅용)

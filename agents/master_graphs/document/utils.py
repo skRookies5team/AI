@@ -5,6 +5,13 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    yaml = None
+
 
 def get_env(name: str, default: Optional[str] = None) -> Optional[str]:
     """환경 변수 안전 조회."""
@@ -102,5 +109,55 @@ def extract_template_structure(html_content: str) -> Dict[str, any]:
             })
     
     return structure
+
+
+def load_document_prompts() -> Dict[str, Any]:
+    """agent_prompts.yaml에서 문서 도메인 프롬프트를 로드합니다.
+    
+    Returns:
+        문서 도메인 프롬프트 딕셔너리
+    """
+    if not YAML_AVAILABLE:
+        print("⚠️ yaml 모듈이 설치되지 않았습니다. 기본 프롬프트를 사용합니다.")
+        return {}
+    
+    try:
+        # 프로젝트 루트 디렉토리 찾기
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent.parent
+        yaml_path = project_root / "agents" / "agent_prompts.yaml"
+        
+        if not yaml_path.exists():
+            print(f"⚠️ agent_prompts.yaml 파일을 찾을 수 없습니다: {yaml_path}")
+            return {}
+        
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            all_prompts = yaml.safe_load(f)
+        
+        document_prompts = all_prompts.get("document", {})
+        return document_prompts
+        
+    except Exception as e:
+        print(f"⚠️ YAML 파일 로드 실패: {e}. 기본 프롬프트를 사용합니다.")
+        return {}
+
+
+def get_update_document_prompt() -> str:
+    """문서 업데이트를 위한 Structured Output 프롬프트를 가져옵니다.
+    
+    Returns:
+        Structured Output 프롬프트 문자열
+    """
+    prompts = load_document_prompts()
+    update_document = prompts.get("sub_agents", {}).get("update_document", {})
+    structured_prompt = update_document.get("structured_output_prompt", "")
+    
+    if not structured_prompt:
+        # 기본 프롬프트 (fallback)
+        return """사용자의 쿼리에서 문서 업데이트에 필요한 정보를 추출하세요.
+업데이트 가능한 문서 타입: 복리후생, 식단, 메뉴얼
+문서 제목은 반드시 포함되어야 하며, 파일 경로가 있으면 함께 추출하세요."""
+    
+    return structured_prompt.strip()
 
 
