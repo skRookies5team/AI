@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, END
 from agents.state import OrchestratorState
 from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
-from agents.master_graphs.tech.tech_patent_agent import patent_search
+from agents.master_graphs.tech.patent.patent_agent import patent_search
 from agents.master_graphs.tech.tech_article_agent import article_master
 
 
@@ -93,25 +93,27 @@ class TechMasterGraph(BaseMasterGraph):
         
         # 특허 검색 컨텍스트 확인
         if tech_search_context and "patent" in tech_search_context:
-            patent_ctx = tech_search_context["patent"]
-            # ask_search_mode 상태라면 무조건 patent로 라우팅 (우선순위 최상)
-            if patent_ctx.get("intent") == "ask_search_mode":
-                print(f"✅ 이전 컨텍스트(ask_search_mode)에 따라 라우팅 유지: patent")
-                return {"intent": "patent"}
-            
-            # 최근 검색 결과나 진행 중인 상태가 있는지 확인
-            if patent_ctx.get("results"):
-                last_active_agent = "patent"
-                # 타임스탬프가 있다면 비교 로직 추가 가능 (현재는 단순 우선순위나 플래그로 처리)
+            patent_ctx = tech_search_context.get("patent")
+            if patent_ctx and isinstance(patent_ctx, dict):
+                # ask_search_mode 상태라면 무조건 patent로 라우팅 (우선순위 최상)
+                if patent_ctx.get("intent") == "ask_search_mode":
+                    print(f"✅ 이전 컨텍스트(ask_search_mode)에 따라 라우팅 유지: patent")
+                    return {"intent": "patent"}
+                
+                # 최근 검색 결과나 진행 중인 상태가 있는지 확인
+                if patent_ctx.get("results"):
+                    last_active_agent = "patent"
+                    # 타임스탬프가 있다면 비교 로직 추가 가능 (현재는 단순 우선순위나 플래그로 처리)
         
         # 논문 검색 컨텍스트 확인 (특허보다 우선순위가 높거나, 가장 최근 것 선택 로직 필요)
         # 여기서는 단순하게 최근에 "ask_source" 상태였던 것을 우선 찾음
         if tech_search_context and "article" in tech_search_context:
-            article_ctx = tech_search_context["article"]
-            if article_ctx.get("intent") == "ask_source":
-                last_active_agent = "article"
-            elif not last_active_agent and article_ctx.get("results"):
-                last_active_agent = "article"
+            article_ctx = tech_search_context.get("article")
+            if article_ctx and isinstance(article_ctx, dict):
+                if article_ctx.get("intent") == "ask_source":
+                    last_active_agent = "article"
+                elif not last_active_agent and article_ctx.get("results"):
+                    last_active_agent = "article"
                 
         # 2. 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우 이전 컨텍스트보다 우선
         explicit_keywords = {
@@ -171,8 +173,8 @@ class TechMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 기존 tech_patent_agent 사용 (Redis 숏텀 메모리 state 전달)
-        # patent_search 함수는 이제 비동기 함수이므로 await 사용
+        # patent 서브 에이전트 사용 (Redis 숏텀 메모리 state 전달)
+        # patent_search 함수는 비동기 함수이므로 await 사용
         result = await patent_search(query, session_id=session_id, orchestrator_state=state)
         
         # patent_search에서 업데이트된 state를 반영하여 Redis에 저장

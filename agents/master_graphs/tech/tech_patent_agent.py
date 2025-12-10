@@ -45,6 +45,9 @@ except ImportError:
 # OpenAI 임베딩 사용
 from agents.embedding_utils import get_embedding_generator
 
+# 특허 전용 키워드 생성 (논문 agent와 분리하여 충돌 방지)
+from .patent_keyword import generate_patent_keyword, generate_patent_keyword_from_text
+
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     TEXT_SPLITTER_AVAILABLE = True
@@ -506,42 +509,16 @@ def _initialize_milvus() -> None:
 
 
 def extract_keyword_from_text(text: str) -> str:
-    """특허 제목/초록에서 주요 키워드 추출."""
-    keywords = [
-        "디스플레이", "display", "화면", "스크린",
-        "베터리", "battery", "배터리", "전지", "충전",
-        "와이파이", "wifi", "wi-fi", "무선통신", "네트워크",
-        "볼펜", "pen", "펜",
-        "반도체", "semiconductor", "칩",
-        "센서", "sensor", "감지",
-        "로봇", "robot", "자동화",
-        "인공지능", "ai", "머신러닝", "딥러닝",
-        "자동차", "차량", "vehicle", "car",
-        "스마트폰", "휴대폰", "모바일",
-    ]
+    """특허 제목/초록에서 주요 키워드 추출 (LLM 기반).
     
-    text_lower = text.lower()
-    for keyword in keywords:
-        if keyword.lower() in text_lower:
-            if any(ord(char) >= 0xAC00 and ord(char) <= 0xD7A3 for char in keyword):
-                return keyword
-            keyword_map = {
-                "display": "디스플레이",
-                "battery": "베터리",
-                "wifi": "와이파이",
-                "wi-fi": "와이파이",
-                "pen": "볼펜",
-                "semiconductor": "반도체",
-                "sensor": "센서",
-                "robot": "로봇",
-                "ai": "인공지능",
-                "vehicle": "자동차",
-                "car": "자동차",
-                "mobile": "스마트폰",
-            }
-            return keyword_map.get(keyword.lower(), keyword)
-    
-    return "기타"
+    특허 전용 키워드 생성 모듈을 사용하여 동적으로 키워드를 생성합니다.
+    """
+    try:
+        keyword = generate_patent_keyword_from_text(text)
+        return keyword if keyword else "기타"
+    except Exception as e:
+        # LLM 실패 시 기본값 반환
+        return "기타"
 
 
 def _sanitize_collection_name(keyword: str) -> str:
@@ -1531,29 +1508,36 @@ def _get_workflow() -> Any:
 # 메인 함수 (기존 인터페이스 유지)
 # ───────────────────────────────────────────────────────────
 def _extract_keyword(user_text: str) -> str:
-    """사용자 질문에서 키워드 추출."""
-    t = user_text.strip()
+    """사용자 질문에서 키워드 추출 (LLM 기반).
     
-    # "관련" 앞 단어 추출
-    if "관련" in t:
-        keyword = t.split("관련")[0].strip()
-        # "검색해줘", "찾아줘" 같은 동사 제거
+    특허 전용 키워드 생성 모듈을 사용하여 동적으로 키워드를 생성합니다.
+    """
+    try:
+        keyword = generate_patent_keyword(user_text)
+        return keyword if keyword else user_text
+    except Exception as e:
+        # LLM 실패 시 기본 파싱 로직 사용
+        t = user_text.strip()
+        
+        # "관련" 앞 단어 추출
+        if "관련" in t:
+            keyword = t.split("관련")[0].strip()
+            keyword = re.sub(r"\s*(검색|찾아|찾아줘|검색해줘|검색해|찾아서).*$", "", keyword).strip()
+            return keyword
+        
+        # 따옴표 안 내용 추출
+        for quote in ['"', "'"]:
+            if t.count(quote) >= 2:
+                first = t.find(quote) + 1
+                second = t.find(quote, first)
+                if second > first:
+                    return t[first:second].strip()
+        
+        # 기본: "특허" 키워드 제거 후 나머지
+        keyword = re.sub(r"(특허|patent|Patent)\s*", "", t, flags=re.IGNORECASE).strip()
         keyword = re.sub(r"\s*(검색|찾아|찾아줘|검색해줘|검색해|찾아서).*$", "", keyword).strip()
-        return keyword
-    
-    # 따옴표 안 내용 추출
-    for quote in ['"', "'"]:
-        if t.count(quote) >= 2:
-            first = t.find(quote) + 1
-            second = t.find(quote, first)
-            if second > first:
-                return t[first:second].strip()
-    
-    # 기본: "특허" 키워드 제거 후 나머지
-    keyword = re.sub(r"(특허|patent|Patent)\s*", "", t, flags=re.IGNORECASE).strip()
-    keyword = re.sub(r"\s*(검색|찾아|찾아줘|검색해줘|검색해|찾아서).*$", "", keyword).strip()
-    
-    return keyword if keyword else t
+        
+        return keyword if keyword else t
 
 
 def _parse_selection_number(user_text: str) -> Optional[int]:

@@ -38,6 +38,7 @@ dependencies = [
     "langgraph-checkpoint-redis>=0.2.0",
     "pyyaml>=6.0.0",
     "jsonpatch>=1.33",
+    "pdfplumber>=0.11.8",
 ]
 
 [tool.uv]

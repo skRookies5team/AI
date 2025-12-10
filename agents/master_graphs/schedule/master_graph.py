@@ -437,10 +437,17 @@ class ScheduleMasterGraph(BaseMasterGraph):
             # meeting_room_agent 사용
             from agents.master_graphs.schedule.meeting_agent import meeting_room_query
             
-            # context 구성
+            # context 구성 (날짜/시간 정보 포함)
             context = {}
             if session_id:
                 context["session_id"] = session_id
+            
+            # orchestrator_state에서 날짜/시간 정보 가져오기
+            if orchestrator_state:
+                context["current_date"] = orchestrator_state.get("current_date")
+                context["current_time"] = orchestrator_state.get("current_time")
+                context["current_datetime"] = orchestrator_state.get("current_datetime")
+                context["current_weekday"] = orchestrator_state.get("current_weekday")
             
             # 동기 함수를 async에서 호출
             import asyncio

@@ -52,12 +52,13 @@ def _coerce_datetime(value: Any) -> datetime | None:
     return None
 
 
-async def _parse_with_llm(user_input: str) -> dict[str, Any]:
+async def _parse_with_llm(user_input: str, current_datetime: str | None = None) -> dict[str, Any]:
     """
     LLM을 사용하여 자연어에서 회의실 예약 정보를 추출
     
     Args:
         user_input: 사용자의 자연어 입력
+        current_datetime: 현재 날짜/시간 (ISO 형식). None이면 datetime.now() 사용
         
     Returns:
         파싱된 정보를 담은 딕셔너리
@@ -73,7 +74,14 @@ async def _parse_with_llm(user_input: str) -> dict[str, Any]:
         "오늘 10시에 5명" → {"start_time": "2025-01-15T10:00:00", ...}
         "다음주 화요일 오후 회의실" → {"start_time": "2025-01-21T14:00:00", ...}
     """
-    now = datetime.now()
+    # current_datetime이 제공되면 사용, 없으면 현재 시간 사용
+    if current_datetime:
+        try:
+            now = datetime.fromisoformat(current_datetime)
+        except (ValueError, TypeError):
+            now = datetime.now()
+    else:
+        now = datetime.now()
     
     prompt = PARSE_PROMPT.format(current_time=now.isoformat())
     
@@ -360,11 +368,11 @@ def _parse_manual_update_detail(answer: str) -> tuple[dict[str, Any], str | None
     return updates, None
 
 
-async def _parse_update_answer(answer: str, existing: dict[str, Any] | None = None) -> tuple[dict[str, Any], str | None]:
+async def _parse_update_answer(answer: str, existing: dict[str, Any] | None = None, current_datetime: str | None = None) -> tuple[dict[str, Any], str | None]:
     if _is_skip_response(answer):
         return {}, None
 
-    parsed = await _parse_with_llm(answer)
+    parsed = await _parse_with_llm(answer, current_datetime=current_datetime)
     updates: dict[str, Any] = {}
 
     start_dt = parsed["start_time"]
@@ -643,7 +651,8 @@ async def update_node(state: AgentState) -> AgentState:
             return _set_pending_question(state, "update_detail", "수정", FIELD_QUESTION_UPDATE_DETAIL)
 
         if pending_field == "update_detail":
-            updates, error = await _parse_update_answer(answer, existing=base_data)
+            current_datetime = state.get("current_datetime")
+            updates, error = await _parse_update_answer(answer, existing=base_data, current_datetime=current_datetime)
             if error:
                 state["intent"] = "수정"
                 state["response"] = error
@@ -714,8 +723,9 @@ async def recommend_node(state: AgentState) -> AgentState:
     # ===== 🆕 LLM 기반 자연어 파싱 =====
     user_input = state.get("user_input", "")
     
-    # 1. LLM으로 자연어에서 정보 추출
-    parsed = await _parse_with_llm(user_input)
+    # 1. LLM으로 자연어에서 정보 추출 (날짜/시간 정보 전달)
+    current_datetime = state.get("current_datetime")
+    parsed = await _parse_with_llm(user_input, current_datetime=current_datetime)
     
     # 2. 상태에서 기본값 가져오기 (LLM 파싱 결과 우선)
     start_time = _coerce_datetime(state.get("start_time")) or parsed["start_time"]
@@ -814,7 +824,8 @@ async def lookup_node(state: AgentState) -> AgentState:
     _coerce_candidate_types(candidate)
 
     if not (state.get("pending_field") and state.get("pending_intent") == "조회"):
-        parsed = await _parse_with_llm(state.get("user_input", ""))
+        current_datetime = state.get("current_datetime")
+        parsed = await _parse_with_llm(state.get("user_input", ""), current_datetime=current_datetime)
         if parsed["start_time"] and "start_time" not in candidate:
             candidate["start_time"] = parsed["start_time"]
         if parsed["end_time"] and "end_time" not in candidate:
