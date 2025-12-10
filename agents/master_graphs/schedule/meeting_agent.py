@@ -133,6 +133,12 @@ async def _async_workflow(user_text: str, context: Optional[Dict[str, Any]] = No
                         state[key] = memory[key]
                         logger.info("✅ 세션 메모리 로드: %s=%s", key, memory[key])
             
+            # 날짜/시간 정보 추가 (orchestrator_state에서 전달된 정보)
+            for date_key in ("current_date", "current_time", "current_datetime", "current_weekday"):
+                if date_key in context:
+                    state[date_key] = context[date_key]
+                    logger.info(f"✅ 날짜/시간 정보 추가: {date_key}={context[date_key]}")
+            
             # 나머지 context도 병합
             for key, value in context.items():
                 if key not in state:

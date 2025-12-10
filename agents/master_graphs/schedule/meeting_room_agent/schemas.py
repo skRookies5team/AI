@@ -74,4 +74,9 @@ class AgentState(TypedDict, total=False):
     require_video: NotRequired[bool]
     building: NotRequired[str]
     meeting_room_id: NotRequired[int]
+    # 날짜/시간 정보 (orchestrator_state에서 전달)
+    current_date: NotRequired[str]
+    current_time: NotRequired[str]
+    current_datetime: NotRequired[str]
+    current_weekday: NotRequired[str]
 

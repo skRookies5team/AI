@@ -85,7 +85,8 @@ def process_domain_node_result(
     Returns:
         처리된 결과 딕셔너리
     """
-    # 1. last_domain 업데이트
+    # 1. domain 및 last_domain 업데이트 (LLM 라우팅 시 결정된 도메인 정보 유지)
+    result["domain"] = domain_name
     result["last_domain"] = domain_name
     
     # 2. 도메인 전환 시 이전 도메인 정보 정리 (빠른 작업)
