@@ -547,6 +547,34 @@ def _extract_field_from_entity(
     return default_value
 
 
+def _parse_name_position_from_title(document_title: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    document_title에서 '이름 - 직무 이력서' 형식을 파싱합니다.
+    
+    Args:
+        document_title: 문서 제목 (예: "윤가은 - 데이터 엔지니어 이력서")
+        
+    Returns:
+        (name, position) 튜플 - 파싱 실패 시 (None, None)
+    """
+    if not document_title:
+        return None, None
+    
+    # '이름 - 직무 이력서' 패턴 매칭
+    pattern = r'^(.+?)\s*-\s*(.+?)\s*이력서'
+    match = re.match(pattern, document_title.strip(), re.IGNORECASE)
+    
+    if match:
+        name = match.group(1).strip()
+        position = match.group(2).strip()
+        
+        # 이름과 직무가 유효한지 확인
+        if name and position and len(name) >= 2:
+            return name, position
+    
+    return None, None
+
+
 def _extract_name_from_content(content_lines: List[str]) -> str:
     """
     content에서 이름을 추출합니다.
@@ -557,6 +585,13 @@ def _extract_name_from_content(content_lines: List[str]) -> str:
     Returns:
         추출된 이름
     """
+    # 먼저 첫 줄에서 "이름 - 직무 이력서" 패턴 확인
+    if content_lines:
+        first_line = content_lines[0].strip()
+        parsed_name, _ = _parse_name_position_from_title(first_line)
+        if parsed_name:
+            return parsed_name
+    
     for i, line in enumerate(content_lines[:10]):
         line = line.strip()
         
@@ -587,6 +622,13 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
     Returns:
         추출된 포지션
     """
+    # 먼저 첫 줄에서 "이름 - 직무 이력서" 패턴 확인
+    if content_lines:
+        first_line = content_lines[0].strip()
+        _, parsed_position = _parse_name_position_from_title(first_line)
+        if parsed_position:
+            return parsed_position
+    
     # "요약" 섹션에서 찾기
     for i, line in enumerate(content_lines):
         if "요약" in line and i + 1 < len(content_lines):
@@ -594,6 +636,8 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
             pos_match = re.search(POSITION_PATTERN, next_lines)
             if pos_match:
                 position = pos_match.group(1).strip()
+                # "년 차" 같은 패턴 제거
+                position = re.sub(r'\s*\d+\s*년\s*차\s*', '', position).strip()
                 position = re.sub(r'\s*(지망|의|로서).*$', '', position).strip()
                 if len(position) > MAX_POSITION_LENGTH:
                     position = ' '.join(position.split()[:3])
@@ -606,6 +650,8 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
             pos_match = re.search(POSITION_PATTERN, search_lines)
             if pos_match:
                 position = pos_match.group(1).strip()
+                # "년 차" 같은 패턴 제거
+                position = re.sub(r'\s*\d+\s*년\s*차\s*', '', position).strip()
                 position = re.sub(r'\s*(지망|의|로서).*$', '', position).strip()
                 if len(position) > MAX_POSITION_LENGTH:
                     position = ' '.join(position.split()[:3])
@@ -1193,10 +1239,37 @@ async def search_resumes(
                 str(hit.id) if hasattr(hit, 'id') else str(idx)
             )
             
-            name = _extract_field_from_entity(entity_dict, POSSIBLE_NAME_FIELDS, DEFAULT_NAME)
-            position = _extract_field_from_entity(
-                entity_dict, POSSIBLE_POSITION_FIELDS, DEFAULT_POSITION
+            # content와 chunk_text 가져오기 (먼저 확인)
+            content = _extract_field_from_entity(
+                entity_dict, POSSIBLE_CONTENT_FIELDS, ""
             )
+            chunk_text = entity_dict.get("chunk_text") or ""
+            if not content and chunk_text:
+                content = chunk_text
+            
+            # document_title에서 먼저 이름과 직무 추출 시도 (새로운 데이터 구조)
+            document_title = entity_dict.get("document_title") or entity_dict.get("document_name") or ""
+            parsed_name, parsed_position = _parse_name_position_from_title(document_title)
+            
+            # document_title에서 파싱 실패 시 content의 첫 줄에서도 확인
+            if not parsed_name and content:
+                first_line = content.split('\n')[0].strip() if content else ""
+                parsed_name, parsed_position = _parse_name_position_from_title(first_line)
+            
+            # 이름 추출 (document_title/content 첫 줄 우선, 없으면 기존 로직)
+            if parsed_name:
+                name = parsed_name
+            else:
+                name = _extract_field_from_entity(entity_dict, POSSIBLE_NAME_FIELDS, DEFAULT_NAME)
+            
+            # 직무 추출 (document_title/content 첫 줄 우선, 없으면 기존 로직)
+            if parsed_position:
+                position = parsed_position
+            else:
+                position = _extract_field_from_entity(
+                    entity_dict, POSSIBLE_POSITION_FIELDS, DEFAULT_POSITION
+                )
+            
             experience = _extract_field_from_entity(
                 entity_dict, POSSIBLE_EXPERIENCE_FIELDS, DEFAULT_EXPERIENCE
             )
@@ -1205,11 +1278,7 @@ async def search_resumes(
             if isinstance(skills, str):
                 skills = [s.strip() for s in skills.split(",") if s.strip()]
             
-            content = _extract_field_from_entity(
-                entity_dict, POSSIBLE_CONTENT_FIELDS, ""
-            )
-            
-            # content에서 정보 추출
+            # content에서 정보 추출 (이름과 직무가 아직 기본값인 경우에만)
             if content:
                 content_lines = content.split('\n')
                 
@@ -1234,9 +1303,6 @@ async def search_resumes(
                 filtered_count += 1
                 continue
             
-            # 점수 계산
-            score = 1.0 / (1.0 + hit.distance) if hit.distance > 0 else 1.0
-            
             resumes.append({
                 "index": str(len(resumes) + 1),
                 "resume_id": resume_id,
@@ -1244,8 +1310,6 @@ async def search_resumes(
                 "position": position,
                 "experience": experience,
                 "skills": skills if isinstance(skills, list) else [],
-                "score": round(score, 3),
-                "distance": round(hit.distance, 3),
                 "content": content,
             })
             
