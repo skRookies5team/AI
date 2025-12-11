@@ -251,9 +251,9 @@ def split_text_into_chunks(text: str, chunk_size: int = 500, overlap: int = 50) 
 
 
 def chunk_resume_by_separator(text: str) -> List[str]:
-    """이력서 텍스트를 === RESUME XX === 구분자로 분리합니다.
+    """이력서 텍스트를 '이름 - 직무 이력서' 구분자로 분리합니다.
     
-    === RESUME 01 ===와 === RESUME 02 === 사이의 텍스트가 하나의 청크가 됩니다.
+    예: '윤가은 - 데이터 엔지니어 이력서'와 '홍길동 - Software Engineer 이력서' 사이의 텍스트가 하나의 청크가 됩니다.
     
     Args:
         text: 이력서 텍스트
@@ -263,11 +263,13 @@ def chunk_resume_by_separator(text: str) -> List[str]:
     """
     import re
     
-    # === RESUME XX === 패턴 찾기 (XX는 숫자)
-    pattern = r'=== RESUME \d+ ==='
+    # '이름 - 직무 이력서' 패턴 찾기
+    # 예: '윤가은 - 데이터 엔지니어 이력서', '홍길동 - Software Engineer 이력서'
+    # 줄 시작부터 매칭하여 더 정확하게 찾음
+    pattern = r'^(.+?)\s*-\s*(.+?)\s*이력서'
     
-    # 구분자 위치 찾기
-    matches = list(re.finditer(pattern, text, re.IGNORECASE))
+    # 구분자 위치 찾기 (멀티라인 모드 사용)
+    matches = list(re.finditer(pattern, text, re.MULTILINE | re.IGNORECASE))
     
     if not matches:
         # 구분자가 없으면 전체 텍스트를 하나의 청크로 반환
@@ -275,16 +277,11 @@ def chunk_resume_by_separator(text: str) -> List[str]:
     
     chunks = []
     
-    # 첫 번째 이력서 (첫 번째 구분자 이전의 텍스트는 제외)
-    # 첫 번째 구분자부터 시작
-    start_idx = matches[0].start()
-    
     # 각 구분자 사이의 텍스트 추출
     for i in range(len(matches)):
         # 현재 구분자 위치
         current_match = matches[i]
         current_start = current_match.start()
-        current_end = current_match.end()
         
         # 다음 구분자 위치 (마지막이면 텍스트 끝)
         if i + 1 < len(matches):
