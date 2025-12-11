@@ -326,7 +326,12 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         _initialize_models()
         _initialize_milvus()
         
-        keyword = extract_keyword_from_text(query)
+        # 구문 기반 검색으로 변경: 키워드 분리 대신 핵심 구문 추출
+        from .patent_keyword import generate_patent_search_phrase
+        search_phrase = generate_patent_search_phrase(query)
+        
+        # 컬렉션 선택: 구문에서 키워드 추출 (하위 호환성 유지)
+        keyword = extract_keyword_from_text(search_phrase)
         collection_name = get_collection_name(keyword)
         
         try:
@@ -349,7 +354,8 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         field_names = [field.name for field in schema.fields]
         has_patent_keyword = "patent_keyword" in field_names
 
-        query_vec = _embedding_model.embed(query)
+        # 구문 벡터화 (키워드 분리 대신 구문 전체 사용)
+        query_vec = _embedding_model.embed(search_phrase)
 
         # 필터링 조건 설정 (patent_keyword 필드가 있을 때만)
         expr = None
@@ -377,17 +383,20 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
 
         found_patents = []
         seen_app_nos = set()
-        query_lower = query.lower()
-        query_words = re.findall(r'[\w가-힣]+', query_lower)
         
-        # 핵심 키워드 추출 (불필요한 단어 제거)
-        # 예: "전기차 베터리 특허 찾아줘" → ["전기차"]만 추출
+        # 구문 기반 매칭: search_phrase 사용
+        phrase_lower = search_phrase.lower()
+        phrase_words = re.findall(r'[\w가-힣]+', phrase_lower)
+        
+        # 핵심 단어 추출 (불필요한 일반 설명 단어만 제거, 기술 용어는 유지)
+        # "배터리" 같은 핵심 기술 용어는 제거하지 않음
         stop_words = {
-            "베터리", "배터리", "특허", "찾아", "검색", "관련", "정보", "자료", 
-            "요청", "알려", "줘", "주세요", "patent", "찾아서", "검색해", "검색해줘"
+            "특허", "찾아", "검색", "관련", "정보", "자료", 
+            "요청", "알려", "줘", "주세요", "patent", "찾아서", "검색해", "검색해줘",
+            "기술", "현황", "동향"  # 일반적인 설명 단어만 제거
         }
         main_keywords = [
-            word for word in query_words 
+            word for word in phrase_words 
             if len(word) > 1 and word not in stop_words
         ]
         
@@ -399,21 +408,26 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
             title = hit.entity.get('title', '').lower()
             abstract = hit.entity.get('abstract', '').lower()
             content = hit.entity.get('content', '').lower()
+            full_text = title + " " + abstract + " " + content
             
-            # 핵심 키워드가 있으면, 반드시 제목/초록/내용에 포함되어야 함
-            # 예: "전기차" 검색 시 → "전기차"가 포함된 특허만 반환
+            # 구문 전체 매칭 확인 (가장 중요)
+            # 예: "전기차 배터리 기술" → 구문 전체가 포함된 특허 우선
+            phrase_match = phrase_lower in full_text
+            
+            # 핵심 단어 매칭 확인
             if main_keywords:
-                has_main_keyword = any(
-                    keyword in title or keyword in abstract or keyword in content
-                    for keyword in main_keywords
+                # 핵심 단어가 모두 포함된 경우 (구문 의미 보존)
+                keyword_count = sum(
+                    1 for keyword in main_keywords
+                    if keyword in full_text
                 )
-                if not has_main_keyword:
-                    continue  # 핵심 키워드가 없으면 제외
+                # 구문 전체 매칭이 있거나, 핵심 단어가 모두 포함된 경우만 통과
+                if not phrase_match and keyword_count < len(main_keywords):
+                    continue  # 관련성 낮음
             
             # 기존 키워드 매칭 로직 (하위 호환성 유지)
-            full_match = (query_lower in title or query_lower in abstract or query_lower in content)
-            word_match = any(word in title or word in abstract or word in content for word in query_words if len(word) > 1)
-            keyword_match = full_match or word_match
+            word_match = any(word in full_text for word in phrase_words if len(word) > 1)
+            keyword_match = phrase_match or word_match
             
             # 키워드 매칭이 있으면 거리 임계값을 더 완화
             effective_max_distance = 2.0 if keyword_match else max_distance

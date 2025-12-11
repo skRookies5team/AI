@@ -95,9 +95,12 @@ class TechMasterGraph(BaseMasterGraph):
         if tech_search_context and "patent" in tech_search_context:
             patent_ctx = tech_search_context.get("patent")
             if patent_ctx and isinstance(patent_ctx, dict):
-                # ask_search_mode 상태라면 무조건 patent로 라우팅 (우선순위 최상)
-                if patent_ctx.get("intent") == "ask_search_mode":
-                    print(f"✅ 이전 컨텍스트(ask_search_mode)에 따라 라우팅 유지: patent")
+                patent_intent = patent_ctx.get("intent")
+                waiting_for_web_search = patent_ctx.get("waiting_for_web_search", False)
+                
+                # ask_search_mode 또는 ask_web_search 상태라면 무조건 patent로 라우팅 (우선순위 최상)
+                if patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search:
+                    print(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search})에 따라 라우팅 유지: patent")
                     return {"intent": "patent"}
                 
                 # 최근 검색 결과나 진행 중인 상태가 있는지 확인
@@ -105,14 +108,14 @@ class TechMasterGraph(BaseMasterGraph):
                     last_active_agent = "patent"
                     # 타임스탬프가 있다면 비교 로직 추가 가능 (현재는 단순 우선순위나 플래그로 처리)
         
-        # 논문 검색 컨텍스트 확인 (특허보다 우선순위가 높거나, 가장 최근 것 선택 로직 필요)
-        # 여기서는 단순하게 최근에 "ask_source" 상태였던 것을 우선 찾음
-        if tech_search_context and "article" in tech_search_context:
+        # 논문 검색 컨텍스트 확인 (특허보다 우선순위가 낮음 - 특허가 이미 설정되었으면 무시)
+        # 특허 검색이 활성화되어 있으면 논문으로 덮어쓰지 않음
+        if tech_search_context and "article" in tech_search_context and not last_active_agent:
             article_ctx = tech_search_context.get("article")
             if article_ctx and isinstance(article_ctx, dict):
                 if article_ctx.get("intent") == "ask_source":
                     last_active_agent = "article"
-                elif not last_active_agent and article_ctx.get("results"):
+                elif article_ctx.get("results"):
                     last_active_agent = "article"
                 
         # 2. 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우 이전 컨텍스트보다 우선

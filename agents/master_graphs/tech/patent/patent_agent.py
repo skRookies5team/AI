@@ -42,6 +42,7 @@ from .patent_utils import (
     _parse_selection_number,
     _parse_selection_numbers,
 )
+from .patent_keyword import generate_patent_search_phrase
 from .patent_nodes import (
     get_workflow,
     download_pdf_node,
@@ -70,6 +71,27 @@ async def patent_search(
     Returns:
         검색 결과 또는 상세 정보
     """
+    # 새로운 특허 검색 시작 시 특허 컨텍스트 초기화 (테스트 및 정확한 검색 흐름 보장)
+    if orchestrator_state:
+        tech_context = orchestrator_state.get("tech_search_context", {})
+        patent_context = tech_context.get("patent", {})
+        last_query = patent_context.get("query", "")
+        
+        # 새로운 특허 검색 키워드 감지
+        patent_keywords = ["특허", "patent", "특허를", "특허를 찾아", "특허 찾아", "특허 검색", "특허 좀", "특허좀"]
+        is_new_patent_search = any(kw in keyword.lower() for kw in patent_keywords)
+        
+        # 새로운 특허 검색이고 이전 검색과 다른 키워드인 경우 특허 컨텍스트만 초기화
+        if is_new_patent_search and keyword != last_query:
+            LOGGER.info("새로운 특허 검색 감지: 이전 키워드='%s', 새 키워드='%s' → 특허 컨텍스트 초기화", last_query, keyword)
+            
+            # 특허 컨텍스트만 초기화 (tech_search_context 내의 patent만)
+            if "tech_search_context" not in orchestrator_state:
+                orchestrator_state["tech_search_context"] = {}
+            orchestrator_state["tech_search_context"]["patent"] = {}
+            
+            # 다른 tech 컨텍스트는 유지 (article 등)
+    
     if orchestrator_state and "tech_search_context" in orchestrator_state:
         tech_context = orchestrator_state.get("tech_search_context") or {}
         patent_context = tech_context.get("patent", {})
@@ -85,7 +107,8 @@ async def patent_search(
                             "이전에", "전에", "했어", "했어?", "했나", "했나?", "요청했", "요청했어", "요청했나"]
         is_question = any(qk in user_input_lower for qk in question_keywords) or user_input_lower.endswith("?") or user_input_lower.endswith("요?")
         
-        display_query = last_query or patent_context.get("last_keyword", "특허")
+        # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
+        display_query = last_query or patent_context.get("last_search_phrase") or patent_context.get("last_keyword", "특허")
         
         if is_question and previous_results:
             results_count = len(previous_results)
@@ -240,7 +263,8 @@ async def patent_search(
             if orchestrator_state and "tech_search_context" in orchestrator_state:
                 tech_context = orchestrator_state.get("tech_search_context") or {}
                 patent_context = tech_context.get("patent", {})
-                previous_search_keyword = patent_context.get("last_keyword") or patent_context.get("query")
+                # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
+                previous_search_keyword = patent_context.get("last_search_phrase") or patent_context.get("last_keyword") or patent_context.get("query")
                 if previous_search_keyword:
                     previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
                     LOGGER.info("이전 검색 키워드 복원: '%s' (특허 번호: %s)", previous_search_keyword, app_no)
@@ -350,7 +374,8 @@ async def patent_search(
         if orchestrator_state and "tech_search_context" in orchestrator_state:
             tech_context = orchestrator_state.get("tech_search_context") or {}
             patent_context = tech_context.get("patent", {})
-            previous_search_keyword = patent_context.get("last_keyword") or patent_context.get("query")
+            # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
+            previous_search_keyword = patent_context.get("last_search_phrase") or patent_context.get("last_keyword") or patent_context.get("query")
             if previous_search_keyword:
                 previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
                 LOGGER.info("이전 검색 키워드 복원 (여러 특허): '%s'", previous_search_keyword)
@@ -430,8 +455,12 @@ async def patent_search(
                 message_lines.append(f"[{i}] {res['patent'].get('application_number', 'N/A')}")
                 message_lines.append(f"{res['patent'].get('title', '제목 없음')}")
                 message_lines.append(f"\n{res['message']}")
-                if res.get('pdf_link'):
-                    message_lines.append(f"\n🔗 PDF 링크: {res['pdf_link']}")
+                
+                # PDF 링크가 message에 이미 포함되어 있지 않은 경우만 추가 (중복 방지)
+                pdf_link = res.get('pdf_link', '')
+                message_text = res.get('message', '')
+                if pdf_link and "🔗 PDF 링크" not in message_text and "🔗 참고 PDF 링크" not in message_text:
+                    message_lines.append(f"\n🔗 PDF 링크: {pdf_link}")
 
             return {
                 "ok": True,
@@ -455,7 +484,8 @@ async def patent_search(
             if orchestrator_state and "tech_search_context" in orchestrator_state:
                 tech_context = orchestrator_state.get("tech_search_context") or {}
                 patent_context = tech_context.get("patent", {})
-                previous_search_keyword = patent_context.get("last_keyword") or patent_context.get("query")
+                # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
+                previous_search_keyword = patent_context.get("last_search_phrase") or patent_context.get("last_keyword") or patent_context.get("query")
                 if previous_search_keyword:
                     previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
                     LOGGER.info("이전 검색 키워드 복원 (단일 특허): '%s'", previous_search_keyword)
@@ -576,9 +606,11 @@ async def patent_search(
                 finally:
                     # 전역 변수 정리
                     patent_config_module._current_orchestrator_state_for_node = None
-                LOGGER.info("LangGraph 워크플로우 실행 완료: next_action=%s, search_results=%d, answer=%s",
-                           result.get('next_action'), len(result.get('search_results', [])), bool(result.get('answer')))
+                LOGGER.info("LangGraph 워크플로우 실행 완료: next_action=%s, search_results=%d, answer=%s, vector_db_results=%d",
+                           result.get('next_action'), len(result.get('search_results', [])), bool(result.get('answer')), len(result.get('vector_db_results', [])))
                 
+                # 결과 처리 순서: answer > ask_web_search > search_results
+                # answer가 있으면 우선 처리 (rag_answer_node 결과)
                 if result.get("next_action") == "end" and "검색 방식을 선택" in result.get("progress_status", "") and search_mode is None:
                     if orchestrator_state is not None:
                         if "tech_search_context" not in orchestrator_state or orchestrator_state["tech_search_context"] is None:
@@ -596,6 +628,7 @@ async def patent_search(
                         "progress_status": result.get("progress_status", ""),
                     }
 
+                # answer가 있으면 우선 처리 (rag_answer_node 결과 - 서버 검색 결과가 있을 때)
                 if result.get("answer"):
                     pdf_links = []
                     vector_results = result.get("vector_db_results", [])
@@ -607,17 +640,48 @@ async def patent_search(
                     message = result["answer"]
                     if pdf_links and "🔗 참고 PDF 링크" not in message and "🔗 PDF 링크" not in message:
                         message += "\n\n🔗 참고 PDF 링크:\n" + "\n".join(pdf_links)
+                    
+                    # next_action이 ask_web_search이면 requires_user_input 설정
+                    requires_user_input = result.get("next_action") == "ask_web_search"
+                    
+                    LOGGER.info("patent_agent: answer 경로로 반환 - answer 길이=%d, next_action=%s, requires_user_input=%s", 
+                               len(message), result.get("next_action"), requires_user_input)
 
                     return {
                         "ok": True,
                         "message": message,
                         "vector_db_results": vector_results,
                         "progress_status": result.get("progress_status", ""),
+                        "requires_user_input": requires_user_input,
                     }
                 
+                # ask_web_search_node의 결과 처리 (서버 검색 결과 없을 때 웹 검색 질문)
+                progress_status = result.get("progress_status", "")
+                if result.get("next_action") == "end" and ("웹에서 찾아드릴까요" in progress_status or "웹에서 검색" in progress_status or ("서버에" in progress_status and "저장되어 있지 않습니다" in progress_status)):
+                    # Redis 상태 저장
+                    if orchestrator_state is not None:
+                        if "tech_search_context" not in orchestrator_state or orchestrator_state["tech_search_context"] is None:
+                            orchestrator_state["tech_search_context"] = {}
+                        if "patent" not in orchestrator_state["tech_search_context"]:
+                            orchestrator_state["tech_search_context"]["patent"] = {}
+                        
+                        orchestrator_state["tech_search_context"]["patent"]["intent"] = "ask_web_search"
+                        orchestrator_state["tech_search_context"]["patent"]["query"] = keyword
+                    
+                    LOGGER.info("ask_web_search_node 결과 감지: 사용자에게 웹 검색 질문 표시")
+                    return {
+                        "ok": True,
+                        "message": progress_status,
+                        "requires_user_input": True,
+                        "progress_status": progress_status,
+                    }
+                
+                # search_results 경로 처리 (KIPRIS 웹 검색 결과)
                 search_results = result.get("search_results", [])
-                if search_results or result.get("next_action") == "end":
+                # answer가 없고 search_results가 있거나 next_action이 end일 때만 처리
+                if (search_results or result.get("next_action") == "end") and not result.get("answer"):
                     if search_results:
+                        LOGGER.info("patent_agent: search_results 경로로 반환 - search_results=%d개", len(search_results))
                         save_search_results(search_results, session_id, orchestrator_state)
                         
                         if orchestrator_state is not None:
@@ -627,6 +691,10 @@ async def patent_search(
                                 orchestrator_state["tech_search_context"]["patent"] = {}
                             
                             orchestrator_state["tech_search_context"]["patent"]["results"] = search_results
+                            # 구문 기반 저장 (키워드 분리 대신)
+                            search_phrase = generate_patent_search_phrase(keyword)
+                            orchestrator_state["tech_search_context"]["patent"]["last_search_phrase"] = search_phrase
+                            # 하위 호환성: last_keyword도 유지
                             orchestrator_state["tech_search_context"]["patent"]["last_keyword"] = extracted_keyword
                             orchestrator_state["tech_search_context"]["patent"]["query"] = keyword
                             orchestrator_state["tech_search_context"]["patent"]["intent"] = "search"
@@ -721,6 +789,10 @@ async def patent_search(
                 orchestrator_state["tech_search_context"]["patent"] = {}
             
             orchestrator_state["tech_search_context"]["patent"]["results"] = search_results
+            # 구문 기반 저장 (키워드 분리 대신)
+            search_phrase = generate_patent_search_phrase(keyword)
+            orchestrator_state["tech_search_context"]["patent"]["last_search_phrase"] = search_phrase
+            # 하위 호환성: last_keyword도 유지
             orchestrator_state["tech_search_context"]["patent"]["last_keyword"] = extracted_keyword
 
         return {
