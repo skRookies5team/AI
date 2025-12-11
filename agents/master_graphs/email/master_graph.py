@@ -216,36 +216,6 @@ class EmailMasterGraph(BaseMasterGraph):
                 "messages": [response],
             }
         
-        # "더 찾아줘", "계속 검색" 등의 연속 검색 요청인지 먼저 확인
-        is_continue_search = any(k in query.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘", "더 찾아", "계속 찾아"])
-        
-        # 상세 조회 요청인지 확인 (숫자로 시작하거나 "번"이 포함된 경우)
-        # 예: "572. ... 알려줘", "355번 상세", "355번 메일"
-        is_detail_request = re.match(r"^\d+\.?\s*", query.strip()) or re.search(r"\d+\s*번", query)
-        
-        # 연속 검색 요청이거나 상세 조회 요청인 경우 Structured Output을 건너뛰고 email_search에 원본 쿼리 전달
-        # email_search 함수 내부에서 이전 검색 정보를 사용하여 처리함
-        if is_continue_search or is_detail_request:
-            if is_continue_search:
-                print(f"✅ 연속 검색 요청 감지: '{query}' - 이전 검색 정보 사용")
-            else:
-                print(f"✅ 상세 조회 요청 감지: '{query}' - 원본 쿼리 사용")
-                
-            # email_search 함수에 원본 쿼리를 그대로 전달
-            # email_search 내부에서 "더 찾아줘" 등을 감지하고 이전 키워드와 batch_offset 사용
-            # 또는 번호/상세 요청을 감지하여 상세 내용 반환
-            result = await email_search(query, session_id=session_id, state=state)
-            
-            # 연속 검색/상세 조회 요청인 경우 (Structured Output 없이 처리)
-            # email_search에서 업데이트된 state를 반영하여 Redis에 저장
-            return {
-                "final_response": result.get("message", "이메일 처리 결과를 찾을 수 없습니다."),
-                "messages": [result.get("message", "")],
-                "search_results": result.get("rows", []),
-                "email_search_context": state.get("email_search_context"),
-                "email_ids": result.get("email_ids", []),  # ID 리스트 추가
-                "last_search_keyword": result.get("last_search_keyword")  # 마지막 검색 키워드 추가
-            }
         else:
             # 대화 히스토리 컨텍스트 구성
             context = ""
