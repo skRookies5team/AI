@@ -168,9 +168,9 @@ class TechSearchParams(BaseModel):
 class DocumentUpdateParams(BaseModel):
     """문서 업데이트 파라미터."""
     
-    document_title: str = Field(..., description="업데이트할 문서 제목 (예: 복리후생, 식단, 메뉴얼)")
+    document_title: str = Field(..., description="업데이트할 문서 제목. 사용자가 명시적으로 입력한 제목을 정확히 반영하세요 (예: 복리후생, 식단, 메뉴얼, 이력서)")
     file_path: Optional[str] = Field(default=None, description="업데이트할 파일 경로 (선택적, 없으면 사용자에게 요청)")
-    document_type: str = Field(..., description="문서 타입 (반드시 '복리후생', '식단', '메뉴얼' 중 하나로 판단)")
+    document_type: str = Field(..., description="문서 타입 (반드시 '복리후생', '식단', '메뉴얼', '이력서' 중 하나로 판단)")
 
 
 class AgentResponse(BaseModel):

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 
 from agents.master_graphs.email.email_search_agent import email_search
+from agents.master_graphs.email.email_compose_agent import generate_email_draft, send_email_via_smtp
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,26 @@ class EmailSearchToolInput(BaseModel):
     session_id: Optional[str] = Field(default=None, description="세션 ID")
 
 
-class EmailAutoReplyToolInput(BaseModel):
-    """이메일 자동 답장 생성 Tool 입력 스키마.
+class EmailComposeToolInput(BaseModel):
+    """이메일 작성 Tool 입력 스키마.
     
     Attributes:
-        query: 답장을 생성할 이메일 내용 또는 요청사항
-        original_email: 원본 이메일 내용 (선택)
+        to_email: 수신자 이메일 주소
+        user_message: 사용자 메시지 또는 요청사항
+        original_subject: 원본 이메일 제목 (답장인 경우)
+        original_sender: 원본 발신자 (답장인 경우)
+        original_body: 원본 이메일 본문 (답장인 경우)
+        cc: 참조 (선택)
+        bcc: 숨은 참조 (선택)
     """
     
-    query: str = Field(description="답장을 생성할 이메일 내용 또는 요청사항")
-    original_email: Optional[str] = Field(default=None, description="원본 이메일 내용")
+    to_email: str = Field(description="수신자 이메일 주소")
+    user_message: str = Field(description="사용자 메시지 또는 요청사항")
+    original_subject: Optional[str] = Field(default=None, description="원본 이메일 제목 (답장인 경우)")
+    original_sender: Optional[str] = Field(default=None, description="원본 발신자 (답장인 경우)")
+    original_body: Optional[str] = Field(default=None, description="원본 이메일 본문 (답장인 경우)")
+    cc: Optional[str] = Field(default=None, description="참조")
+    bcc: Optional[str] = Field(default=None, description="숨은 참조")
 
 
 class EmailDetectReceptionToolInput(BaseModel):
@@ -106,39 +117,70 @@ async def _email_search_tool_impl(
         return error_msg
 
 
-def _email_auto_reply_tool_impl(
-    query: str,
-    original_email: Optional[str] = None,
+async def _email_compose_tool_impl(
+    to_email: str,
+    user_message: str,
+    original_subject: Optional[str] = None,
+    original_sender: Optional[str] = None,
+    original_body: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
 ) -> str:
-    """이메일 자동 답장 생성 Tool 구현.
+    """이메일 작성 Tool 구현.
     
     Args:
-        query: 답장을 생성할 이메일 내용 또는 요청사항
-        original_email: 원본 이메일 내용
+        to_email: 수신자 이메일 주소
+        user_message: 사용자 메시지 또는 요청사항
+        original_subject: 원본 이메일 제목 (답장인 경우)
+        original_sender: 원본 발신자 (답장인 경우)
+        original_body: 원본 이메일 본문 (답장인 경우)
+        cc: 참조
+        bcc: 숨은 참조
         
     Returns:
-        생성된 답장 초안
+        생성된 이메일 초안 정보
     """
     try:
-        logger.info(f"[Email Auto Reply Tool] 답장 생성: query={query[:50]}...")
+        logger.info(
+            f"[Email Compose Tool] 초안 생성: to={to_email}, "
+            f"message={user_message[:50]}..., is_reply={bool(original_subject)}"
+        )
         
-        # 원본 이메일이 있으면 함께 전달
-        full_query = query
-        if original_email:
-            full_query = f"원본 이메일:\n{original_email}\n\n답장 요청:\n{query}"
+        # generate_email_draft 함수 사용
+        subject, body = await generate_email_draft(
+            to_email=to_email,
+            user_message=user_message,
+            original_subject=original_subject,
+            original_sender=original_sender,
+            original_body=original_body,
+            is_revision=False,
+            feedback=None
+        )
         
-        # 기존 email_auto_reply_agent 사용
-        result = email_auto_reply(full_query)
+        # HTML 본문을 텍스트로 변환하여 미리보기 생성
+        import re
+        text_body = re.sub(r'<[^>]+>', '', body)
+        text_body = text_body.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+        body_preview = text_body[:500] + "..." if len(text_body) > 500 else text_body
         
-        message = result.get("message", "답장 초안을 생성할 수 없습니다.")
+        message = f"""이메일 초안이 생성되었습니다.
+
+📧 제목: {subject}
+📮 수신자: {to_email}
+
+📝 본문 미리보기:
+{body_preview}
+
+발송을 원하시면 '발송' 또는 '보내기'라고 말씀해주세요.
+수정을 원하시면 '수정: [수정 내용]' 형식으로 알려주세요."""
         
-        logger.info("[Email Auto Reply Tool] 답장 생성 완료")
+        logger.info("[Email Compose Tool] 초안 생성 완료")
         
         return message
         
     except Exception as e:
-        error_msg = f"답장 생성 중 오류가 발생했습니다: {str(e)}"
-        logger.error(f"[Email Auto Reply Tool] 오류: {e}", exc_info=True)
+        error_msg = f"이메일 초안 생성 중 오류가 발생했습니다: {str(e)}"
+        logger.error(f"[Email Compose Tool] 오류: {e}", exc_info=True)
         return error_msg
 
 
@@ -186,15 +228,16 @@ email_search_tool = StructuredTool.from_function(
 )
 
 
-email_auto_reply_tool = StructuredTool.from_function(
-    func=_email_auto_reply_tool_impl,
-    name="email_auto_reply",
+email_compose_tool = StructuredTool.from_function(
+    func=_email_compose_tool_impl,
+    name="email_compose",
     description=(
-        "이메일 답장 초안을 자동으로 생성합니다. "
-        "원본 이메일 내용과 답장 요청사항을 입력받아 적절한 답장을 생성합니다. "
-        "예: '회의 일정 확인했습니다 답장해줘', '프로젝트 진행 상황 확인 답장'"
+        "이메일 초안을 생성합니다. 새 메일 작성 또는 답장 생성이 가능합니다. "
+        "원본 이메일 정보를 제공하면 답장을 생성하고, 제공하지 않으면 새 메일을 작성합니다. "
+        "예: 'user@example.com에게 내일 회의 시간 변경 요청 메일 작성', "
+        "'답장: 내일 가능합니다'"
     ),
-    args_schema=EmailAutoReplyToolInput,
+    args_schema=EmailComposeToolInput,
     return_direct=False,
 )
 
@@ -223,7 +266,7 @@ def get_email_tools() -> List[StructuredTool]:
     """
     return [
         email_search_tool,
-        email_auto_reply_tool,
+        email_compose_tool,
         email_detect_reception_tool,
     ]
 
