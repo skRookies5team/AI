@@ -69,6 +69,20 @@ class QAMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
+        # 최우선순위 검증: "메뉴얼" 키워드가 있으면 무조건 manual로 분류
+        has_manual_keyword = any(k in query for k in ["메뉴얼", "매뉴얼", "manual", "사용 방법", "가이드", "안내", "Q&A", "FAQ"])
+        
+        if has_manual_keyword:
+            print(f"✅ [최우선순위 검증] '메뉴얼' 키워드 감지 - manual로 강제 라우팅")
+            return {"intent": "manual"}
+        
+        # 우선순위 검증: "복리후생" 키워드가 있고 "메뉴얼" 키워드가 없으면 benefit으로 강제 라우팅
+        has_benefit_keyword = "복리후생" in query
+        
+        if has_benefit_keyword:
+            print(f"✅ [우선순위 검증] '복리후생' 키워드 감지 - benefit으로 강제 라우팅")
+            return {"intent": "benefit"}
+        
         # llm_router를 사용한 LLM 기반 분류
         intent = await asyncio.to_thread(
             classify_intent_with_llm,
@@ -91,7 +105,11 @@ class QAMasterGraph(BaseMasterGraph):
             # 하지만 혹시 모를 경우를 위해 manual로 fallback
             intent = "manual"
         elif intent not in ["manual", "benefit", "menu", "recommend"]:
-            intent = "manual"  # 기본값
+            # LLM 분류 실패 시 키워드 기반 fallback
+            if has_benefit_keyword:
+                intent = "benefit"
+            else:
+                intent = "manual"  # 기본값
         
         print(f"✅ QA 의도 결정: {intent}")
         return {"intent": intent}

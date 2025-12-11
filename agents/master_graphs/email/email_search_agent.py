@@ -1068,14 +1068,24 @@ _IMAP_CONNECTION_INFO: Dict[str, Any] = {"host": "", "port": 993, "user": ""}
 
 
 def _set_email_session_id(session_id: Optional[str] = None) -> str:
-	"""이메일 검색 세션 ID 설정."""
+	"""이메일 검색 세션 ID 설정.
+	
+	주의: session_id가 None이면 에러를 발생시킵니다.
+	모든 agent는 state에서 받은 session_id를 사용해야 합니다.
+	"""
 	global _EMAIL_SESSION_ID
 	if session_id:
 		_EMAIL_SESSION_ID = session_id
-	elif not _EMAIL_SESSION_ID:
-		import uuid
-		_EMAIL_SESSION_ID = str(uuid.uuid4())
-	return _EMAIL_SESSION_ID
+		return session_id
+	elif _EMAIL_SESSION_ID:
+		# 이미 설정된 전역 변수가 있으면 사용 (하위 호환성)
+		return _EMAIL_SESSION_ID
+	else:
+		# session_id가 없으면 에러 발생 (uuid 생성 제거)
+		raise ValueError(
+			"session_id가 필요합니다. state에서 session_id를 전달받아야 합니다. "
+			"uuid 자동 생성은 더 이상 지원하지 않습니다."
+		)
 
 
 def _get_email_cache(session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1096,6 +1106,13 @@ def _get_email_cache(session_id: Optional[str] = None, state: Optional[Dict[str,
 		return state["email_search_context"]
 	
 	# 하위 호환성: 로컬 캐시 사용 (deprecated)
+	# session_id가 없으면 state에서 가져오기 시도
+	if not session_id and state:
+		session_id = state.get("session_id")
+	
+	if not session_id:
+		raise ValueError("session_id가 필요합니다. state에서 session_id를 전달받아야 합니다.")
+	
 	sid = _set_email_session_id(session_id)
 	if sid not in _EMAIL_SEARCH_CACHE:
 		_EMAIL_SEARCH_CACHE[sid] = {
@@ -1130,6 +1147,13 @@ def _save_email_cache(cache_data: Dict[str, Any], session_id: Optional[str] = No
 		return updated_state
 	
 	# 하위 호환성: 로컬 캐시 사용 (deprecated)
+	# session_id가 없으면 state에서 가져오기 시도
+	if not session_id and state:
+		session_id = state.get("session_id")
+	
+	if not session_id:
+		raise ValueError("session_id가 필요합니다. state에서 session_id를 전달받아야 합니다.")
+	
 	sid = _set_email_session_id(session_id)
 	_EMAIL_SEARCH_CACHE[sid] = cache_data
 	return None
@@ -2026,8 +2050,12 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 			return await _imap_fetch_full_by_index(selection_index, session_id=session_id, by_display_number=True, state=state)
 
 		# Redis 기반 검색으로 변경
+		# session_id가 없으면 state에서 가져오기
+		if not session_id and state:
+			session_id = state.get("session_id")
+		
 		if not session_id:
-			return {"ok": False, "error": "세션 ID가 필요합니다."}
+			return {"ok": False, "error": "세션 ID가 필요합니다. state에서 session_id를 전달받아야 합니다."}
 		
 		redis_client = _get_redis_client()
 		if not redis_client:
