@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, TypedDict
 import imaplib
 import email as email_pkg
 from email.header import decode_header as _mime_decode_header
-from langgraph.graph import StateGraph, START, END
 import base64
 from datetime import datetime
 from email.utils import parsedate_to_datetime
@@ -1033,46 +1032,14 @@ def _message_to_text(msg, max_lines: Optional[int] = 5) -> str:
 
 
 #
-# LangGraph State 정의 (mail_test.py 참고)
-#
-class EmailSearchState(TypedDict, total=False):
-	"""이메일 검색 상태 (mail_test.py의 MailState 참고).
-	
-	주의: 이 State는 내부 LangGraph용이며 Redis에 저장되지 않습니다.
-	직렬화 가능한 타입만 사용하여 상위 그래프의 checkpointer와 충돌하지 않도록 함.
-	connection 객체는 상태에서 제거하고 전역 변수로 관리합니다.
-	"""
-	# connection: Any  # IMAP4_SSL 연결 객체는 상태에서 제거 (직렬화 불가능)
-	mail_ids: List[str]  # bytes를 문자열로 변환하여 직렬화 가능하게 함
-	keyword: str
-	matched_ids: List[str]  # bytes를 문자열로 변환하여 직렬화 가능하게 함
-	matched_items: List[Dict[str, Any]]
-	found_count: int
-	limit: int
-	batch_size: int  # 배치 크기 (기본 100)
-	batch_offset: int  # 현재 배치 오프셋
-	max_batches: int  # 최대 배치 수
-	selection_index: int
-	session_id: Optional[str]  # 세션 ID (멀티턴 대화 지원)
-	result: Optional[Dict[str, Any]]
-	has_more: bool  # 더 검색할 메일이 있는지 여부
-	# orchestrator_state는 EmailSearchState에 포함하지 않음 (직렬화 오류 방지)
-	# 모든 상태는 OrchestratorState.email_search_context를 통해 Redis에 저장됨
-
-
-#
 # IMAP 구현
 #
 # 세션별 이메일 검색 결과 캐시 (멀티턴 대화 지원)
 # DEPRECATED: 이제 Redis 숏텀 메모리(OrchestratorState.email_search_context)를 사용합니다.
 # 하위 호환성을 위해 유지되지만, 새 코드에서는 사용하지 마세요.
-# {session_id: {"ids": [], "items": [], "index_map": {}, "batch_offset": 0, "last_keyword": "", "keyword_offsets": {}}}
-# keyword_offsets: {extracted_keyword: batch_offset} - 키워드별 마지막 검색 위치 저장
+# {session_id: {"ids": [], "items": [], "index_map": {}, "last_keyword": ""}}
 _EMAIL_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
 _EMAIL_SESSION_ID: Optional[str] = None
-
-# IMAP 연결 정보 캐시 (세션별이 아닌 전역)
-_IMAP_CONNECTION_INFO: Dict[str, Any] = {"host": "", "port": 993, "user": ""}
 
 
 def _set_email_session_id(session_id: Optional[str] = None) -> str:
@@ -1110,9 +1077,7 @@ def _get_email_cache(session_id: Optional[str] = None, state: Optional[Dict[str,
 			"ids": [],
 			"items": [],
 			"index_map": {},
-			"batch_offset": 0,
-			"last_keyword": "",
-			"keyword_offsets": {}  # 키워드별 마지막 검색 위치: {extracted_keyword: batch_offset}
+			"last_keyword": ""
 		}
 	return _EMAIL_SEARCH_CACHE[sid]
 
@@ -1160,9 +1125,6 @@ def _imap_connect() -> imaplib.IMAP4_SSL:
 	m = imaplib.IMAP4_SSL(host, port)
 	m.login(user, pwd)
 	m.select("INBOX")
-	_IMAP_CONNECTION_INFO["host"] = host
-	_IMAP_CONNECTION_INFO["port"] = port
-	_IMAP_CONNECTION_INFO["user"] = user
 	return m
 
 def _imap_fetch_msg(m: imaplib.IMAP4_SSL, msg_id: bytes) -> email_pkg.message.Message:
@@ -1297,545 +1259,6 @@ async def sync_emails_to_redis(
 		except Exception:
 			pass
 
-#
-# LangGraph 노드 정의 (mail_test.py 참고)
-#
-def connect_imap_node(state: EmailSearchState) -> EmailSearchState:
-	"""IMAP 서버 연결 (mail_test.py의 connect_imap 참고).
-	
-	주의: connection 객체는 상태에 저장하지 않고, 노드 함수 내에서만 사용합니다.
-	IMAP 연결은 search_emails_node에서도 필요하므로, 여기서는 mail_ids만 가져옵니다.
-	실제 검색은 search_emails_node에서 새로운 연결을 생성하여 수행합니다.
-	"""
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
-	if not user or not pwd:
-		raise RuntimeError(
-			"IMAP 접속 정보가 필요합니다. .env 파일에 NAVER_EMAIL, NAVER_APP_PASSWORD를 설정해 주세요."
-		)
-	
-	# IMAP 연결 생성 (mail_ids만 가져오기 위해)
-	m = imaplib.IMAP4_SSL(host, port)
-	try:
-		m.login(user, pwd)
-		m.select("INBOX")
-		
-		status, data = m.search(None, "ALL")
-		if status != "OK" or not data or not data[0]:
-			session_id = state.get("session_id")
-			return {**state, "mail_ids": [], "session_id": session_id, "result": {"ok": False, "error": "메일 목록을 가져올 수 없습니다."}}
-
-		mail_ids_bytes = data[0].split()
-		# bytes를 문자열로 변환하여 직렬화 가능하게 함
-		mail_ids = [msg_id.decode('utf-8') if isinstance(msg_id, bytes) else str(msg_id) for msg_id in mail_ids_bytes]
-		_IMAP_CONNECTION_INFO["host"] = host
-		_IMAP_CONNECTION_INFO["port"] = port
-		_IMAP_CONNECTION_INFO["user"] = user
-		session_id = state.get("session_id")
-		return {**state, "mail_ids": mail_ids, "session_id": session_id}
-	finally:
-		# 연결 종료 (mail_ids만 가져왔으므로)
-		try:
-			m.logout()
-		except Exception:
-			pass
-
-
-def search_emails_node(state: EmailSearchState) -> EmailSearchState:
-	"""메일 검색 - 100개씩 배치로 점진적 검색.
-	
-	주의: IMAP 연결은 이 노드 함수 내에서 생성하고 사용 후 즉시 종료합니다.
-	모든 상태는 OrchestratorState.email_search_context를 통해 Redis에 저장됩니다.
-	"""
-	# orchestrator_state는 _imap_search_emails에서 설정한 전역 변수에서 가져오기
-	global _current_orchestrator_state_for_node
-	orchestrator_state = _current_orchestrator_state_for_node
-	
-	mail_ids = state["mail_ids"]
-	keyword = state["keyword"]
-	batch_size = state.get("batch_size", 100)
-	batch_offset = state.get("batch_offset", 0)
-	max_batches = state.get("max_batches", 10)  # 최대 10배치 (1000개)
-	session_id = state.get("session_id")
-
-	# 핵심 키워드 추출
-	search_keyword = _extract_keywords(keyword)
-	if not search_keyword:
-		return {
-			**state,
-			"result": {"ok": True, "message": "검색 키워드를 찾을 수 없습니다.", "items": []},
-		}
-	
-	# 이전 배치에서 찾은 결과 가져오기 (첫 번째 배치인 경우 빈 리스트)
-	if batch_offset == 0:
-		previous_items = []
-		previous_ids = []
-		previous_found = 0
-	else:
-		# 이전 배치 결과는 Redis 숏텀 메모리에서 가져오기
-		# orchestrator_state를 전달하여 Redis에서 가져오기
-		cache = _get_email_cache(session_id, orchestrator_state)
-		previous_items = cache.get("items", [])
-		previous_ids = cache.get("ids", [])
-		previous_found = len(previous_items)
-
-	# 현재 배치 범위 계산 (최신 메일부터 역순)
-	total_mails = len(mail_ids)
-	start_idx = total_mails - (batch_offset + 1) * batch_size
-	end_idx = total_mails - batch_offset * batch_size
-
-	if start_idx < 0:
-		start_idx = 0
-
-	# 현재 배치의 메일 ID 추출 (최신순)
-	batch_ids = mail_ids[start_idx:end_idx] if start_idx < end_idx else []
-
-	if not batch_ids:
-		# 더 이상 검색할 메일이 없음
-		if previous_found == 0:
-			result = {
-				"ok": True,
-				"message": f"📭 관련 메일을 찾지 못했습니다. (총 {total_mails}개 메일 확인)\n\n💡 다른 키워드로 검색해보시거나, 검색 범위를 넓혀보세요.",
-				"items": [],
-			}
-		else:
-			# 메일 목록 포맷팅 (번호와 제목 표시)
-			mail_list = []
-			for item in previous_items:
-				mail_index = item.get("index", "")
-				mail_title = item.get("title", "(제목 없음)")
-				mail_list.append(f"{mail_index}. {mail_title}")
-			
-			mail_list_text = "\n".join(mail_list)
-			result = {
-				"ok": True,
-				"message": f"📧 관련 메일 {previous_found}개를 찾았습니다. (총 {total_mails}개 메일 확인)\n\n{mail_list_text}\n\n💡 특정 메일의 상세 내용을 보려면 번호를 말씀해주세요. (예: '355번에 대해 알려줘', '355번 상세')",
-				"items": previous_items,
-			}
-
-		return {**state, "matched_ids": previous_ids, "matched_items": previous_items, "found_count": previous_found, "session_id": session_id, "result": result, "has_more": False}
-
-	# IMAP 연결 생성
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
-	
-	if not user or not pwd:
-		return {
-			**state,
-			"result": {"ok": False, "error": "IMAP 접속 정보가 필요합니다."},
-		}
-	
-	mail = imaplib.IMAP4_SSL(host, port)
-	try:
-		mail.login(user, pwd)
-		mail.select("INBOX")
-
-		# 현재 배치 검색
-		items: List[Dict[str, Any]] = []
-		matched_ids: List[str] = []  # bytes 대신 문자열 사용
-		found_in_batch = 0
-
-		# 배치 내에서 역순으로 처리 (최신 메일부터)
-		for idx, msg_id in enumerate(reversed(batch_ids)):
-			try:
-				# msg_id가 문자열이면 bytes로 변환
-				msg_id_bytes = msg_id.encode('utf-8') if isinstance(msg_id, str) else msg_id
-				msg = _imap_fetch_msg(mail, msg_id_bytes)
-				subject = _decode_mime_header(msg.get("Subject"))
-				body_text = _message_to_text(msg, max_lines=None)
-				# mail_test.py 방식: keyword in subject or keyword in body
-				keywords_list = search_keyword.split()
-				matched = False
-				if keywords_list:
-					subject_lower = subject.lower()
-					body_lower = body_text.lower()
-					for kw in keywords_list:
-						if kw in subject_lower or kw in body_lower:
-							matched = True
-							break
-				
-				if matched:
-					# 전체 메일 목록에서의 순서번호 계산
-					global_index = total_mails - (batch_offset * batch_size + idx)
-					s = _extract_summary_from_msg(global_index, msg)
-					# 검색 결과에서의 실제 인덱스 (이전 결과 포함)
-					actual_index = previous_found + found_in_batch
-					display_index = global_index  # 표시되는 번호 (전체 메일 목록의 순서)
-
-					items.append(
-						{
-							"title": s.subject,
-							"from": s.from_addr,
-							"date": s.date,
-							"snippet": s.snippet,
-							"index": str(display_index),  # 표시용 번호 (문자열)
-							"actual_index": actual_index,  # 실제 인덱스 (숫자)
-						}
-					)
-					# msg_id를 문자열로 저장 (직렬화 가능하게 함)
-					msg_id_str = msg_id if isinstance(msg_id, str) else msg_id.decode('utf-8')
-					matched_ids.append(msg_id_str)
-					found_in_batch += 1
-			except Exception as e:
-				logger.debug("메일 처리 중 오류: %s", repr(e))
-				continue
-		
-		# 이전 결과와 병합
-		all_items = previous_items + items
-		all_matched_ids = previous_ids + matched_ids
-		total_found = previous_found + found_in_batch
-
-		# 다음 배치가 있는지 확인 (먼저 계산)
-		has_more = (batch_offset + 1) < max_batches and (batch_offset + 1) * batch_size < total_mails
-
-		# 세션별 캐시에 저장 (Redis 숏텀 메모리 사용)
-		# all_matched_ids는 이미 문자열 리스트이므로 변환 불필요
-		all_matched_ids_str = all_matched_ids
-		
-		# orchestrator_state를 전달하여 Redis에서 가져오기
-		cache = _get_email_cache(session_id, orchestrator_state)
-		cache["ids"] = all_matched_ids_str  # 문자열로 변환된 ID 저장
-		cache["items"] = all_items
-		# batch_offset 업데이트: 다음 검색을 위해 증가시킴
-		# has_more가 True이면 다음 배치가 있으므로 batch_offset을 증가시킴
-		# has_more가 False이면 더 이상 검색할 메일이 없으므로 현재 batch_offset 유지
-		if has_more:
-			cache["batch_offset"] = batch_offset + 1
-		else:
-			cache["batch_offset"] = batch_offset  # 더 이상 검색할 메일이 없으면 현재 위치 유지
-		cache["last_keyword"] = keyword
-
-		# 키워드별 마지막 검색 위치 저장 (추출된 키워드 기준)
-		extracted_keyword = _extract_keywords(keyword)
-		if extracted_keyword:
-			if "keyword_offsets" not in cache:
-				cache["keyword_offsets"] = {}
-			# has_more가 True이면 다음 배치 위치 저장, False이면 현재 위치 저장
-			cache["keyword_offsets"][extracted_keyword] = batch_offset + 1 if has_more else batch_offset
-
-		# 번호 매핑 저장: {표시번호: 실제인덱스}
-		index_map = {}
-		for item in all_items:
-			display_num = int(item.get("index", 0))
-			actual_idx = item.get("actual_index", 0)
-			index_map[display_num] = actual_idx
-		cache["index_map"] = index_map
-		
-		# Redis 숏텀 메모리에 저장
-		# orchestrator_state를 전달하여 Redis에 저장
-		updated_state = _save_email_cache(cache, session_id, orchestrator_state)
-		if updated_state and orchestrator_state:
-			orchestrator_state.update(updated_state)
-	finally:
-		# IMAP 연결 종료
-		try:
-			mail.logout()
-		except Exception:
-			pass
-	
-	# 결과가 충분히 찾았거나 (5개 이상), 더 이상 검색할 메일이 없으면 종료
-	if total_found >= 5 or not has_more:
-
-		if total_found == 0:
-			result = {
-				"ok": True,
-				"message": f"📭 관련 메일을 찾지 못했습니다. (최근 {(batch_offset + 1) * batch_size}개 메일 확인)\n\n💡 다른 키워드로 검색해보시거나, 검색 범위를 넓혀보세요.",
-				"items": [],
-			}
-		else:
-			# 메일 목록 포맷팅 (번호와 제목 표시)
-			mail_list = []
-			for item in all_items:
-				mail_index = item.get("index", "")
-				mail_title = item.get("title", "(제목 없음)")
-				mail_list.append(f"{mail_index}. {mail_title}")
-			
-			mail_list_text = "\n".join(mail_list)
-			result = {
-				"ok": True,
-				"message": f"📧 관련 메일 {total_found}개를 찾았습니다. (최근 {(batch_offset + 1) * batch_size}개 메일 확인)\n\n{mail_list_text}\n\n💡 특정 메일의 상세 내용을 보려면 번호를 말씀해주세요. (예: '355번에 대해 알려줘', '355번 상세')",
-				"items": all_items,
-			}
-
-		return {**state, "matched_ids": all_matched_ids, "matched_items": all_items, "found_count": total_found, "session_id": session_id, "result": result, "has_more": False}
-
-	# 결과가 적지만 더 검색할 수 있는 경우
-	# 메일 목록 포맷팅 (번호와 제목 표시)
-	mail_list = []
-	for item in all_items:
-		mail_index = item.get("index", "")
-		mail_title = item.get("title", "(제목 없음)")
-		mail_list.append(f"{mail_index}. {mail_title}")
-	
-	mail_list_text = "\n".join(mail_list)
-	result = {
-		"ok": True,
-		"message": f"📧 관련 메일 {total_found}개를 찾았습니다. (최근 {(batch_offset + 1) * batch_size}개 메일 확인)\n\n{mail_list_text}\n\n💡 더 많은 메일을 검색하려면 '더 찾아줘' 또는 '계속 검색'이라고 말씀해주세요.\n💡 특정 메일의 상세 내용을 보려면 번호를 말씀해주세요. (예: '355번에 대해 알려줘', '355번 상세')",
-		"items": all_items,
-		"has_more": True,
-	}
-	
-	return {**state, "matched_ids": all_matched_ids, "matched_items": all_items, "found_count": total_found, "batch_offset": batch_offset + 1, "session_id": session_id, "result": result, "has_more": has_more}
-
-
-def fetch_detail_node(state: EmailSearchState) -> EmailSearchState:
-	"""선택한 메일의 상세 내용 가져오기."""
-	matched_ids = state.get("matched_ids", [])
-	selection_index = state.get("selection_index", 0)
-	session_id = state.get("session_id")
-
-	if not matched_ids or selection_index <= 0 or selection_index > len(matched_ids):
-		return {
-			**state,
-			"result": {"ok": False, "error": "유효하지 않은 번호입니다."},
-		}
-	
-	msg_id = matched_ids[selection_index - 1]
-	# matched_ids가 문자열이므로 bytes로 변환 필요
-	msg_id_bytes = msg_id.encode('utf-8') if isinstance(msg_id, str) else msg_id
-	m = _imap_connect()
-	try:
-		msg = _imap_fetch_msg(m, msg_id_bytes)
-		subject = _decode_mime_header(msg.get("Subject"))
-		sender = _decode_mime_header(msg.get("From"))
-		date = _decode_header_value(msg.get("Date"))
-		body = _message_to_text(msg, max_lines=None)
-		content = (
-			f"제목: {subject}\n보낸 사람: {sender}\n날짜: {date}\n"
-			f"----------------------------------------\n{body or '(본문 없음)'}"
-		)
-		result = {"ok": True, "message": content}
-	finally:
-		try:
-			m.logout()
-		except Exception:
-			pass
-	
-	return {**state, "result": result, "session_id": session_id}
-
-
-#
-# LangGraph 구성
-#
-# 전역 변수 제거: 모든 상태는 OrchestratorState를 통해 Redis에 저장됨
-# IMAP 연결은 각 노드 함수 내에서 생성하고 사용 후 즉시 종료
-
-# orchestrator_state를 노드 함수에 전달하기 위한 임시 저장소
-# 주의: 이는 단일 요청당 단일 그래프 실행이므로 안전함
-_current_orchestrator_state_for_node: Optional[Dict[str, Any]] = None
-
-def _build_search_graph() -> StateGraph:
-	"""검색 그래프 구성 (mail_test.py 참고)."""
-	graph = StateGraph(EmailSearchState)
-	graph.add_node("connect_imap", connect_imap_node)
-	graph.add_node("search_emails", search_emails_node)
-	graph.add_edge(START, "connect_imap")
-	graph.add_edge("connect_imap", "search_emails")
-	graph.add_edge("search_emails", END)
-	return graph
-
-
-def _build_detail_graph() -> StateGraph:
-	"""상세 보기 그래프 구성."""
-	graph = StateGraph(EmailSearchState)
-	graph.add_node("fetch_detail", fetch_detail_node)
-	graph.add_edge(START, "fetch_detail")
-	graph.add_edge("fetch_detail", END)
-	return graph
-
-
-# 그래프 인스턴스 (재사용)
-# 주의: 이 그래프는 checkpointer 없이 컴파일합니다.
-# EmailSearchState에는 IMAP4_SSL 연결 객체와 bytes 타입이 포함되어 있어
-# Redis에 직렬화할 수 없습니다. 이 그래프는 내부 구현 세부사항이므로
-# Redis에 저장할 필요가 없습니다. 실제 상태는 OrchestratorState에 저장됩니다.
-_search_graph = _build_search_graph().compile(checkpointer=None)
-_detail_graph = _build_detail_graph().compile(checkpointer=None)
-
-
-#
-# 기존 함수 인터페이스 유지 (LangGraph 사용)
-#
-async def _imap_search_emails(keyword: str, limit: int = 1000, session_id: Optional[str] = None, batch_offset: int = 0, orchestrator_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-	"""IMAP을 통해 최근 메일에서 키워드로 검색 (LangGraph 사용, 100개씩 배치 검색).
-
-	Args:
-		keyword: 검색 키워드
-		limit: 검색할 최대 메일 개수 (참고용, 실제로는 배치 단위로 검색)
-		session_id: 세션 ID (멀티턴 대화 지원)
-		batch_offset: 배치 오프셋 (0부터 시작)
-		orchestrator_state: OrchestratorState (Redis 숏텀 메모리)
-	
-	Note:
-		AsyncRedisSaver를 사용하는 경우 비동기 인터페이스(ainvoke)를 사용해야 합니다.
-	"""
-	batch_size = 100
-	max_batches = (limit + batch_size - 1) // batch_size  # 올림 계산
-
-	# initial_state에는 직렬화 불가능한 객체를 포함하지 않음
-	# orchestrator_state는 노드 함수에서 직접 사용 (클로저 또는 전역 변수로 전달)
-	# connection은 전역 변수로 관리하므로 상태에서 제거
-	initial_state: EmailSearchState = {
-		"mail_ids": [],  # connect_imap_node에서 생성됨
-		"keyword": keyword,
-		"matched_ids": [],
-		"matched_items": [],
-		"found_count": 0,
-		"limit": limit,
-		"batch_size": batch_size,
-		"batch_offset": batch_offset,
-		"max_batches": max_batches,
-		"session_id": session_id,
-		"result": None,
-		"has_more": False,
-		# orchestrator_state는 포함하지 않음 (직렬화 오류 방지)
-		# 대신 search_emails_node에서 session_id를 통해 접근
-	}
-	# AsyncRedisSaver를 사용하는 경우 비동기 인터페이스 사용
-	# 주의: _search_graph는 checkpointer=None으로 컴파일되어 내부 상태는 Redis에 저장되지 않음
-	# 하지만 검색 결과는 orchestrator_state를 통해 OrchestratorState.email_search_context에 저장됨
-	
-	# orchestrator_state를 노드 함수에 전달하기 위해 전역 변수에 저장
-	# 주의: 이는 단일 요청당 단일 그래프 실행이므로 안전함
-	global _current_orchestrator_state_for_node
-	_current_orchestrator_state_for_node = orchestrator_state
-	
-	try:
-		# _search_graph 실행 (checkpointer 없이 독립 실행)
-		final_state = await _search_graph.ainvoke(initial_state, config={"configurable": {}})
-		result = final_state.get("result")
-		
-		# search_emails_node에서 이미 _save_email_cache를 통해 OrchestratorState.email_search_context에 저장됨
-		# orchestrator_state는 상위 그래프에서 자동으로 Redis에 저장됨
-		
-		if result:
-			return result
-		return {"ok": False, "error": "검색 결과를 가져올 수 없습니다."}
-	finally:
-		# 전역 변수 정리
-		_current_orchestrator_state_for_node = None
-
-async def _imap_fetch_full_by_index(sel_index: int, session_id: Optional[str] = None, by_display_number: bool = True, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-	"""선택한 메일의 상세 내용 가져오기 (IMAP에서 전체 본문 가져와 HTML로 포맷팅).
-
-	Args:
-		sel_index: 선택한 번호
-		session_id: 세션 ID (멀티턴 대화 지원)
-		by_display_number: True면 표시 번호로 검색, False면 실제 인덱스로 검색
-		state: OrchestratorState (선택적, Redis에서 가져온 state)
-	"""
-	cache = _get_email_cache(session_id, state)
-
-	if not cache.get("ids") and not cache.get("items"):
-		return {"ok": False, "error": "선택 가능한 메일 목록이 없습니다. 먼저 검색을 실행해 주세요."}
-	
-	# Redis에서 email_id 가져오기
-	redis_client = _get_redis_client()
-	if not redis_client or not session_id:
-		return {"ok": False, "error": "Redis 클라이언트 또는 세션 ID가 없습니다."}
-	
-	storage = EmailRedisStorage(redis_client, session_id)
-	
-	# 표시 번호로 검색하는 경우 매핑에서 실제 인덱스 찾기
-	email_id = None
-	if by_display_number:
-		items = cache.get("items", [])
-		for item in items:
-			if int(item.get("index", 0)) == sel_index:
-				email_id = item.get("email_id")
-				break
-		
-		if not email_id:
-			return {"ok": False, "error": f"번호 {sel_index}에 해당하는 메일을 찾을 수 없습니다."}
-	else:
-		# 인덱스로 검색
-		items = cache.get("items", [])
-		if sel_index <= 0 or sel_index > len(items):
-			return {"ok": False, "error": f"유효하지 않은 번호입니다."}
-		email_id = items[sel_index - 1].get("email_id")
-	
-	if not email_id:
-		return {"ok": False, "error": "이메일 ID를 찾을 수 없습니다."}
-	
-	# Redis에서 메타데이터 가져오기
-	metadata = await storage.get_email_metadata(email_id)
-	if not metadata:
-		return {"ok": False, "error": "메일 메타데이터를 찾을 수 없습니다."}
-	
-	# msg_id 디코딩
-	msg_id_encoded = metadata.get("msg_id", "")
-	if not msg_id_encoded:
-		return {"ok": False, "error": "메시지 ID를 찾을 수 없습니다."}
-	
-	msg_id_bytes = storage._decode_msg_id(msg_id_encoded)
-	
-	# IMAP 연결하여 전체 본문 가져오기
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
-	
-	if not user or not pwd:
-		return {"ok": False, "error": "IMAP 접속 정보가 필요합니다."}
-	
-	mail = imaplib.IMAP4_SSL(host, port)
-	try:
-		mail.login(user, pwd)
-		mail.select("INBOX")
-		
-		# 전체 메일 가져오기 (RFC822)
-		status, msg_data = mail.fetch(msg_id_bytes, "(RFC822)")
-		if status != "OK" or not msg_data or not msg_data[0]:
-			return {"ok": False, "error": "메일을 가져올 수 없습니다."}
-		
-		# 메시지 파싱
-		msg = email_pkg.message_from_bytes(msg_data[0][1])
-		
-		# 본문 및 첨부 파일 추출
-		text_body, html_body, attachments = _get_email_body_and_attachments(msg)
-		
-		# HTML 포맷팅
-		html_content = format_email_html(
-			subject=metadata.get("subject", "(제목 없음)"),
-			sender=metadata.get("from_addr", "(발신자 없음)"),
-			date=metadata.get("date", ""),
-			text_body=text_body,
-			html_body=html_body,
-			attachments=attachments
-		)
-		
-		return {
-			"ok": True,
-			"message": html_content,
-			"html": True  # HTML 형식임을 표시
-		}
-	
-	except Exception as e:
-		logger.error(f"메일 상세 내용 가져오기 실패: {e}")
-		return {"ok": False, "error": f"메일 상세 내용을 가져올 수 없습니다: {str(e)}"}
-	
-	finally:
-		try:
-			mail.logout()
-		except Exception:
-			pass
-
 def has_pending_email_results(session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> bool:
 	"""최근 검색 결과가 캐시에 남아 있는지 여부 (세션별).
 
@@ -1919,331 +1342,210 @@ async def email_search(
 			_get_env("IMAP_MAX_FETCH", "1000") or "1000",
 		)
 
-	# IMAP: 선택 요청인지 확인
-	# 1. 이전 검색 결과가 있고, 숫자로 시작 + "에 대해", "자세히", "상세히" 패턴 → 상세 요청 (메일 키워드 불필요)
-	# 2. "자세히 알려주세요", "자세히", "상세히"만 있고 숫자가 없으면 첫 번째 메일 상세 보기
-	# 3. "메일" 또는 "이메일" 키워드가 포함된 경우 상세 요청
-	# 4. 숫자로 시작 + 제목 형식 (예: "355번 메일", "355. 육아휴직 연장 안내의 건 메일")
-	selection_index: Optional[int] = None
-	selection_by_title: Optional[str] = None
-
-	try:
-		# 이전 검색 결과가 있는 경우에만 상세 요청 처리 (세션별)
-		if has_pending_email_results(session_id, state):
-			# 패턴 0: "자세히 알려주세요", "자세히", "상세히"만 있고 숫자가 없으면 첫 번째 메일 상세 보기
-			detail_keywords = ["자세히 알려주세요", "자세히 알려줘", "자세히", "상세히 알려주세요", "상세히 알려줘", "상세히", "상세", "자세히 보여줘", "상세히 보여줘"]
-			has_detail_keyword = any(k in query for k in detail_keywords)
-			has_number = bool(re.search(r"\d+", query))
-			# 다른 명확한 의도 키워드 제외 (식단, 일정, 특허, 논문 등)
-			exclude_keywords = ["점심", "저녁", "메뉴", "식단", "구내식당", "일정", "스케줄",
-			                    "특허", "논문", "paper", "patent", "KISTI", "ScienceON", "학술"]
-			has_exclude_keyword = any(k in query for k in exclude_keywords)
-			
-			if has_detail_keyword and not has_number and not has_exclude_keyword:
-				# 첫 번째 메일의 상세 내용 보여주기
-				cache = _get_email_cache(session_id, state)
-				items = cache.get("items", [])
-				if items:
-					# 첫 번째 메일 (index=0)의 display 번호 가져오기
-					first_item = items[0]
-					display_num = int(first_item.get("index", 0))
-					if display_num > 0:
-						return await _imap_fetch_full_by_index(display_num, session_id=session_id, by_display_number=True, state=state)
-			
-			# 패턴 1: 숫자로 시작 + "에 대해", "자세히", "상세히" 패턴 → 상세 요청 (메일 키워드 불필요)
-			# 예: "626. 육아휴직 연장 안내의 건에 대해 알려줘", "600. 육아휴직 연장 안내의 건 상세"
-			# 주의: 다른 agent(특허, 논문)와 충돌 방지를 위해 이전 검색 결과 확인 필수
-			if re.match(r"^\d+\.?\s*", query) and any(k in query for k in ["에 대해", "에대해", "자세히", "상세히", "상세", "알려줘", "알려"]):
-				# 다른 명확한 의도 키워드가 없을 때만 (식단, 일정, 특허, 논문 등 제외)
-				# 특허/논문 관련 키워드가 있으면 이메일이 아닐 가능성이 높음
-				if not any(k in query for k in ["점심", "저녁", "메뉴", "식단", "구내식당", "일정", "스케줄",
-				                                 "특허", "논문", "paper", "patent", "KISTI", "ScienceON", "학술"]):
-					match_with_dot = re.match(r"^(\d+)\.\s*(.+)", query)
-					if match_with_dot:
-						selection_index = int(match_with_dot.group(1))
-						# 제목에서 "에 대해", "에대해", "자세히", "상세히", "상세", "알려줘" 등 제거
-						title = match_with_dot.group(2).strip()
-						# "에 대해 알려줘", "에 대해 자세히 알려줘" 등의 패턴 제거
-						title = re.sub(r"\s*에\s*대해\s*(자세히\s*)?(알려줘|알려)?\s*$", "", title, flags=re.IGNORECASE)
-						title = re.sub(r"\s*자세히\s*(알려줘|알려)?\s*$", "", title, flags=re.IGNORECASE)
-						title = re.sub(r"\s*상세히\s*(알려줘|알려)?\s*$", "", title, flags=re.IGNORECASE)
-						title = re.sub(r"\s*상세\s*$", "", title, flags=re.IGNORECASE)
-						title = re.sub(r"\s*알려줘\s*$", "", title, flags=re.IGNORECASE)
-						selection_by_title = title.strip()
-					else:
-						# 숫자만 있는 경우 (예: "626에 대해 알려줘")
-						digits = re.findall(r"\d+", query)
-						if digits:
-							selection_index = int(digits[0])
-
-			# 패턴 2: "메일" 또는 "이메일" 키워드가 포함된 경우
-			has_email_keyword = "메일" in query or "이메일" in query
-			if has_email_keyword and selection_index is None:
-				# 패턴 2-1: "355. 제목" 형식 (메일 키워드 포함)
-				match_with_dot = re.match(r"^(\d+)\.\s*(.+)", query)
-				if match_with_dot:
-					selection_index = int(match_with_dot.group(1))
-					selection_by_title = match_with_dot.group(2).strip()
-				# 패턴 2-2: 숫자 + "번" + "메일"/"이메일" 패턴
-				elif re.search(r"(\d+)\s*번\s*(메일|이메일)", query):
-					digits = re.findall(r"\d+", query)
-					if digits:
-						selection_index = int(digits[0])
-				# 패턴 2-3: 숫자 + "번" + "상세" 패턴 (예: "600번 상세", "600. 제목 상세")
-				elif re.search(r"(\d+)\s*번\s*상세", query) or (re.match(r"^\d+\.?\s*", query) and "상세" in query):
-					digits = re.findall(r"\d+", query)
-					if digits:
-						selection_index = int(digits[0])
-						# 제목 추출 시도
-						match_with_dot = re.match(r"^(\d+)\.\s*(.+)", query)
-						if match_with_dot:
-							title = match_with_dot.group(2).strip()
-							title = re.sub(r"\s*상세\s*$", "", title, flags=re.IGNORECASE)
-							if title:
-								selection_by_title = title.strip()
-				# 패턴 2-4: 숫자 + "메일"/"이메일" 패턴 (예: "355 메일", "355번 메일 상세")
-				elif re.search(r"(\d+)\s*(번\s*)?(메일|이메일)", query):
-					digits = re.findall(r"\d+", query)
-					if digits:
-						selection_index = int(digits[0])
-				# 패턴 2-4: 숫자로 시작 + "메일"/"이메일" 포함 (제목 포함 가능)
-				elif re.match(r"^\d+", query) and ("메일" in query or "이메일" in query):
-					digits = re.findall(r"\d+", query)
-					if digits:
-						num_str = digits[0]
-						if len(query) > len(num_str) and query[len(num_str):].strip():
-							selection_index = int(num_str)
-							# 제목 추출 시도
-							title_part = query[len(num_str):].strip().lstrip(". ")
-							if title_part and title_part not in ["메일", "이메일", "번 메일", "번 이메일"]:
-								selection_by_title = title_part
-	except Exception:
-		selection_index = None
-		selection_by_title = None
-
-	# 선택 처리: 숫자가 있고 이전 검색 결과가 있으면 상세 보기 (세션별)
-	try:
-		if selection_index is not None and has_pending_email_results(session_id, state):
-			# 제목으로도 검색 시도 (번호가 매칭되지 않는 경우)
-			if selection_by_title:
-				cache = _get_email_cache(session_id, state)
-				items = cache.get("items", [])
-				# 제목으로 아이템 찾기
-				for idx, item in enumerate(items):
-					item_title = item.get("title", "").strip()
-					display_num = int(item.get("index", 0))
-					# 번호가 일치하거나 제목이 유사하면
-					if display_num == selection_index or selection_by_title.lower() in item_title.lower():
-						actual_index = item.get("actual_index", idx)
-						return await _imap_fetch_full_by_index(actual_index + 1, session_id=session_id, by_display_number=False, state=state)
-
-			# 번호로만 검색
-			return await _imap_fetch_full_by_index(selection_index, session_id=session_id, by_display_number=True, state=state)
-
-		# Redis 기반 검색으로 변경
-		if not session_id:
-			return {"ok": False, "error": "세션 ID가 필요합니다."}
-		
-		redis_client = _get_redis_client()
-		if not redis_client:
-			return {"ok": False, "error": "Redis 클라이언트를 가져올 수 없습니다."}
-		
-		storage = EmailRedisStorage(redis_client, session_id)
-		
-		# 초기 동기화 확인 (Redis에 메타데이터가 없으면 동기화)
-		if not await storage.has_synced_data():
-			print(f"[EMAIL SEARCH] 초기 동기화 시작 (세션: {session_id})")
-			sync_result = await sync_emails_to_redis(session_id, limit=1000)
-			if not sync_result.get("ok"):
-				return {"ok": False, "error": f"이메일 동기화 실패: {sync_result.get('message', '알 수 없는 오류')}"}
-			print(f"[EMAIL SEARCH] 초기 동기화 완료: {sync_result.get('count', 0)}개 메일")
-		
-		# 발신자 정보 추출 (master_graph에서 전달받은 정보 우선 사용)
-		sender_name = None
-		sender_email = None
-		
-		if from_address:
-			# master_graph에서 추출한 발신자 주소 사용
-			print(f"[EMAIL SEARCH] master_graph에서 추출한 발신자 주소 사용: {from_address}")
-			sender_email = from_address.lower().strip()
-		else:
-			# master_graph에서 정보가 없으면 LLM으로 추출
-			sender_info = await _extract_sender_info_with_llm(query)
-			sender_name = sender_info.get("name")
-			sender_email = sender_info.get("email")
-		
-		# 날짜 범위 처리 (master_graph에서 전달받은 정보 우선 사용)
-		date_range_timestamps = None
-		if date_range:
-			# master_graph에서 추출한 날짜 범위를 timestamp로 변환
-			start_date_str = date_range.get("start")
-			end_date_str = date_range.get("end")
-			if start_date_str and end_date_str:
-				try:
-					# "YYYY-MM-DD" 형식을 datetime으로 변환
-					start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
-					end_dt = datetime.strptime(end_date_str, "%Y-%m-%d")
-					# 하루의 끝 시간으로 설정 (23:59:59)
-					end_dt = end_dt.replace(hour=23, minute=59, second=59)
-					
-					date_range_timestamps = {
-						"start_timestamp": int(start_dt.timestamp()),
-						"end_timestamp": int(end_dt.timestamp())
-					}
-					print(f"[EMAIL SEARCH] master_graph에서 추출한 날짜 범위 사용: {start_date_str} ~ {end_date_str}")
-				except ValueError as e:
-					logger.warning(f"날짜 범위 파싱 실패: {e}")
-		
-		# 검색 로직 (날짜 범위 우선, 그 다음 발신자, 마지막 키워드)
-		if date_range_timestamps:
-			# 날짜 범위 검색
-			start_ts = date_range_timestamps["start_timestamp"]
-			end_ts = date_range_timestamps["end_timestamp"]
-			
-			# 날짜 범위로 검색 (Redis Sorted Set 사용)
-			email_ids = await storage.redis.zrangebyscore(
-				f"{storage.email_key_prefix}:index:by_date",
-				min=start_ts,
-				max=end_ts,
-				withscores=False
-			)
-			
-			if not email_ids:
-				return {
-					"ok": True,
-					"message": f"📭 해당 날짜 범위({date_range.get('start')} ~ {date_range.get('end')})에 메일을 찾지 못했습니다.",
-					"rows": [],
-					"items": [],
-					"email_ids": [],
-					"last_search_keyword": None
+	# Redis 기반 검색으로 변경
+	if not session_id:
+		return {"ok": False, "error": "세션 ID가 필요합니다."}
+	
+	redis_client = _get_redis_client()
+	if not redis_client:
+		return {"ok": False, "error": "Redis 클라이언트를 가져올 수 없습니다."}
+	
+	storage = EmailRedisStorage(redis_client, session_id)
+	
+	# 초기 동기화 확인 (Redis에 메타데이터가 없으면 동기화)
+	if not await storage.has_synced_data():
+		print(f"[EMAIL SEARCH] 초기 동기화 시작 (세션: {session_id})")
+		sync_result = await sync_emails_to_redis(session_id, limit=1000)
+		if not sync_result.get("ok"):
+			return {"ok": False, "error": f"이메일 동기화 실패: {sync_result.get('message', '알 수 없는 오류')}"}
+		print(f"[EMAIL SEARCH] 초기 동기화 완료: {sync_result.get('count', 0)}개 메일")
+	
+	# 발신자 정보 추출 (master_graph에서 전달받은 정보 우선 사용)
+	sender_name = None
+	sender_email = None
+	
+	if from_address:
+		# master_graph에서 추출한 발신자 주소 사용
+		print(f"[EMAIL SEARCH] master_graph에서 추출한 발신자 주소 사용: {from_address}")
+		sender_email = from_address.lower().strip()
+	else:
+		# master_graph에서 정보가 없으면 LLM으로 추출
+		sender_info = await _extract_sender_info_with_llm(query)
+		sender_name = sender_info.get("name")
+		sender_email = sender_info.get("email")
+	
+	# 날짜 범위 처리 (master_graph에서 전달받은 정보 우선 사용)
+	date_range_timestamps = None
+	if date_range:
+		# master_graph에서 추출한 날짜 범위를 timestamp로 변환
+		start_date_str = date_range.get("start")
+		end_date_str = date_range.get("end")
+		if start_date_str and end_date_str:
+			try:
+				# "YYYY-MM-DD" 형식을 datetime으로 변환
+				start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
+				end_dt = datetime.strptime(end_date_str, "%Y-%m-%d")
+				# 하루의 끝 시간으로 설정 (23:59:59)
+				end_dt = end_dt.replace(hour=23, minute=59, second=59)
+				
+				date_range_timestamps = {
+					"start_timestamp": int(start_dt.timestamp()),
+					"end_timestamp": int(end_dt.timestamp())
 				}
-			
-			# Pipeline으로 메타데이터 일괄 조회
-			pipeline = storage.redis.pipeline()
-			for email_id_bytes in email_ids:
-				email_id = email_id_bytes.decode('utf-8') if isinstance(email_id_bytes, bytes) else email_id_bytes
-				pipeline.hgetall(f"{storage.email_key_prefix}:metadata:{email_id}")
-			
-			metadata_list = await pipeline.execute()
-			
-			# 결과 파싱
-			date_results = []
-			for email_id_bytes, metadata in zip(email_ids, metadata_list):
-				if not metadata:
-					continue
-				
-				email_id = email_id_bytes.decode('utf-8') if isinstance(email_id_bytes, bytes) else email_id_bytes
-				metadata_dict = {}
-				for k, v in metadata.items():
-					key = k.decode('utf-8') if isinstance(k, bytes) else k
-					val = v.decode('utf-8') if isinstance(v, bytes) else v
-					metadata_dict[key] = val
-				
-				date_results.append({
-					"id": email_id,
-					**metadata_dict
-				})
-			
-			# 발신자로 추가 필터링 (있는 경우)
-			if sender_email:
-				results = [r for r in date_results if sender_email.lower() in r.get("from_addr", "").lower()]
-				search_keyword = f"{sender_email} ({date_range.get('start')} ~ {date_range.get('end')})"
-			elif sender_name:
-				results = [r for r in date_results if sender_name.lower() in r.get("from_addr", "").lower()]
-				search_keyword = f"{sender_name} ({date_range.get('start')} ~ {date_range.get('end')})"
-			else:
-				# 날짜 범위 검색인 경우, 날짜 관련 키워드는 필터링하지 않음
-				# "어제", "오늘", "저번주" 등은 날짜를 나타내는 것이지 검색 키워드가 아님
-				
-				# 키워드 추출
-				extracted_keyword = _extract_keywords(query)
-				
-				# 날짜 관련 키워드 목록
-				date_related_terms = {"어제", "오늘", "내일", "저번주", "지난주", "이번주", "다음주", "온", "날", "일에", "보여줘", "보여", "알려줘", "찾아줘", "메일", "이메일"}
-				
-				# 추출된 키워드가 날짜 관련 용어뿐인지 확인
-				if not extracted_keyword:
-					# 키워드가 없으면 모든 날짜 범위 결과 반환
-					results = date_results
-					search_keyword = f"{date_range.get('start')} ~ {date_range.get('end')}"
-				else:
-					keyword_lower = extracted_keyword.lower()
-					keyword_tokens = keyword_lower.split()
-					
-					# 키워드가 날짜 관련 용어만 포함하는지 확인
-					is_only_date_query = all(
-						any(date_term in token for date_term in date_related_terms)
-						for token in keyword_tokens
-					) or any(date_term in keyword_lower for date_term in date_related_terms if len(date_term) >= 2)
-					
-					if is_only_date_query:
-						# 날짜만 요청한 경우: 모든 날짜 범위 결과 반환
-						results = date_results
-						search_keyword = f"{date_range.get('start')} ~ {date_range.get('end')}"
-					else:
-						# 실제 검색 키워드가 있는 경우: 필터링 (예: "어제 프로젝트 관련 메일")
-						results = []
-						for r in date_results:
-							subject = r.get("subject", "").lower()
-							snippet = r.get("snippet", "").lower()
-							from_addr = r.get("from_addr", "").lower()
-							if (keyword_lower in subject or keyword_lower in snippet or keyword_lower in from_addr):
-								results.append(r)
-						search_keyword = extracted_keyword
-		elif sender_email:
-			# 이메일 주소가 있는 경우: 발신자 이메일로 검색
-			print(f"[EMAIL SEARCH] 발신자 이메일 검색: {sender_email}")
-			results = await storage.search_emails_by_from_address(sender_email, limit=100)
-			search_keyword = sender_email  # 메시지 표시용
-		elif sender_name:
-			# 이름만 있는 경우: 발신자 이름으로 검색
-			print(f"[EMAIL SEARCH] 발신자 이름 검색: {sender_name}")
-			results = await storage.search_emails_by_sender_name(sender_name, limit=100)
-			search_keyword = sender_name  # 메시지 표시용
-		else:
-			# 이름/이메일이 없는 경우: 일반 키워드 검색
-			search_keyword = _extract_keywords(query)
-			if not search_keyword:
-				search_keyword = query
-			print(f"[EMAIL SEARCH] 키워드 검색: {search_keyword}")
-			results = await storage.search_emails_by_keyword(search_keyword, limit=100)
+				print(f"[EMAIL SEARCH] master_graph에서 추출한 날짜 범위 사용: {start_date_str} ~ {end_date_str}")
+			except ValueError as e:
+				logger.warning(f"날짜 범위 파싱 실패: {e}")
+	
+	# 검색 로직 (날짜 범위 우선, 그 다음 발신자, 마지막 키워드)
+	if date_range_timestamps:
+		# 날짜 범위 검색
+		start_ts = date_range_timestamps["start_timestamp"]
+		end_ts = date_range_timestamps["end_timestamp"]
 		
-		if not results:
+		# 날짜 범위로 검색 (Redis Sorted Set 사용)
+		email_ids = await storage.redis.zrangebyscore(
+			f"{storage.email_key_prefix}:index:by_date",
+			min=start_ts,
+			max=end_ts,
+			withscores=False
+		)
+		
+		if not email_ids:
 			return {
 				"ok": True,
-				"message": f"📭 '{search_keyword}' 관련 메일을 찾지 못했습니다.\n\n💡 다른 키워드로 검색해보세요.",
+				"message": f"📭 해당 날짜 범위({date_range.get('start')} ~ {date_range.get('end')})에 메일을 찾지 못했습니다.",
 				"rows": [],
 				"items": [],
 				"email_ids": [],
-				"last_search_keyword": search_keyword
+				"last_search_keyword": None
 			}
 		
-		# 검색 결과 포맷팅 및 상세 내용 가져오기
-		items = []
-		email_data = {}  # JSON 형식으로 저장할 데이터
+		# Pipeline으로 메타데이터 일괄 조회
+		pipeline = storage.redis.pipeline()
+		for email_id_bytes in email_ids:
+			email_id = email_id_bytes.decode('utf-8') if isinstance(email_id_bytes, bytes) else email_id_bytes
+			pipeline.hgetall(f"{storage.email_key_prefix}:metadata:{email_id}")
 		
-		# IMAP 연결 준비
-		host = _get_env("IMAP_HOST") or "imap.naver.com"
-		port = int(_get_env("IMAP_PORT") or "993")
-		user = _get_env("NAVER_EMAIL") or ""
-		if not user:
-			nid = _get_env("NAVER_ID") or ""
-			if nid:
-				user = f"{nid}@naver.com"
-		pwd = _get_env("NAVER_APP_PASSWORD") or ""
+		metadata_list = await pipeline.execute()
 		
-		mail = None
-		if user and pwd:
-			try:
-				mail = imaplib.IMAP4_SSL(host, port)
-				mail.login(user, pwd)
-				mail.select("INBOX")
-			except Exception as e:
-				logger.error(f"IMAP 연결 실패: {e}")
-				mail = None
+		# 결과 파싱
+		date_results = []
+		for email_id_bytes, metadata in zip(email_ids, metadata_list):
+			if not metadata:
+				continue
+			
+			email_id = email_id_bytes.decode('utf-8') if isinstance(email_id_bytes, bytes) else email_id_bytes
+			metadata_dict = {}
+			for k, v in metadata.items():
+				key = k.decode('utf-8') if isinstance(k, bytes) else k
+				val = v.decode('utf-8') if isinstance(v, bytes) else v
+				metadata_dict[key] = val
+			
+			date_results.append({
+				"id": email_id,
+				**metadata_dict
+			})
 		
-		# 각 검색 결과에 대해 상세 내용 가져오기
-		for idx, result in enumerate(results, 1):
+		# 발신자로 추가 필터링 (있는 경우)
+		if sender_email:
+			results = [r for r in date_results if sender_email.lower() in r.get("from_addr", "").lower()]
+			search_keyword = f"{sender_email} ({date_range.get('start')} ~ {date_range.get('end')})"
+		elif sender_name:
+			results = [r for r in date_results if sender_name.lower() in r.get("from_addr", "").lower()]
+			search_keyword = f"{sender_name} ({date_range.get('start')} ~ {date_range.get('end')})"
+		else:
+			# 날짜 범위 검색인 경우, 날짜 관련 키워드는 필터링하지 않음
+			# "어제", "오늘", "저번주" 등은 날짜를 나타내는 것이지 검색 키워드가 아님
+			
+			# 키워드 추출
+			extracted_keyword = _extract_keywords(query)
+			
+			# 날짜 관련 키워드 목록
+			date_related_terms = {"어제", "오늘", "내일", "저번주", "지난주", "이번주", "다음주", "온", "날", "일에", "보여줘", "보여", "알려줘", "찾아줘", "메일", "이메일"}
+			
+			# 추출된 키워드가 날짜 관련 용어뿐인지 확인
+			if not extracted_keyword:
+				# 키워드가 없으면 모든 날짜 범위 결과 반환
+				results = date_results
+				search_keyword = f"{date_range.get('start')} ~ {date_range.get('end')}"
+			else:
+				keyword_lower = extracted_keyword.lower()
+				keyword_tokens = keyword_lower.split()
+				
+				# 키워드가 날짜 관련 용어만 포함하는지 확인
+				is_only_date_query = all(
+					any(date_term in token for date_term in date_related_terms)
+					for token in keyword_tokens
+				) or any(date_term in keyword_lower for date_term in date_related_terms if len(date_term) >= 2)
+				
+				if is_only_date_query:
+					# 날짜만 요청한 경우: 모든 날짜 범위 결과 반환
+					results = date_results
+					search_keyword = f"{date_range.get('start')} ~ {date_range.get('end')}"
+				else:
+					# 실제 검색 키워드가 있는 경우: 필터링 (예: "어제 프로젝트 관련 메일")
+					results = []
+					for r in date_results:
+						subject = r.get("subject", "").lower()
+						snippet = r.get("snippet", "").lower()
+						from_addr = r.get("from_addr", "").lower()
+						if (keyword_lower in subject or keyword_lower in snippet or keyword_lower in from_addr):
+							results.append(r)
+					search_keyword = extracted_keyword
+	elif sender_email:
+		# 이메일 주소가 있는 경우: 발신자 이메일로 검색
+		print(f"[EMAIL SEARCH] 발신자 이메일 검색: {sender_email}")
+		results = await storage.search_emails_by_from_address(sender_email, limit=100)
+		search_keyword = sender_email  # 메시지 표시용
+	elif sender_name:
+		# 이름만 있는 경우: 발신자 이름으로 검색
+		print(f"[EMAIL SEARCH] 발신자 이름 검색: {sender_name}")
+		results = await storage.search_emails_by_sender_name(sender_name, limit=100)
+		search_keyword = sender_name  # 메시지 표시용
+	else:
+		# 이름/이메일이 없는 경우: 일반 키워드 검색
+		search_keyword = _extract_keywords(query)
+		if not search_keyword:
+			search_keyword = query
+		print(f"[EMAIL SEARCH] 키워드 검색: {search_keyword}")
+		results = await storage.search_emails_by_keyword(search_keyword, limit=100)
+	
+	if not results:
+		return {
+			"ok": True,
+			"message": f"📭 '{search_keyword}' 관련 메일을 찾지 못했습니다.\n\n💡 다른 키워드로 검색해보세요.",
+			"rows": [],
+			"items": [],
+			"email_ids": [],
+			"last_search_keyword": search_keyword
+		}
+	
+	# 검색 결과 포맷팅 및 상세 내용 가져오기
+	items = []
+	email_data = {}  # JSON 형식으로 저장할 데이터
+	
+	# IMAP 연결 준비
+	host = _get_env("IMAP_HOST") or "imap.naver.com"
+	port = int(_get_env("IMAP_PORT") or "993")
+	user = _get_env("NAVER_EMAIL") or ""
+	if not user:
+		nid = _get_env("NAVER_ID") or ""
+		if nid:
+			user = f"{nid}@naver.com"
+	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+	
+	mail = None
+	if user and pwd:
+		try:
+			mail = imaplib.IMAP4_SSL(host, port)
+			mail.login(user, pwd)
+			mail.select("INBOX")
+		except Exception as e:
+			logger.error(f"IMAP 연결 실패: {e}")
+			mail = None
+	
+	# 각 검색 결과에 대해 상세 내용 가져오기
+	for idx, result in enumerate(results, 1):
 			email_id = result.get("id")
 			items.append({
 				"title": result.get("subject", "(제목 없음)"),
@@ -2298,55 +1600,47 @@ async def email_search(
 			
 			# 번호를 키로 사용하여 저장
 			email_data[str(idx)] = email_info
-		
-		# IMAP 연결 종료
-		if mail:
-			try:
-				mail.logout()
-			except Exception:
-				pass
-		
-		# 기존 메시지 형식으로 최상위 키 생성
-		summary_message = f"📧 검색 결과: '{search_keyword}' 관련 메일 {len(results)}개"
-		
-		# JSON 형식 결과 생성
-		json_result = {
-			summary_message: email_data  # 기존 메시지를 최상위 키로 사용
-		}
-		
-		# 검색 결과를 email_search_context에 저장
-		cache = _get_email_cache(session_id, state)
-		cache["ids"] = [item["email_id"] for item in items]
-		cache["items"] = items
-		index_map = {idx + 1: idx for idx in range(len(items))}
-		cache["index_map"] = index_map
-		cache["last_keyword"] = query
-		updated_state = _save_email_cache(cache, session_id, state)
-		if updated_state and state:
-			state.update(updated_state)
-		
-		# email_search_context에서 마지막 검색 키워드 가져오기
-		cache = _get_email_cache(session_id, state)
-		last_search_keyword = cache.get("last_keyword", search_keyword)
-		
-		return {
-			"ok": True,
-			"message": json.dumps(json_result, ensure_ascii=False, indent=2),  # JSON 문자열로 변환
-			"json": True,  # JSON 형식임을 표시
-			"data": json_result,  # 파싱된 JSON 데이터
-			"rows": items,
-			"items": items,
-			"email_ids": [item.get("email_id") for item in items if item.get("email_id")],
-			"last_search_keyword": last_search_keyword
-		}
-	except Exception as e:
-		import traceback
-		traceback.print_exc()
-		return {
-			"ok": False,
-			"error": f"IMAP 검색 실패: {str(e)}",
-		}
-	# 이 지점까지 오면 정상 반환됨(검색/상세)
+	
+	# IMAP 연결 종료
+	if mail:
+		try:
+			mail.logout()
+		except Exception:
+			pass
+	
+	# 기존 메시지 형식으로 최상위 키 생성
+	summary_message = f"📧 검색 결과: '{search_keyword}' 관련 메일 {len(results)}개"
+	
+	# JSON 형식 결과 생성
+	json_result = {
+		summary_message: email_data  # 기존 메시지를 최상위 키로 사용
+	}
+	
+	# 검색 결과를 email_search_context에 저장
+	cache = _get_email_cache(session_id, state)
+	cache["ids"] = [item["email_id"] for item in items]
+	cache["items"] = items
+	index_map = {idx + 1: idx for idx in range(len(items))}
+	cache["index_map"] = index_map
+	cache["last_keyword"] = query
+	updated_state = _save_email_cache(cache, session_id, state)
+	if updated_state and state:
+		state.update(updated_state)
+	
+	# email_search_context에서 마지막 검색 키워드 가져오기
+	cache = _get_email_cache(session_id, state)
+	last_search_keyword = cache.get("last_keyword", search_keyword)
+	
+	return {
+		"ok": True,
+		"message": json.dumps(json_result, ensure_ascii=False, indent=2),  # JSON 문자열로 변환
+		"json": True,  # JSON 형식임을 표시
+		"data": json_result,  # 파싱된 JSON 데이터
+		"rows": items,
+		"items": items,
+		"email_ids": [item.get("email_id") for item in items if item.get("email_id")],
+		"last_search_keyword": last_search_keyword
+	}
 
 
 async def email_search_async(user_text: str, session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
