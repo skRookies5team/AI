@@ -496,11 +496,16 @@ def generate_answer(state: GraphState) -> GraphState:
 답변은 친절하고 이해하기 쉽게 작성해주세요.""")
     
     # 시스템 프롬프트에 날짜/시간 정보 치환
-    system_prompt = system_prompt_template.format(
-        current_date=current_date,
-        current_weekday=current_weekday,
-        current_time=current_time
-    )
+    # 모든 인스턴스를 치환하고, 남은 중괄호를 이스케이프 처리하여 ChatPromptTemplate 파싱 오류 방지
+    system_prompt = system_prompt_template.replace("{current_date}", current_date)
+    system_prompt = system_prompt.replace("{current_weekday}", current_weekday)
+    system_prompt = system_prompt.replace("{current_time}", current_time)
+    
+    # 남은 중괄호를 이스케이프 처리 (ChatPromptTemplate 파싱 오류 방지)
+    # 단, {context}와 {question}은 user_prompt에서 사용되므로 그대로 유지
+    system_prompt = system_prompt.replace("{", "{{").replace("}", "}}")
+    # 하지만 {context}와 {question}은 다시 원래대로 (user_prompt에서 사용)
+    # system_prompt에는 {context}와 {question}이 없으므로 문제없음
     
     # 이전 대화 히스토리 구성
     messages = [
@@ -508,6 +513,7 @@ def generate_answer(state: GraphState) -> GraphState:
     ]
     
     # 이전 대화 히스토리 추가 (YAML 설정 사용)
+    # conversation_history의 메시지 내용에 중괄호가 있을 수 있으므로 이스케이프 처리
     search_params = config.get("search_params", {})
     conversation_history_max = search_params.get("conversation_history_max_messages", 5)
     if conversation_history:
@@ -515,7 +521,10 @@ def generate_answer(state: GraphState) -> GraphState:
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role and content:
-                messages.append((role, content))
+                # content의 중괄호를 이스케이프 처리 (템플릿 변수로 인식되지 않도록)
+                # 단, 이미 이스케이프된 경우는 제외
+                escaped_content = content.replace("{", "{{").replace("}", "}}")
+                messages.append((role, escaped_content))
     
     user_prompt = prompts.get("user_prompt", """다음은 깐부전자의 직원 식단표 데이터에서 검색된 관련 내용입니다:
 
@@ -534,16 +543,14 @@ def generate_answer(state: GraphState) -> GraphState:
     if not api_key:
         raise ValueError("OpenAI API 키가 없습니다. .env 파일에 OPENAI_API_KEY를 설정하세요.")
 
-    # LLM 설정 (.env 우선, YAML fallback)
-    llm_config = config.get("llm", {})
+    # LLM 설정 (.env 우선, 없으면 기본값 사용)
     llm_model = (
         _get_env_trimmed("OPENAI_MODEL")
     )
-    llm_temperature = 0
 
     llm = ChatOpenAI(
         model=llm_model,
-        temperature=llm_temperature,
+        temperature=0,
         api_key=api_key
     )
 

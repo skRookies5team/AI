@@ -145,14 +145,24 @@ def load_golden_set(file_path: Optional[str] = None) -> None:
 
 
 def _set_session_id(session_id: Optional[str] = None) -> str:
-    """세션 ID 설정."""
+    """세션 ID 설정.
+    
+    주의: session_id가 None이면 에러를 발생시킵니다.
+    모든 agent는 state에서 받은 session_id를 사용해야 합니다.
+    """
     global _PATENT_SESSION_ID
     if session_id:
         _PATENT_SESSION_ID = session_id
-    elif not _PATENT_SESSION_ID:
-        import uuid
-        _PATENT_SESSION_ID = str(uuid.uuid4())
-    return _PATENT_SESSION_ID
+        return session_id
+    elif _PATENT_SESSION_ID:
+        # 이미 설정된 전역 변수가 있으면 사용 (하위 호환성)
+        return _PATENT_SESSION_ID
+    else:
+        # session_id가 없으면 에러 발생 (uuid 생성 제거)
+        raise ValueError(
+            "session_id가 필요합니다. state에서 session_id를 전달받아야 합니다. "
+            "uuid 자동 생성은 더 이상 지원하지 않습니다."
+        )
 
 
 def _get_search_results(session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> List[Dict]:
@@ -164,12 +174,23 @@ def _get_search_results(session_id: Optional[str] = None, orchestrator_state: Op
             return patent_context.get("results", [])
     
     # 하위 호환성: 로컬 캐시 사용
+    # session_id가 없으면 orchestrator_state에서 가져오기
+    if not session_id and orchestrator_state:
+        session_id = orchestrator_state.get("session_id")
+    
+    if not session_id:
+        raise ValueError("session_id가 필요합니다. orchestrator_state에서 session_id를 전달받아야 합니다.")
+    
     sid = _set_session_id(session_id)
     return _PATENT_SEARCH_CACHE.get(sid, [])
 
 
 def _save_search_results(results: List[Dict], session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> None:
     """검색 결과 캐시에 저장 (Redis 숏텀 메모리 우선)."""
+    # session_id가 없으면 orchestrator_state에서 가져오기
+    if not session_id and orchestrator_state:
+        session_id = orchestrator_state.get("session_id")
+    
     # Redis 숏텀 메모리에 저장 (우선)
     if orchestrator_state is not None:
         if "tech_search_context" not in orchestrator_state:
@@ -189,14 +210,28 @@ def has_pending_patent_results(session_id: Optional[str] = None, orchestrator_st
     return len(_get_search_results(session_id, orchestrator_state)) > 0
 
 
-def is_waiting_for_search_mode(session_id: Optional[str] = None) -> bool:
+def is_waiting_for_search_mode(session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> bool:
     """검색 모드 선택 대기 중인지 확인."""
+    # session_id가 없으면 orchestrator_state에서 가져오기
+    if not session_id and orchestrator_state:
+        session_id = orchestrator_state.get("session_id")
+    
+    if not session_id:
+        raise ValueError("session_id가 필요합니다. orchestrator_state에서 session_id를 전달받아야 합니다.")
+    
     sid = _set_session_id(session_id)
     return _WAITING_FOR_SEARCH_MODE.get(sid, False)
 
 
-def set_waiting_for_search_mode(session_id: Optional[str] = None, waiting: bool = True, keyword: Optional[str] = None) -> None:
+def set_waiting_for_search_mode(session_id: Optional[str] = None, waiting: bool = True, keyword: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> None:
     """검색 모드 선택 대기 상태 설정."""
+    # session_id가 없으면 orchestrator_state에서 가져오기
+    if not session_id and orchestrator_state:
+        session_id = orchestrator_state.get("session_id")
+    
+    if not session_id:
+        raise ValueError("session_id가 필요합니다. orchestrator_state에서 session_id를 전달받아야 합니다.")
+    
     sid = _set_session_id(session_id)
     _WAITING_FOR_SEARCH_MODE[sid] = waiting
     if keyword and waiting:
@@ -204,8 +239,15 @@ def set_waiting_for_search_mode(session_id: Optional[str] = None, waiting: bool 
     # waiting=False일 때는 keyword를 삭제하지 않음 (검색 모드 선택 후 사용하기 위해)
 
 
-def get_pending_search_keyword(session_id: Optional[str] = None) -> Optional[str]:
+def get_pending_search_keyword(session_id: Optional[str] = None, orchestrator_state: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """대기 중인 검색어 가져오기."""
+    # session_id가 없으면 orchestrator_state에서 가져오기
+    if not session_id and orchestrator_state:
+        session_id = orchestrator_state.get("session_id")
+    
+    if not session_id:
+        raise ValueError("session_id가 필요합니다. orchestrator_state에서 session_id를 전달받아야 합니다.")
+    
     sid = _set_session_id(session_id)
     return _PENDING_SEARCH_KEYWORD.get(sid)
 
@@ -1009,11 +1051,13 @@ def ask_search_mode_node(state: PatentSearchState) -> PatentSearchState:
     """검색 모드 선택 질문."""
     # 세션 ID 가져오기
     session_id = state.get("session_id")
+    # orchestrator_state 가져오기 (state에 포함되어 있을 수 있음)
+    orchestrator_state = state.get("orchestrator_state")
     # user_query를 우선 사용 (검색어가 더 정확함)
     keyword = state.get("user_query", "") or state.get("keyword", "")
     if session_id and keyword:
         # 검색어를 저장하고 대기 상태 설정
-        set_waiting_for_search_mode(session_id, True, keyword=keyword)
+        set_waiting_for_search_mode(session_id, True, keyword=keyword, orchestrator_state=orchestrator_state)
         # 디버깅: 저장 확인
         print(f"🔍 [DEBUG] 검색어 저장: session_id={session_id}, keyword={keyword}")
 
@@ -1604,6 +1648,13 @@ async def patent_search(keyword: str, session_id: Optional[str] = None, search_m
     Returns:
         검색 결과 또는 상세 정보
     """
+    # session_id가 없으면 orchestrator_state에서 가져오기
+    if not session_id and orchestrator_state:
+        session_id = orchestrator_state.get("session_id")
+    
+    if not session_id:
+        raise ValueError("session_id가 필요합니다. orchestrator_state에서 session_id를 전달받아야 합니다.")
+    
     # 사용자 입력에서 검색 모드 자동 파싱 (처음 요청 시)
     # search_mode가 None이고, 사용자 입력에 "웹", "서버" 등의 키워드가 있으면 자동으로 파싱
     if search_mode is None:
@@ -1673,7 +1724,7 @@ async def patent_search(keyword: str, session_id: Optional[str] = None, search_m
                 # orchestrator_state를 전달하여 재귀 호출 시 다시 ask_search_mode로 인식되지 않도록 함
                 # is_waiting_for_search_mode 상태도 초기화하여 재귀 호출 시 다른 경로로 빠지지 않도록 함
                 if session_id:
-                    set_waiting_for_search_mode(session_id, False)
+                    set_waiting_for_search_mode(session_id, False, orchestrator_state=orchestrator_state)
                 result = await patent_search(last_query, session_id=session_id, search_mode=parsed_mode, use_server_first=False, orchestrator_state=orchestrator_state)
                 print(f"🔍 [DEBUG] 재귀 호출 결과: ok={result.get('ok')}, message={result.get('message', '')[:100] if result.get('message') else 'None'}, error={result.get('error', 'None')[:100] if result.get('error') else 'None'}")
                 # 재귀 호출 결과가 있으면 반환 (ok=False여도 반환)
@@ -1705,14 +1756,14 @@ async def patent_search(keyword: str, session_id: Optional[str] = None, search_m
             }
 
     # 검색 모드 선택 대기 중이면 사용자 입력을 검색 모드로 파싱
-    if is_waiting_for_search_mode(session_id):
+    if is_waiting_for_search_mode(session_id, orchestrator_state):
         parsed_mode = parse_search_mode_from_input(keyword)
         if parsed_mode:
-            set_waiting_for_search_mode(session_id, False)
+            set_waiting_for_search_mode(session_id, False, orchestrator_state=orchestrator_state)
             set_session_search_mode(session_id, parsed_mode)  # 검색 모드를 세션에 저장
             search_mode = parsed_mode
             # 저장된 검색어로 자동 검색 진행
-            pending_keyword = get_pending_search_keyword(session_id)
+            pending_keyword = get_pending_search_keyword(session_id, orchestrator_state)
             # 디버깅: 저장된 검색어 확인
             print(f"🔍 [DEBUG] 검색 모드 선택: session_id={session_id}, mode={parsed_mode}, pending_keyword={pending_keyword}")
             if pending_keyword:

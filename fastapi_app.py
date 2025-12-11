@@ -379,7 +379,25 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     }
                     
                     # conversation_history 업데이트
-                    conversation_history = list(final_state.get("conversation_history", []))
+                    # 기존 세션 데이터의 conversation_history를 가져와서 병합
+                    existing_history = session_data.get("conversation_history", [])
+                    new_history = list(final_state.get("conversation_history", []))
+                    
+                    # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+                    # final_state의 conversation_history는 operator.add로 추가된 것이므로
+                    # 기존 히스토리 + 새 메시지들로 구성됨
+                    # 하지만 이전 대화 확인 질문의 경우 새로 생성될 수 있으므로 병합 필요
+                    conversation_history = existing_history.copy()
+                    
+                    # 새 히스토리에서 기존에 없는 메시지만 추가
+                    existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+                    for msg in new_history:
+                        msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                        if msg_key not in existing_content_set:
+                            conversation_history.append(msg)
+                            existing_content_set.add(msg_key)
+                    
+                    # 사용자 메시지가 없으면 추가
                     if not conversation_history or conversation_history[-1].get("role") != "user":
                         conversation_history.append(user_message)
                     
@@ -496,7 +514,22 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             }
             
             # conversation_history 업데이트
-            conversation_history = list(final_state.get("conversation_history", []))
+            # 기존 세션 데이터의 conversation_history를 가져와서 병합
+            existing_history = session_data.get("conversation_history", [])
+            new_history = list(final_state.get("conversation_history", []))
+            
+            # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+            conversation_history = existing_history.copy()
+            
+            # 새 히스토리에서 기존에 없는 메시지만 추가
+            existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+            for msg in new_history:
+                msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                if msg_key not in existing_content_set:
+                    conversation_history.append(msg)
+                    existing_content_set.add(msg_key)
+            
+            # 사용자 메시지가 없으면 추가
             if not conversation_history or conversation_history[-1].get("role") != "user":
                 conversation_history.append(user_message)
             

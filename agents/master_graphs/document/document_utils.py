@@ -155,9 +155,8 @@ def get_update_document_prompt() -> str:
     if not structured_prompt:
         # 기본 프롬프트 (fallback)
         return """사용자의 쿼리에서 문서 업데이트에 필요한 정보를 추출하세요.
-업데이트 가능한 문서 타입: 복리후생, 식단, 메뉴얼
-문서 제목은 반드시 포함되어야 하며, 파일 경로가 있으면 함께 추출하세요."""
+업데이트 가능한 문서 타입: 복리후생, 식단, 메뉴얼, 이력서
+문서 제목은 사용자가 명시적으로 입력한 제목을 정확히 반영해야 하며, 파일 경로가 있으면 함께 추출하세요."""
     
     return structured_prompt.strip()
-
 
