@@ -251,10 +251,12 @@ async def chat_stream_endpoint(payload: ChatRequest):
             session_data = {
                 "conversation_history": [],
                 "email_search_context": {},
+                "email_compose_context": {},
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
-                "document_context": {}
+                "document_context": {},
+                "recruitment_context": {}
             }
             if session_manager:
                 session_data = await session_manager.load_session_data(session_id)
@@ -274,10 +276,12 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "employee_id": payload.employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
+                "email_compose_context": session_data.get("email_compose_context", {}),
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
-                "document_context": session_data.get("document_context", {})
+                "document_context": session_data.get("document_context", {}),
+                "recruitment_context": session_data.get("recruitment_context", {})
             }
             
             config = {"configurable": {"thread_id": session_id}}
@@ -346,10 +350,18 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 # domain이 없으면 last_domain을 fallback으로 사용
                 last_domain = final_state.get("domain") or final_state.get("last_domain")
                 
+                # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+                rows = []
+                if last_domain == "recruitment":
+                    search_results = final_state.get("search_results", [])
+                    if search_results:
+                        rows = search_results
+                
                 result = {
                     "type": "complete",
                     "ok": True,
                     "message": final_msg,
+                    "rows": rows,  # Recruitment 검색 결과 또는 빈 배열
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
@@ -367,7 +379,25 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     }
                     
                     # conversation_history 업데이트
-                    conversation_history = list(final_state.get("conversation_history", []))
+                    # 기존 세션 데이터의 conversation_history를 가져와서 병합
+                    existing_history = session_data.get("conversation_history", [])
+                    new_history = list(final_state.get("conversation_history", []))
+                    
+                    # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+                    # final_state의 conversation_history는 operator.add로 추가된 것이므로
+                    # 기존 히스토리 + 새 메시지들로 구성됨
+                    # 하지만 이전 대화 확인 질문의 경우 새로 생성될 수 있으므로 병합 필요
+                    conversation_history = existing_history.copy()
+                    
+                    # 새 히스토리에서 기존에 없는 메시지만 추가
+                    existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+                    for msg in new_history:
+                        msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                        if msg_key not in existing_content_set:
+                            conversation_history.append(msg)
+                            existing_content_set.add(msg_key)
+                    
+                    # 사용자 메시지가 없으면 추가
                     if not conversation_history or conversation_history[-1].get("role") != "user":
                         conversation_history.append(user_message)
                     
@@ -385,11 +415,16 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     session_state = {
                         "conversation_history": conversation_history,
                         "email_search_context": final_state.get("email_search_context", {}),
+                        "email_compose_context": final_state.get("email_compose_context", {}),
                         "qa_search_context": final_state.get("qa_search_context", {}),
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
-                        "document_context": final_state.get("document_context", {})
+                        "document_context": final_state.get("document_context", {}),
+                        "recruitment_context": final_state.get("recruitment_context", {})
                     }
+                    print(f"[FASTAPI DEBUG] session_state 저장:")
+                    print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
+                    print(f"  - email_compose_context 키: {list(session_state.get('email_compose_context', {}).keys())}")
                     await session_manager.save_session_state(session_id, session_state)
         
         except Exception as exc:
@@ -435,7 +470,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "qa_search_context": {},
             "tech_search_context": {},
             "schedule_context": {},
-            "document_context": {}
+            "document_context": {},
+            "recruitment_context": {}
         }
         if session_manager:
             session_data = await session_manager.load_session_data(session_id)
@@ -451,11 +487,16 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "employee_id": payload.employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
+            "email_compose_context": session_data.get("email_compose_context", {}),
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
-            "document_context": session_data.get("document_context", {})
+            "document_context": session_data.get("document_context", {}),
+            "recruitment_context": session_data.get("recruitment_context", {})
         }
+        print(f"[FASTAPI DEBUG] input_state 로드:")
+        print(f"  - email_compose_context 존재: {bool(input_state.get('email_compose_context'))}")
+        print(f"  - email_compose_context 키: {list(input_state.get('email_compose_context', {}).keys())}")
         
         # LangGraph 체크포인터 없이 실행 (세션 관리자가 대화 히스토리 관리)
         config = {"configurable": {"thread_id": session_id}}
@@ -473,7 +514,22 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             }
             
             # conversation_history 업데이트
-            conversation_history = list(final_state.get("conversation_history", []))
+            # 기존 세션 데이터의 conversation_history를 가져와서 병합
+            existing_history = session_data.get("conversation_history", [])
+            new_history = list(final_state.get("conversation_history", []))
+            
+            # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+            conversation_history = existing_history.copy()
+            
+            # 새 히스토리에서 기존에 없는 메시지만 추가
+            existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+            for msg in new_history:
+                msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                if msg_key not in existing_content_set:
+                    conversation_history.append(msg)
+                    existing_content_set.add(msg_key)
+            
+            # 사용자 메시지가 없으면 추가
             if not conversation_history or conversation_history[-1].get("role") != "user":
                 conversation_history.append(user_message)
             
@@ -491,11 +547,16 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             session_state = {
                 "conversation_history": conversation_history,
                 "email_search_context": final_state.get("email_search_context", {}),
+                "email_compose_context": final_state.get("email_compose_context", {}),
                 "qa_search_context": final_state.get("qa_search_context", {}),
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),
-                "document_context": final_state.get("document_context", {})
+                "document_context": final_state.get("document_context", {}),
+                "recruitment_context": final_state.get("recruitment_context", {})
             }
+            print(f"[FASTAPI DEBUG] session_state 저장 (non-stream):")
+            print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
+            print(f"  - email_compose_context 키: {list(session_state.get('email_compose_context', {}).keys())}")
             await session_manager.save_session_state(session_id, session_state)
         
         # Process Output
@@ -538,11 +599,19 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # 도메인 정보 추출 (LLM 라우팅 시 결정된 도메인)
         # domain이 없으면 last_domain을 fallback으로 사용
         last_domain = final_state.get("domain") or final_state.get("last_domain")
+        
+        # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+        rows = []
+        if last_domain == "recruitment":
+            search_results = final_state.get("search_results", [])
+            if search_results:
+                # 카드 형식으로 변환
+                rows = search_results
 
         return ChatResponse(
             ok=True,
             message=final_msg,
-            rows=[],  # 오케스트레이터는 주로 텍스트 응답을 반환하므로 rows는 비움
+            rows=rows,  # Recruitment 검색 결과 또는 빈 배열
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
@@ -641,7 +710,8 @@ async def upload_document_endpoint(
                     "qa_search_context": result_state.get("qa_search_context", session_data.get("qa_search_context", {})),
                     "tech_search_context": result_state.get("tech_search_context", session_data.get("tech_search_context", {})),
                     "schedule_context": result_state.get("schedule_context", session_data.get("schedule_context", {})),
-                    "document_context": result_state.get("document_context", session_data.get("document_context", {}))
+                    "document_context": result_state.get("document_context", session_data.get("document_context", {})),
+                    "recruitment_context": result_state.get("recruitment_context", session_data.get("recruitment_context", {}))
                 }
                 await session_manager.save_session_state(session_id, session_state)
                 print(f"✅ [Document Update] Redis에 문서 업데이트 정보 및 대화 내역 저장 완료 (session_id: {session_id})")

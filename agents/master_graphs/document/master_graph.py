@@ -460,7 +460,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             process_update_file,
             get_updatable_documents,
         )
-        from agents.master_graphs.document.utils import get_update_document_prompt
+        from agents.master_graphs.document.document_utils import get_update_document_prompt
         from pathlib import Path
         
         # 문서 타입 초기화
@@ -526,12 +526,13 @@ class DocumentMasterGraph(BaseMasterGraph):
             with open(file_path_obj, "rb") as f:
                 file_content = f.read()
             
-            # 문서 업데이트 서비스 호출 (document_type 전달)
+            # 문서 업데이트 서비스 호출 (document_type은 None으로 전달하여 파일 내용으로 재확인)
+            # Structured Output의 결과를 무시하고 항상 파일 내용으로 타입 판별
             result = process_update_file(
                 file_content=file_content,
                 filename=file_path_obj.name,
                 document_title=document_title,
-                document_type=document_type
+                document_type=None  # 항상 파일 내용으로 재확인
             )
             
             if result.get("ok"):
