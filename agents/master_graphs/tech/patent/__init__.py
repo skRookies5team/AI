@@ -1,6 +1,6 @@
 """특허 검색 모듈 패키지."""
 
-from .patent_keyword import generate_patent_keyword, generate_patent_keyword_from_text
+from .patent_keyword import generate_patent_keyword, generate_patent_keyword_from_text, generate_patent_search_phrase
 from .patent_types import PatentSearchState
 from .patent_config import (
     KIPRIS_API_KEY,
@@ -60,6 +60,7 @@ __all__ = [
     # Keyword
     "generate_patent_keyword",
     "generate_patent_keyword_from_text",
+    "generate_patent_search_phrase",
     # Types
     "PatentSearchState",
     # Config

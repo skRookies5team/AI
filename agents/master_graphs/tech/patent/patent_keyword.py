@@ -216,3 +216,66 @@ def generate_patent_keyword_from_text(text: str, max_tokens: int = 32) -> str:
         keywords = [w for w in words if len(w) > 1 and w not in stop_words]
         return ", ".join(keywords[:keyword_limit]) if keywords else "기타"
 
+
+def generate_patent_search_phrase(user_input: str, max_tokens: int = 50) -> str:
+    """사용자 질의를 특허 검색용 핵심 구문으로 변환.
+    
+    키워드를 분리하지 않고, 하나의 의미 있는 구문으로 추출합니다.
+    
+    예시:
+    - 입력: "전기차 베터리 관련해서 특허좀 찾아줘"
+    - 출력: "전기차 배터리 기술"
+    
+    Args:
+        user_input: 사용자의 자연어 질의
+        max_tokens: 최대 토큰 수
+    
+    Returns:
+        검색에 활용할 핵심 구문
+    """
+    # YAML에서 프롬프트 및 설정 로드
+    patent_config = _load_patent_keyword_prompts()
+    phrase_config = patent_config.get("search_phrase_generation", {})
+    
+    # 프롬프트 템플릿 로드 (YAML에서 로드 또는 기본값)
+    prompt_template = phrase_config.get("prompt", "")
+    if not prompt_template:
+        # Fallback: 하드코딩된 기본 프롬프트
+        prompt_template = """다음 사용자 질의를 특허 검색용 핵심 검색 구문 하나로 변환해줘.
+- 키워드를 분리하지 말고, 하나의 의미 있는 기술 개념 구문으로 생성해줘.
+- 불필요한 단어("특허", "찾아줘", "검색" 등)는 제거하고 핵심 기술 용어만 남겨줘.
+- 출력은 최대 10단어 이내의 자연스러운 구문이어야 해.
+
+예시:
+- 입력: "전기차 베터리 관련해서 특허좀 찾아줘" → 출력: "전기차 배터리 기술"
+- 입력: "AI 딥러닝 특허 검색" → 출력: "인공지능 딥러닝"
+- 입력: "초전도체 기술 현황" → 출력: "초전도체 기술"
+
+입력: {user_input}
+출력:"""
+    
+    prompt = prompt_template.replace("{user_input}", user_input)
+    
+    if CLIENT is None:
+        # Fallback: 기본 파싱 (불필요한 단어 제거)
+        cleaned = re.sub(r'\s*(특허|patent|검색|찾아|찾아줘|검색해줘|관련해서|관련|정보|자료|요청|알려|줘|주세요)\s*', ' ', user_input, flags=re.IGNORECASE).strip()
+        return cleaned if cleaned else user_input
+    
+    try:
+        response = CLIENT.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0,
+        )
+        output = response.choices[0].message.content.strip()
+        # 불필요한 설명 제거 (구문만 추출)
+        # "출력:", "답변:" 같은 접두어 제거
+        output = re.sub(r'^(출력|답변|결과)[:\s]*', '', output, flags=re.IGNORECASE)
+        output = re.sub(r'[^\w가-힣\s-]', '', output).strip()
+        return output if output else user_input
+    except Exception:
+        logging.exception("OpenAI search phrase generation failed.")
+        # Fallback: 기본 파싱
+        cleaned = re.sub(r'\s*(특허|patent|검색|찾아|찾아줘|검색해줘|관련해서|관련|정보|자료|요청|알려|줘|주세요)\s*', ' ', user_input, flags=re.IGNORECASE).strip()
+        return cleaned if cleaned else user_input
