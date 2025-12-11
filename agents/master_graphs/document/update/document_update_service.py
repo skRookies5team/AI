@@ -501,15 +501,15 @@ def upsert_to_milvus(
         print(f"🔍 [Document Update] Milvus 컬렉션 확인/생성 중: {collection_name}")
         collection = ensure_milvus_collection(collection_name)
         print(f"✅ [Document Update] Milvus 컬렉션 준비 완료: {collection_name}")
-        
+
         # 컬렉션의 모든 기존 문서 삭제
         print(f"🗑️ [Document Update] 기존 문서 삭제 중...")
         delete_all_documents_in_collection(collection)
         print(f"✅ [Document Update] 기존 문서 삭제 완료")
-        
+
         # 문서 제목 가져오기
         document_title = metadata.get("source", Path(file_path).stem)
-        
+
         # 데이터 준비
         # QA agent 호환성을 위해 content 필드도 포함 (chunk_text와 동일한 값)
         entities = [
@@ -518,7 +518,7 @@ def upsert_to_milvus(
             chunks,  # content (QA agent 호환성, chunk_text와 동일한 값)
             embeddings,  # embedding
         ]
-        
+
         print(f"📤 [Document Update] Milvus에 삽입 중... (청크 수: {len(chunks)}, 컬렉션: {collection_name})")
         
         # Milvus에 삽입
@@ -541,7 +541,7 @@ def upsert_to_milvus(
                 "error": "데이터가 저장되지 않았습니다.",
                 "message": f"Milvus에 데이터 삽입 후 문서 수가 0입니다. ({len(chunks)}개 청크 시도)",
             }
-        
+
         return {
             "ok": True,
             "message": f"문서가 성공적으로 저장되었습니다. ({len(chunks)}개 청크, 총 {num_entities}개 문서)",
@@ -549,7 +549,7 @@ def upsert_to_milvus(
             "chunks_count": len(chunks),
             "embeddings_count": len(embeddings),
         }
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -572,10 +572,10 @@ def get_updatable_documents() -> List[str]:
     # .env 파일에서 업데이트 가능한 문서 목록 읽기
     # 형식: UPDATABLE_DOCUMENTS=복리후생,식단,메뉴얼,이력서
     updatable_docs_str = os.getenv("UPDATABLE_DOCUMENTS", "복리후생,식단,메뉴얼,이력서")
-    
+
     # 쉼표로 분리하여 리스트로 변환
     updatable_docs = [doc.strip() for doc in updatable_docs_str.split(",") if doc.strip()]
-    
+
     return updatable_docs if updatable_docs else ["복리후생", "식단", "메뉴얼", "이력서"]
 
 
@@ -589,12 +589,12 @@ def is_document_updatable(document_title: str) -> bool:
         업데이트 가능 여부
     """
     updatable_docs = get_updatable_documents()
-    
+
     # 문서 제목에 업데이트 가능한 키워드가 포함되어 있는지 확인
     for updatable_doc in updatable_docs:
         if updatable_doc in document_title:
             return True
-    
+
     return False
 
 
@@ -619,6 +619,7 @@ def update_document_to_milvus(
         처리 결과 딕셔너리
     """
     try:
+
         # 문서 타입이 업데이트 가능한 문서인지 확인 (document_type으로 확인)
         updatable_docs = get_updatable_documents()
         if document_type not in updatable_docs:
@@ -628,18 +629,18 @@ def update_document_to_milvus(
                 "error": "document_not_updatable",
                 "document_title": document_title,
             }
-        
+
         # 문서 타입에 따라 컬렉션 이름 결정
         collection_name = get_collection_name_by_type(document_type)
         print(f"📦 [Document Update] 문서 타입: {document_type}, 컬렉션: {collection_name}")
-        
+
         # 1. 텍스트 추출 (이미 추출된 텍스트가 있으면 재사용)
         if text is None:
             # 이력서 타입인 경우 표 추출만 사용하여 중복 방지
             text = extract_text_from_file(file_path, document_type=document_type)
         if not text.strip():
             raise ValueError("추출된 텍스트가 없습니다.")
-        
+
         # 1-1. 식단 타입인 경우 월 정보를 추출하여 첫 줄에 추가
         if document_type == "식단":
             month_info = extract_month_from_document(document_title, text, str(file_path))
@@ -647,7 +648,7 @@ def update_document_to_milvus(
                 # 첫 줄에 월 정보 추가 (예: "1월 식단표\n\n기존 텍스트...")
                 text = f"{month_info}\n\n{text}"
                 print(f"📅 [Document Update] 월 정보 추가: {month_info}")
-        
+
         # 2. 텍스트를 청크로 분할
         # 이력서 타입인 경우 === RESUME XX === 구분자로 분리
         if document_type == "이력서":
@@ -660,16 +661,16 @@ def update_document_to_milvus(
                 chunks = chunk_text(text, chunk_size=4000, chunk_overlap=200)
             else:
                 chunks = chunk_text(text, chunk_size=500, chunk_overlap=100)
-        
+
         if not chunks:
             raise ValueError("텍스트 청크가 생성되지 않았습니다.")
-        
+
         # 3. OpenAI 임베딩 생성
         embedding_gen = get_embedding_generator()
         print(f"🔢 [Document Update] 임베딩 생성 중... (모델: {embedding_gen.model}, 청크 수: {len(chunks)})")
         embeddings = embedding_gen.embed_batch(chunks)
         print(f"✅ [Document Update] 임베딩 생성 완료: {len(embeddings)}개 벡터")
-        
+
         # 4. Milvus에 Upsert (컬렉션의 모든 문서 삭제 후 새로 삽입)
         print(f"🚀 [Document Update] Milvus 업로드 시작 (컬렉션: {collection_name}, 청크 수: {len(chunks)})")
         result = upsert_to_milvus(
@@ -680,7 +681,7 @@ def update_document_to_milvus(
             collection_name=collection_name,
         )
         print(f"📋 [Document Update] Milvus 업로드 결과: ok={result.get('ok')}, message={result.get('message', 'N/A')}")
-        
+
         if result.get("ok"):
             return {
                 "ok": True,
@@ -696,7 +697,7 @@ def update_document_to_milvus(
                 "document_title": document_title,
                 "error": result.get("error"),
             }
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -728,45 +729,45 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
         Exception: YAML 파일 파싱 실패 시
     """
     global _document_type_keywords_cache
-    
+
     # 캐시가 있으면 즉시 반환
     if _document_type_keywords_cache is not None:
         return _document_type_keywords_cache
-    
+
     # yaml 모듈 확인
     if not YAML_AVAILABLE:
         raise ImportError(
             "yaml 모듈이 설치되지 않았습니다. "
             "pip install pyyaml을 실행하여 설치해주세요."
         )
-    
+
     # 여러 경로에서 YAML 파일 찾기
     yaml_path = None
     search_paths = []
-    
+
     # 1. 현재 파일 기준 상대 경로
     current_file = Path(__file__).resolve()
     agents_dir = current_file.parent.parent.parent.parent
     search_paths.append(agents_dir / "agent_prompts.yaml")
-    
+
     # 2. 현재 작업 디렉토리 기준
     cwd = Path.cwd()
     search_paths.append(cwd / "agents" / "agent_prompts.yaml")
-    
+
     # 3. 프로젝트 루트에서 찾기 (상위 디렉토리 탐색)
     for parent in [cwd] + list(cwd.parents):
         potential_path = parent / "agents" / "agent_prompts.yaml"
         if potential_path.exists():
             search_paths.append(potential_path)
             break
-    
+
     # 파일 찾기
     for path in search_paths:
         if path.exists():
             yaml_path = path
             print(f"✅ YAML 파일 발견: {yaml_path}")
             break
-    
+
     if yaml_path is None:
         error_msg = (
             f"agent_prompts.yaml 파일을 찾을 수 없습니다.\n"
@@ -775,7 +776,7 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
         for path in search_paths:
             error_msg += f"  - {path}\n"
         raise FileNotFoundError(error_msg)
-    
+
     # YAML 파일 읽기
     try:
         with open(yaml_path, "r", encoding="utf-8") as f:
@@ -785,10 +786,10 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
             f"YAML 파일 파싱 실패 ({yaml_path}): {str(e)}\n"
             "파일 형식이 올바른지 확인해주세요."
         ) from e
-    
+
     if not all_prompts:
         raise ValueError(f"YAML 파일이 비어있습니다: {yaml_path}")
-    
+
     # document.update_document.document_type_detection_keywords 경로로 접근
     document_prompts = all_prompts.get("document")
     if not document_prompts:
@@ -796,27 +797,27 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
             f"YAML 파일에 'document' 섹션이 없습니다: {yaml_path}\n"
             "agent_prompts.yaml 파일의 구조를 확인해주세요."
         )
-    
+
     update_document = document_prompts.get("sub_agents", {}).get("update_document")
     if not update_document:
         raise ValueError(
             f"YAML 파일에 'document.sub_agents.update_document' 섹션이 없습니다: {yaml_path}\n"
             "agent_prompts.yaml 파일의 구조를 확인해주세요."
         )
-    
+
     keywords = update_document.get("document_type_detection_keywords")
     if not keywords:
         raise ValueError(
             f"YAML 파일에 'document_type_detection_keywords' 섹션이 없습니다: {yaml_path}\n"
             "agent_prompts.yaml 파일에 document_type_detection_keywords를 추가해주세요."
         )
-    
+
     # 키워드 추출 및 검증
     menu_keywords = keywords.get("menu", [])
     benefit_keywords = keywords.get("benefit", [])
     manual_keywords = keywords.get("manual", [])
     resume_keywords = keywords.get("resume", [])
-    
+
     if not menu_keywords or not benefit_keywords or not manual_keywords:
         missing = []
         if not menu_keywords:
@@ -825,24 +826,24 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
             missing.append("benefit")
         if not manual_keywords:
             missing.append("manual")
-        
+
         raise ValueError(
             f"YAML 파일에 필수 키워드가 없습니다: {', '.join(missing)}\n"
             f"경로: {yaml_path}\n"
             "document_type_detection_keywords에 menu, benefit, manual 키워드를 모두 추가해주세요."
         )
-    
+
     _document_type_keywords_cache = {
         "menu": menu_keywords,
         "benefit": benefit_keywords,
         "manual": manual_keywords,
         "resume": resume_keywords
     }
-    
+
     print(f"✅ 문서 타입 판별 키워드 로드 완료: menu({len(menu_keywords)}개), "
           f"benefit({len(benefit_keywords)}개), manual({len(manual_keywords)}개), "
           f"resume({len(resume_keywords)}개)")
-    
+
     return _document_type_keywords_cache
 
 
@@ -866,16 +867,16 @@ def extract_month_from_document(document_title: str, text: str, file_path: str) 
         r'식단표\((\d{1,2})월\)',  # "식단표(1월)"
         r'직원식\s*식단표\((\d{1,2})월\)',  # "직원식 식단표(1월)"
     ]
-    
+
     # 검색 대상: 문서 제목, 텍스트 첫 500자, 파일명
     search_texts = [
         document_title,
         text[:500] if text else "",
         Path(file_path).stem if file_path else "",
     ]
-    
+
     combined_text = " ".join(search_texts)
-    
+
     # 각 패턴으로 월 정보 추출 시도
     for pattern in month_patterns:
         match = re.search(pattern, combined_text)
@@ -887,7 +888,7 @@ def extract_month_from_document(document_title: str, text: str, file_path: str) 
                     return f"{month_int}월 식단표"
             except ValueError:
                 continue
-    
+
     # 패턴 매칭 실패 시 텍스트에서 직접 검색
     # "직원식 식단표(1월)" 같은 패턴
     direct_match = re.search(r'식단표.*?(\d{1,2})월', combined_text)
@@ -899,7 +900,7 @@ def extract_month_from_document(document_title: str, text: str, file_path: str) 
                 return f"{month_int}월 식단표"
         except ValueError:
             pass
-    
+
     return None
 
 
@@ -920,16 +921,16 @@ def detect_document_type_from_content(text: str, filename: str, document_title: 
     benefit_keywords = keywords.get("benefit", [])
     manual_keywords = keywords.get("manual", [])
     resume_keywords = keywords.get("resume", [])
-    
+
     # 모든 텍스트를 소문자로 변환하여 검색
     combined_text = (text + " " + filename + " " + document_title).lower()
-    
+
     # 키워드 매칭 점수 계산
     menu_score = sum(1 for keyword in menu_keywords if keyword.lower() in combined_text)
     benefit_score = sum(1 for keyword in benefit_keywords if keyword.lower() in combined_text)
     manual_score = sum(1 for keyword in manual_keywords if keyword.lower() in combined_text)
     resume_score = sum(1 for keyword in resume_keywords if keyword.lower() in combined_text)
-    
+
     # 가장 높은 점수의 타입 반환
     scores = {
         "식단": menu_score,
@@ -937,9 +938,9 @@ def detect_document_type_from_content(text: str, filename: str, document_title: 
         "메뉴얼": manual_score,
         "이력서": resume_score
     }
-    
+
     max_score_type = max(scores, key=scores.get)
-    
+
     # 점수가 0이면 문서 제목에서만 추론
     if scores[max_score_type] == 0:
         updatable_docs = get_updatable_documents()
@@ -947,10 +948,10 @@ def detect_document_type_from_content(text: str, filename: str, document_title: 
             if doc_type in document_title:
                 return doc_type
         return "복리후생"  # 기본값
-    
+
     print(f"📊 [Document Type Detection] 점수 - 식단: {menu_score}, 복리후생: {benefit_score}, 메뉴얼: {manual_score}, 이력서: {resume_score}")
     print(f"✅ [Document Type Detection] 판별 결과: {max_score_type}")
-    
+
     return max_score_type
 
 
@@ -971,12 +972,13 @@ def process_update_file(
     Returns:
         처리 결과 딕셔너리
     """
+    
     # 임시 파일로 저장 (한 번만 생성)
     suffix = Path(filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
         tmp_file.write(file_content)
         tmp_path = Path(tmp_file.name)
-    
+
     try:
         # document_type이 없으면 파일 내용에서 추론
         extracted_text = None
@@ -988,7 +990,7 @@ def process_update_file(
                     document_type = doc_type
                     print(f"🔍 [Document Update] 파일명/제목으로 타입 추론: {document_type}")
                     break
-            
+
             # 파일명/제목으로 추론 실패 시 텍스트 내용으로 추론
             if not document_type:
                 try:
@@ -1003,7 +1005,7 @@ def process_update_file(
                     # 추론 실패 시 기본값
                     document_type = "복리후생"
                     print(f"⚠️ 문서 타입을 추론할 수 없어 기본값 사용: {document_type}")
-        
+
         # 추론된 문서 타입이 업데이트 가능한 문서인지 확인
         updatable_docs = get_updatable_documents()
         if document_type not in updatable_docs:
@@ -1022,7 +1024,7 @@ def process_update_file(
             # 이력서인데 아직 추출하지 않은 경우
             extracted_text = extract_text_from_file(tmp_path, document_type="이력서")
             print(f"📄 [Document Update] 이력서 타입 - 표 추출만 사용")
-        
+
         # Milvus에 업데이트 (이미 추출된 텍스트가 있으면 재사용)
         result = update_document_to_milvus(tmp_path, document_title, document_type, text=extracted_text)
         return result

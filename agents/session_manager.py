@@ -418,7 +418,21 @@ class SessionManager:
                     existing_data = {}
                 
                 # conversation_history 처리
-                conversation_history = state.get("conversation_history", existing_data.get("conversation_history", []))
+                # state의 conversation_history와 기존 데이터의 conversation_history를 병합
+                existing_history = existing_data.get("conversation_history", [])
+                new_history = state.get("conversation_history", [])
+                
+                # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+                conversation_history = existing_history.copy()
+                
+                # 새 히스토리에서 기존에 없는 메시지만 추가
+                existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+                for msg in new_history:
+                    msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                    if msg_key not in existing_content_set:
+                        conversation_history.append(msg)
+                        existing_content_set.add(msg_key)
+                
                 MAX_HISTORY = 20
                 if len(conversation_history) > MAX_HISTORY:
                     conversation_history = conversation_history[-MAX_HISTORY:]
