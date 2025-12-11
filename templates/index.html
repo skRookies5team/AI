@@ -2246,7 +2246,6 @@
                     <div class="recruitment-card" onclick="showResumeDetail(${index}, ${JSON.stringify(resume).replace(/"/g, '&quot;')})">
                         <div class="card-header">
                             <span class="card-number">${resume.index || (index + 1)}</span>
-                            <span class="card-match">유사도 ${((resume.score || 0) * 100).toFixed(1)}%</span>
                         </div>
                         <div class="card-body">
                             <h3 class="card-name">${resume.name || '이름 없음'}</h3>
@@ -2307,9 +2306,6 @@
                             </div>
                             <div class="info-row">
                                 <strong>경력:</strong> ${resume.experience || '경력 정보 없음'}
-                            </div>
-                            <div class="info-row">
-                                <strong>유사도:</strong> ${((resume.score || 0) * 100).toFixed(1)}%
                             </div>
                             <div class="info-row">
                                 <strong>기술 스택:</strong>
