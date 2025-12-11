@@ -255,7 +255,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
-                "document_context": {}
+                "document_context": {},
+                "recruitment_context": {}
             }
             if session_manager:
                 session_data = await session_manager.load_session_data(session_id)
@@ -472,7 +473,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
-            "document_context": session_data.get("document_context", {})
+            "document_context": session_data.get("document_context", {}),
+            "recruitment_context": session_data.get("recruitment_context", {})
         }
         print(f"[FASTAPI DEBUG] input_state 로드:")
         print(f"  - email_compose_context 존재: {bool(input_state.get('email_compose_context'))}")
@@ -675,7 +677,8 @@ async def upload_document_endpoint(
                     "qa_search_context": result_state.get("qa_search_context", session_data.get("qa_search_context", {})),
                     "tech_search_context": result_state.get("tech_search_context", session_data.get("tech_search_context", {})),
                     "schedule_context": result_state.get("schedule_context", session_data.get("schedule_context", {})),
-                    "document_context": result_state.get("document_context", session_data.get("document_context", {}))
+                    "document_context": result_state.get("document_context", session_data.get("document_context", {})),
+                    "recruitment_context": result_state.get("recruitment_context", session_data.get("recruitment_context", {}))
                 }
                 await session_manager.save_session_state(session_id, session_state)
                 print(f"✅ [Document Update] Redis에 문서 업데이트 정보 및 대화 내역 저장 완료 (session_id: {session_id})")
