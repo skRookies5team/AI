@@ -167,6 +167,25 @@ def load_orchestrator_prompts() -> Dict[str, Any]:
     print("✅ Orchestrator 프롬프트 로드 완료")
     return prompts
 
+def load_all_prompts() -> Dict[str, Any]:
+    """전체 프롬프트 YAML 파일을 로드합니다 (tech, qa, email 등 모든 섹션 포함).
+
+    특허 검색 모드 응답 감지를 위해 tech 섹션에 접근할 때 사용됩니다.
+
+    Returns:
+        전체 프롬프트 딕셔너리
+    """
+    current_dir = Path(__file__).parent
+    yaml_path = current_dir / "agent_prompts.yaml"
+
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"프롬프트 파일을 찾을 수 없습니다: {yaml_path}")
+
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        all_prompts = yaml.safe_load(f)
+
+    return all_prompts
+
 # 모듈 로드 시 프롬프트 미리 로드 (첫 요청 시 지연 방지)
 try:
     _load_orchestrator_prompts_sync()
@@ -201,56 +220,143 @@ def get_history_check_prompt(history_context: str = "") -> str:
 def check_tech_ask_source_state(query: str, state: OrchestratorState, user_message: Message) -> Optional[Dict[str, Any]]:
     """Tech 도메인의 ask_source 상태를 확인하고 tech 도메인으로 유지할지 결정."""
     tech_search_context = state.get("tech_search_context", {})
-    if not tech_search_context:
-        return None
     
-    # article 또는 patent의 상태 확인
-    for agent_type in ["article", "patent"]:
-        if agent_type in tech_search_context:
-            agent_ctx = tech_search_context[agent_type]
-            # agent_ctx가 None이 아니고 딕셔너리인지 확인
-            if agent_ctx and isinstance(agent_ctx, dict):
-                intent = agent_ctx.get("intent")
-                
-                # ask_source 또는 ask_search_mode 상태 확인
-                if intent == "ask_source" or intent == "ask_search_mode":
-                    # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
+    # YAML에서 키워드 로드 (함수 시작 부분에서 한 번만 로드 - 특허 검색 관련)
+    config = load_orchestrator_config()
+    keywords_config = config.get("keywords", {})
+    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
+    server_data_keywords = keywords_config.get("server_data_keywords", [])  # YAML에서 로드
 
-                    config = load_orchestrator_config()
-                    keywords_config = config.get("keywords", {})
-                    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
+    # tech_search_context가 있는 경우 기존 로직 수행
+    if tech_search_context:
+        # article 또는 patent의 상태 확인
+        for agent_type in ["article", "patent"]:
+            if agent_type in tech_search_context:
+                agent_ctx = tech_search_context[agent_type]
+                # agent_ctx가 None이 아니고 딕셔너리인지 확인
+                if agent_ctx and isinstance(agent_ctx, dict):
+                    intent = agent_ctx.get("intent")
 
-                    if any(k in query for k in tech_continuation_keywords) or query.isdigit():
-                        print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
-                    # ask_search_mode 상태에서도 서버 데이터 질문 처리 (YAML 설정 사용)
-                    config = load_orchestrator_config()
-                    search_params = config.get("search_params", {})
-                    tech_config = search_params.get("tech_domain", {})
-                    server_data_keywords = tech_config.get("server_data_keywords", [])
-                    if any(k in query for k in server_data_keywords):
-                        print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
-                
-                # 일반 특허 검색 컨텍스트 확인 (추가)
-                elif intent == "search":
-                    # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리 (YAML 설정 사용)
-                    config = load_orchestrator_config()
-                    search_params = config.get("search_params", {})
-                    tech_config = search_params.get("tech_domain", {})
-                    server_data_keywords = tech_config.get("server_data_keywords", [])
-                    if any(k in query for k in server_data_keywords):
-                        print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
+                    # ask_source 또는 ask_search_mode 상태 확인
+                    if intent == "ask_source" or intent == "ask_search_mode":
+                        # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in tech_continuation_keywords) or query.isdigit():
+                            print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+                        # ask_search_mode 상태에서도 서버 데이터 질문 처리
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in server_data_keywords):
+                            print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+
+                    # 일반 특허 검색 컨텍스트 확인 (추가)
+                    elif intent == "search":
+                        # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in server_data_keywords):
+                            print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+
+    # tech_search_context가 비어있을 때도 대화 히스토리에서 특허 검색 관련 질문 확인
+    # (Redis 저장이 지연되거나 누락된 경우 대비 - LLM 기반)
+    conversation_history = state.get("conversation_history", [])
+    if conversation_history and len(conversation_history) >= 2:
+        try:
+            # 대화 히스토리 컨텍스트 구성
+            recent_messages = conversation_history[-2:]
+            history_context = "\n\n최근 대화 내용:\n"
+            for msg in recent_messages:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                history_context += f"{role}: {content}\n"
+
+            # YAML에서 프롬프트 로드 (전체 YAML 로드 필요 - tech 섹션 접근)
+            prompts = load_all_prompts()
+            tech_config = prompts.get("tech", {})
+            patent_config = tech_config.get("sub_agents", {}).get("patent", {})
+            prompt_template = patent_config.get("search_mode_response_detection_prompt", "")
+
+            if prompt_template:
+                # 프롬프트 치환
+                system_prompt = prompt_template.replace("{history_context}", history_context).replace("{user_query}", query)
+
+                # LLM 직접 호출 (기존 parse_search_mode_with_llm() 방식과 동일)
+                import json
+                import re
+                from langchain_openai import ChatOpenAI
+
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if api_key:
+                    # OPENAI_MODEL 환경 변수에서 가져오기 (기본값: gpt-4o-mini)
+                    model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+                    llm = ChatOpenAI(
+                        model=model_name,
+                        temperature=0,
+                        api_key=api_key
+                    )
+
+                    response = llm.invoke(system_prompt)
+                    content = response.content.strip()
+
+                    # JSON 파싱 (parse_search_mode_with_llm()과 동일한 방식)
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group())
+                            is_search_mode_response = result.get("is_search_mode_response", False)
+                            confidence = result.get("confidence", 0.0)
+
+                            if is_search_mode_response and confidence >= 0.7:
+                                search_mode = result.get("search_mode")
+                                print(f"✅ Tech 도메인 LLM 기반 감지: '{query}' → tech 도메인 (검색 모드: {search_mode}, 신뢰도: {confidence:.2f})")
+                                return {
+                                    "domain": "tech",
+                                    "conversation_history": [user_message]
+                                }
+                        except json.JSONDecodeError:
+                            print(f"⚠️ 특허 검색 모드 응답 JSON 파싱 실패: {content}")
+            else:
+                print("⚠️ 특허 검색 모드 응답 감지 프롬프트가 YAML에 없습니다.")
+        except Exception as e:
+            print(f"⚠️ 특허 검색 모드 LLM 판단 실패: {e}")
+            # Fallback: 키워드 기반 (기존 로직 유지)
+            recent_messages = conversation_history[-2:]
+            has_patent_query = False
+            has_search_mode_question = False
+
+            for msg in recent_messages:
+                content = msg.get("content", "").lower()
+
+                # 특허 관련 키워드 확인
+                patent_keywords = ["특허", "patent", "특허를", "특허 찾아", "특허 검색"]
+                if any(kw in content for kw in patent_keywords):
+                    has_patent_query = True
+
+                # 검색 방식 선택 질문 확인
+                if "검색 방식을 선택" in content or "서버 기반 검색" in content or "웹 검색" in content:
+                    has_search_mode_question = True
+
+            # 특허 검색 질문이 있고 검색 방식 선택 질문이 있었으면, 현재 입력이 검색 모드 선택 응답일 가능성
+            if has_patent_query and has_search_mode_question:
+                # 검색 모드 선택 관련 키워드 확인
+                if any(k in query for k in tech_continuation_keywords) or query.isdigit() or any(k in query for k in server_data_keywords):
+                    print(f"✅ Tech 도메인 대화 히스토리 기반 감지 (Fallback): '{query}' → tech 도메인 (특허 검색 모드 선택 응답)")
+                    return {
+                        "domain": "tech",
+                        "conversation_history": [user_message]
+                    }
+
     return None
 
 
@@ -465,7 +571,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         config = load_orchestrator_config()
         search_params = config.get("search_params", {})
         matching_config = search_params.get("history_check_matching", {})
-        
+
         # YAML에서 키워드 패턴 로드
         keyword_pattern_str = matching_config.get("keyword_pattern", "")
         if not keyword_pattern_str:
@@ -478,20 +584,20 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         if not query_keyword_mapping:
             raise ValueError("YAML에 query_keyword_mapping이 정의되어 있지 않습니다.")
         query_keywords = []
-        
+
         # 사용자 질문의 도메인 타입 확인 (우선순위: 사용자 질문에서 언급된 도메인)
         query_domain_type = None  # "email" 또는 "qa" 또는 None
-        
+
         # 이메일 키워드 확인
         email_keywords_list = query_keyword_mapping.get("email", [])
         if email_keywords_list and any(k in query for k in email_keywords_list):
             query_keywords.append("이메일")
             query_domain_type = "email"
-        
+
         # QA 키워드 확인 및 구체적인 키워드 추출
         qa_keywords_list = query_keyword_mapping.get("qa", [])
         qa_specific_keywords = query_keyword_mapping.get("qa_specific", [])  # 복리후생, 연차사용 등 구체적 키워드
-        
+
         # 우선순위: 구체적인 QA 키워드를 먼저 확인 (복리후생, 연차사용 등)
         has_qa_keyword = False
         if qa_specific_keywords:
@@ -501,7 +607,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     has_qa_keyword = True
                     if query_domain_type is None:
                         query_domain_type = "qa"
-        
+
         # 일반 QA 키워드 확인 (식단, 메뉴 등)
         if qa_keywords_list and any(k in query for k in qa_keywords_list):
             has_qa_keyword = True
@@ -514,16 +620,16 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     if kw in query:
                         query_keywords.append(kw)
                         break
-        
+
         # 정규식 패턴으로 추출된 키워드도 추가 (중복 제거)
         for kw in mentioned_keywords:
             if kw not in query_keywords:
                 query_keywords.append(kw)
-        
+
         # conversation_history에서 이전 요청 확인 (YAML 설정 사용)
         max_messages = search_params.get("conversation_history_max_messages", 20)
         recent_messages = list(reversed(conversation_history[-max_messages:]))
-        
+
         # 점수 계산 가중치 로드 (YAML 설정 사용)
         scoring_weights = matching_config.get("scoring_weights", {})
         base_score = scoring_weights.get("base_score", 10)
@@ -531,23 +637,23 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         keyword_match_bonus = scoring_weights.get("keyword_match_bonus", 15)
         exact_keyword_match_bonus = scoring_weights.get("exact_keyword_match_bonus", 25)
         domain_type_match_bonus = scoring_weights.get("domain_type_match_bonus", 30)  # 도메인 타입 일치 보너스
-        
+
         # 요청 타입별 키워드 로드 (YAML 설정 사용)
         request_type_keywords = matching_config.get("request_type_keywords", {})
         if not request_type_keywords:
             raise ValueError("YAML에 request_type_keywords가 정의되어 있지 않습니다.")
         email_search_verbs = request_type_keywords.get("email", {}).get("search_verbs", [])
         qa_keywords_list_config = request_type_keywords.get("qa", {}).get("keywords", [])
-        
+
         # QA 구체적 키워드도 추가 (복리후생, 연차사용 등)
         qa_specific_keywords_config = query_keyword_mapping.get("qa_specific", [])
         if qa_specific_keywords_config:
             qa_keywords_list_config = list(qa_keywords_list_config) + qa_specific_keywords_config
-        
+
         # 키워드 매칭 점수를 계산하여 가장 관련성 높은 요청 찾기
         best_match = None
         best_score = 0
-        
+
         for msg in recent_messages:
             content = msg.get("content", "")
             role = msg.get("role", "")
@@ -557,28 +663,28 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 score = 0
                 match_type = None
                 matched_keywords = []  # 매칭된 키워드 추적
-                
+
                 # 이메일 검색 요청인지 확인 (YAML 설정 사용)
                 if "이메일" in content or "메일" in content:
                     if any(k in content for k in email_search_verbs):
                         score += base_score
                         match_type = "email"
-                        
+
                         # 사용자 질문의 도메인 타입과 일치하면 높은 보너스 점수
                         if query_domain_type == "email":
                             score += domain_type_match_bonus
-                        
+
                         # 사용자 질문에서 "이메일"을 언급했으면 점수 증가
                         if "이메일" in query_keywords or "메일" in query_keywords:
                             score += type_match_bonus
-                        
+
                         # 키워드 매칭 점수 (언급된 키워드가 이전 요청에도 있으면 높은 점수)
                         for keyword in query_keywords:
                             if keyword in content:
                                 score += keyword_match_bonus
                                 if keyword not in matched_keywords:
                                     matched_keywords.append(keyword)
-                        
+
                         # 키워드 추출 (예: "육아휴직 관련" -> "육아휴직")
                         keyword_match = re.search(keyword_pattern, content)
                         if keyword_match:
@@ -592,16 +698,16 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 elif any(k in content for k in qa_keywords_list_config):
                     score += base_score
                     match_type = "qa"
-                    
+
                     # 사용자 질문의 도메인 타입과 일치하면 높은 보너스 점수
                     if query_domain_type == "qa":
                         score += domain_type_match_bonus
-                    
+
                     # 사용자 질문에서 QA 관련 키워드를 언급했으면 점수 증가
                     qa_general_keywords = ["식단", "메뉴", "구내식당"]
                     if any(k in query_keywords for k in qa_general_keywords):
                         score += type_match_bonus
-                    
+
                     # 키워드 매칭 점수 (언급된 키워드가 이전 요청에도 있으면 높은 점수)
                     # 구체적 키워드(복리후생, 연차사용 등)를 우선적으로 확인
                     matched_keywords = []
@@ -609,7 +715,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                         if keyword in content:
                             score += keyword_match_bonus
                             matched_keywords.append(keyword)
-                    
+
                     # 키워드 추출 (예: "식단", "메뉴", "복리후생", "연차사용", "메뉴얼")
                     qa_keywords_in_content = [k for k in qa_keywords_list_config if k in content]
                     if qa_keywords_in_content:
@@ -620,7 +726,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                                 score += exact_keyword_match_bonus
                                 if qa_kw not in matched_keywords:
                                     matched_keywords.append(qa_kw)
-                    
+
                     # 정규식 패턴으로도 키워드 추출 시도 (예: "복리후생 관련" -> "복리후생")
                     keyword_match = re.search(keyword_pattern, content)
                     if keyword_match:
@@ -632,23 +738,23 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                             score += exact_keyword_match_bonus
                             if extracted_keyword not in matched_keywords:
                                 matched_keywords.append(extracted_keyword)
-                    
+
                     # 모든 키워드가 일치하는 경우 추가 보너스 (정확한 매칭)
                     # 사용자 질문의 모든 키워드가 이전 요청에 포함되어 있으면 매우 높은 점수
                     keyword_matching_config = matching_config.get("keyword_matching", {})
                     min_keyword_length = keyword_matching_config.get("min_keyword_length", 2)
                     all_keywords_match_multiplier = scoring_weights.get("all_keywords_match_multiplier", 2)
-                    
+
                     if len(query_keywords) > 1:
                         all_keywords_match = all(kw in content for kw in query_keywords if len(kw) >= min_keyword_length)
                         if all_keywords_match:
                             score += exact_keyword_match_bonus * all_keywords_match_multiplier  # 모든 키워드 일치 보너스
-                    
+
                     # 매칭된 키워드를 best_match에 저장 (나중에 답변 생성 시 사용)
                     if matched_keywords:
                         # best_match에 matched_keywords 정보 추가 (임시로 score에 포함)
                         pass  # matched_keywords는 나중에 mentioned_keywords로 사용됨
-                
+
                 # 가장 높은 점수의 매칭 저장
                 if score > best_score:
                     best_score = score
@@ -658,12 +764,12 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                         "score": score,
                         "matched_keywords": matched_keywords if matched_keywords else []
                     }
-        
+
         # 가장 관련성 높은 매칭 처리
         if best_match and best_score > 0:
             found_previous_request = True
             request_details.append(best_match["content"])
-            
+
             if best_match["type"] == "email":
                 email_search_found = True
             elif best_match["type"] == "qa":
@@ -681,7 +787,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
             email_title_pattern = regex_patterns.get("email_title", "")
             if not email_doc_number_pattern or not email_title_pattern:
                 raise ValueError("YAML에 email_doc_number 또는 email_title 패턴이 정의되어 있지 않습니다.")
-            
+
             for msg in recent_messages[:email_results_max]:
                 content = msg.get("content", "")
                 role = msg.get("role", "")
@@ -726,7 +832,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         # 대화식 답변 생성 (이전 검색 결과 포함) - YAML 설정 사용
         response_messages = matching_config.get("response_messages", {})
         check_type_mapping = matching_config.get("check_type_mapping", {})
-        
+
         if found_previous_request and qa_search_found:
             # QA 검색 (식단 등) 관련 이전 요청 확인
             if mentioned_keywords:
@@ -741,7 +847,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
             # 이전 요청과 답변 함께 출력 (best_match가 있으면 항상 출력)
             if best_match and best_match.get("content"):
                 response += "\n\n**이전 대화 내역:**\n"
-                
+
                 # 이전 요청 내용 출력
                 if previous_qa_query:
                     response += f"**요청:** {previous_qa_query}\n\n"
@@ -751,7 +857,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 elif best_match.get("content"):
                     # best_match에서 이전 요청 내용 가져오기
                     response += f"**요청:** {best_match['content']}\n\n"
-                
+
                 # 이전 답변 내용 출력
                 if previous_qa_results:
                     # 이전 답변의 핵심 내용만 추출 (너무 길면 생략)
@@ -764,24 +870,24 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     # conversation_history는 시간 순서대로 정렬되어 있음
                     found_answer = False
                     best_match_content = best_match.get("content", "").strip()
-                    
+
                     # 사용자 질문에서 추출한 키워드들 (정확한 매칭을 위해)
                     keyword_matching_config = matching_config.get("keyword_matching", {})
                     min_keyword_length = keyword_matching_config.get("min_keyword_length", 2)
                     query_keywords_for_matching = [kw for kw in query_keywords if len(kw) >= min_keyword_length]
-                    
+
                     # 이전 요청을 찾을 때 우선순위:
                     # 1. 정확히 일치하는 요청
                     # 2. 모든 키워드가 포함된 요청
                     # 3. 일부 키워드가 포함된 요청
                     candidate_matches = []
-                    
+
                     for i, msg in enumerate(conversation_history):
                         if msg.get("role") != "user":
                             continue
-                            
+
                         msg_content = msg.get("content", "").strip()
-                        
+
                         # 정확히 일치하는 경우 (최우선)
                         if msg_content == best_match_content:
                             candidate_matches.append((i, msg_content, 100, "exact"))
@@ -793,14 +899,14 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                         elif best_match_content in msg_content or msg_content in best_match_content:
                             matched_count = sum(1 for kw in query_keywords_for_matching if kw in msg_content) if query_keywords_for_matching else 1
                             candidate_matches.append((i, msg_content, 50 + matched_count * 5, "partial"))
-                    
+
                     # 점수가 높은 순으로 정렬
                     candidate_matches.sort(key=lambda x: x[2], reverse=True)
-                    
+
                     # 가장 높은 점수의 매칭에서 답변 찾기
                     max_candidate_messages = keyword_matching_config.get("max_candidate_messages", 5)
                     exclude_patterns = keyword_matching_config.get("exclude_history_check_patterns", [])
-                    
+
                     for i, msg_content, score, match_type in candidate_matches:
                         # 다음 메시지들 중 assistant 메시지 찾기
                         for j in range(i + 1, min(i + max_candidate_messages, len(conversation_history))):
@@ -820,7 +926,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                                         break
                         if found_answer:
                             break
-                    
+
                     # 답변을 찾지 못한 경우
                     if not found_answer:
                         response += "**답변:** (이전 답변을 찾을 수 없습니다)\n"
@@ -879,7 +985,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         if not conversation_history or conversation_history[-1].get("role") != "user":
             new_messages.append(user_message)
         new_messages.append(assistant_message)
-        
+
         result = {
             "domain": None,  # 명시적으로 None으로 설정하여 END로 라우팅
             "final_response": response,
@@ -987,7 +1093,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "domain": "qa",
                 "conversation_history": [user_message]
             }
-    
+
     # Structured Output Parser를 사용한 의도 분석 (LLM + YAML 프롬프트)
     # 하드코딩된 키워드 매칭 제거로 인해 LLM 기반 분류만 사용
     step_start = time.time()
@@ -1059,7 +1165,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     search_params = config.get("search_params", {})
     routing_config = search_params.get("routing", {})
     fallback_domain = routing_config.get("fallback_domain", "qa")
-    
+
     if domain not in MASTER_GRAPHS:
         print(f"⚠️ 알 수 없는 도메인: {domain}, {fallback_domain}로 fallback")
         domain = fallback_domain
@@ -1102,7 +1208,7 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     search_params = config.get("search_params", {})
     routing_config = search_params.get("routing", {})
     completion_messages = routing_config.get("domain_completion_messages", {})
-    
+
     async def schedule_node(state: OrchestratorState) -> Dict[str, Any]:
         """스케줄 마스터그래프 실행."""
         graph = get_schedule_master_graph()
@@ -1138,7 +1244,7 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         result = await graph.ainvoke(state)
         default_msg = completion_messages.get("tech", "기술 검색 작업을 완료했습니다.")
         return process_domain_node_result(state, result, "tech", default_msg)
-    
+
     async def recruitment_node(state: OrchestratorState) -> Dict[str, Any]:
         """채용 마스터그래프 실행."""
         print("--- [Orchestrator] Executing Recruitment Master Graph ---")
@@ -1154,7 +1260,7 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     workflow.add_node("email", email_node)
     workflow.add_node("tech", tech_node)
     workflow.add_node("recruitment", recruitment_node)
-    
+
     print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech, recruitment")
     
     # 엣지 설정
@@ -1181,7 +1287,7 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         routing_config = search_params.get("routing", {})
         fallback_domain_on_empty = routing_config.get("fallback_domain_on_empty", "document")
         fallback_domain = routing_config.get("fallback_domain", "qa")
-        
+
         if not domain:
             print(f"⚠️ domain이 state에 없습니다. {fallback_domain_on_empty}로 fallback")
             domain = fallback_domain_on_empty
