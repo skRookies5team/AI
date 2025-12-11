@@ -6,7 +6,7 @@ from typing import Any, Dict
 import asyncio
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from langgraph.graph import StateGraph, END
@@ -243,6 +243,8 @@ class EmailMasterGraph(BaseMasterGraph):
                 "messages": [result.get("message", "")],
                 "search_results": result.get("rows", []),
                 "email_search_context": state.get("email_search_context"),
+                "email_ids": result.get("email_ids", []),  # ID 리스트 추가
+                "last_search_keyword": result.get("last_search_keyword")  # 마지막 검색 키워드 추가
             }
         else:
             # 대화 히스토리 컨텍스트 구성
@@ -255,10 +257,50 @@ class EmailMasterGraph(BaseMasterGraph):
             
             # Structured Output Parser를 사용하여 검색 파라미터 추출
             try:
+                # 현재 날짜 정보 가져오기 (orchestrator가 제공하거나 직접 계산)
+                KST = timezone(timedelta(hours=9))
+                
+                current_date = state.get('current_date', '')
+                current_datetime = state.get('current_datetime', '')
+                current_weekday = state.get('current_weekday', '')
+                
+                # 날짜 정보가 없거나 비어있으면 직접 계산 (KST 기준)
+                if not current_date or not current_datetime:
+                    now_dt = datetime.now(KST)
+                    weekday_names = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+                    current_date = now_dt.strftime("%Y년 %m월 %d일")
+                    current_datetime = now_dt.isoformat()
+                    current_weekday = weekday_names[now_dt.weekday()]
+                
+                # 현재 날짜를 YYYY-MM-DD 형식으로도 제공 (예시 계산용)
+                now_dt = datetime.now(KST)
+                current_date_iso = now_dt.strftime("%Y-%m-%d")
+                current_year = now_dt.year
+                current_month = now_dt.month
+                current_day = now_dt.day
+                
                 system_prompt = f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
 - keywords: 검색할 핵심 키워드 리스트 (불용어 제거)
 - from_address: 특정 발신자 주소 (있는 경우)
 - date_range: 날짜 범위 (시작일, 종료일이 있는 경우)
+
+**중요: 현재 날짜 정보를 반드시 참조하세요!**
+- 현재 날짜: {current_date} ({current_date_iso})
+- 현재 요일: {current_weekday}
+- 현재 날짜/시간 (ISO): {current_datetime}
+- 현재 연도: {current_year}년
+- 현재 월: {current_month}월
+- 현재 일: {current_day}일
+
+"오늘", "어제", "저번주", "지난주" 같은 상대적 날짜 표현은 반드시 위의 현재 날짜 정보를 기준으로 계산하세요.
+예시 (현재 날짜가 {current_date_iso}인 경우):
+- "오늘 온 메일" → date_range: {{"start": "{current_date_iso}", "end": "{current_date_iso}"}}
+- "어제 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}"}}
+- "저번주에 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=now_dt.weekday() + 7)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=now_dt.weekday() + 1)).strftime('%Y-%m-%d')}"}}
+
+날짜 범위 형식: {{"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
+날짜 정보가 없으면 date_range는 null로 반환하세요.
+절대로 2023년이나 과거의 잘못된 날짜를 사용하지 마세요. 반드시 현재 날짜({current_date_iso})를 기준으로 계산하세요.
 
 {context}"""
                 
@@ -279,7 +321,14 @@ class EmailMasterGraph(BaseMasterGraph):
                 
                 # 기존 email_search_agent 사용 (Redis 숏텀 메모리 state 전달)
                 # email_search는 이제 비동기 함수이므로 await 사용
-                result = await email_search(search_query, session_id=session_id, state=state)
+                # master_graph에서 추출한 정보 전달
+                result = await email_search(
+                    search_query, 
+                    session_id=session_id, 
+                    state=state,
+                    from_address=params.from_address,  # 추출한 발신자 주소 전달
+                    date_range=params.date_range  # 추출한 날짜 범위 전달
+                )
                 
                 # Structured Output을 사용한 응답 생성
                 response = AgentResponse(
@@ -304,6 +353,8 @@ class EmailMasterGraph(BaseMasterGraph):
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨
                     "email_search_context": state.get("email_search_context"),
+                    "email_ids": result.get("email_ids", []),  # ID 리스트 추가
+                    "last_search_keyword": result.get("last_search_keyword")  # 마지막 검색 키워드 추가
                 }
             except Exception as e:
                 print(f"⚠️ Structured Output 파싱 실패: {e}, 기본 로직 사용")
@@ -317,6 +368,8 @@ class EmailMasterGraph(BaseMasterGraph):
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨
                     "email_search_context": state.get("email_search_context"),
+                    "email_ids": result.get("email_ids", []),  # ID 리스트 추가
+                    "last_search_keyword": result.get("last_search_keyword")  # 마지막 검색 키워드 추가
                 }
     
     async def generate_reply(self, state: OrchestratorState) -> Dict[str, Any]:
