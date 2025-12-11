@@ -90,6 +90,10 @@ async def _extract_sender_info_with_llm(query: str) -> Dict[str, Optional[str]]:
 	Returns:
 		{"name": str or None, "email": str or None} 딕셔너리
 	"""
+	# 쿼리가 비어있으면 즉시 반환
+	if not query or not query.strip():
+		return {"name": None, "email": None}
+	
 	try:
 		api_key = _get_env("OPENAI_API_KEY")
 		if not api_key:
@@ -118,14 +122,14 @@ async def _extract_sender_info_with_llm(query: str) -> Dict[str, Optional[str]]:
 - "csu030716@naver.com이 보낸 메일" → name: null, email: "csu030716@naver.com"
 
 응답 형식 (JSON):
-{
+{{
   "name": "추출된 이름 또는 null",
   "email": "추출된 이메일 주소 또는 null"
-}
+}}
 
 이메일 주소가 없으면 "email" 필드는 null로 반환하세요.
 이름이 없으면 "name" 필드는 null로 반환하세요."""),
-			("user", "다음 질의에서 발신자 이름과 이메일 주소를 추출해주세요:\n{query}")
+			("user", "다음 질의에서 발신자 이름과 이메일 주소를 추출해주세요:\n{{query}}")
 		])
 		
 		chain = prompt_template | llm
@@ -161,7 +165,7 @@ async def _extract_sender_info_with_llm(query: str) -> Dict[str, Optional[str]]:
 				"email": email
 			}
 		except (json.JSONDecodeError, KeyError) as e:
-			logger.warning(f"LLM 응답 JSON 파싱 실패: {e}, 응답: {response_text}")
+			logger.debug(f"LLM 응답 JSON 파싱 실패: {e}, 응답: {response_text}, 정규식으로 fallback")
 			# JSON 파싱 실패 시 정규식으로 fallback
 			email_pattern = r'[A-Za-z0-9._%+-]+@[A-Za-z0-9]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 			emails = re.findall(email_pattern, query)
@@ -197,6 +201,10 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 			"bcc": Optional[str] - 숨은 참조 이메일 주소
 		}
 	"""
+	# 쿼리가 비어있으면 즉시 반환
+	if not query or not query.strip():
+		return {"to_emails": [], "to_names": [], "cc": None, "bcc": None}
+	
 	try:
 		api_key = _get_env("OPENAI_API_KEY")
 		if not api_key:
@@ -227,16 +235,16 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 - "홍길동(springriver@kw.ac.kr), 김철수(kim@example.com)에게 보내줘" → to_emails: ["springriver@kw.ac.kr", "kim@example.com"], to_names: ["홍길동", "김철수"]
 
 응답 형식 (JSON):
-{
+{{
   "to_emails": ["이메일1@example.com", "이메일2@example.com"] 또는 [],
   "to_names": ["이름1", "이름2"] 또는 [],
   "cc": "참조@example.com" 또는 null,
   "bcc": "숨은참조@example.com" 또는 null
-}
+}}
 
 이메일 주소가 없으면 "to_emails"는 빈 배열로 반환하세요.
 이름이 없으면 "to_names"는 빈 배열로 반환하세요."""),
-			("user", "다음 질의에서 수신자 정보를 추출해주세요:\n{query}")
+			("user", "다음 질의에서 수신자 정보를 추출해주세요:\n{{query}}")
 		])
 		
 		chain = prompt_template | llm
@@ -283,7 +291,7 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 				"bcc": bcc
 			}
 		except (json.JSONDecodeError, KeyError) as e:
-			logger.warning(f"LLM 응답 JSON 파싱 실패: {e}, 응답: {response_text}")
+			logger.debug(f"LLM 응답 JSON 파싱 실패: {e}, 응답: {response_text}, 정규식으로 fallback")
 			# JSON 파싱 실패 시 정규식으로 fallback
 			email_pattern = r'[A-Za-z0-9._%+-]+@[A-Za-z0-9]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 			emails = re.findall(email_pattern, query)
@@ -1840,14 +1848,21 @@ def has_pending_email_results(session_id: Optional[str] = None, state: Optional[
 	return bool(cache.get("ids") or cache.get("last_keyword"))
 
 
-async def email_search(user_text: str, session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-	print("사용자 질의로 메일함을 검색하여 관련 메일 요약/상세을 준비중입니다.")
+async def email_search(
+	user_text: str, 
+	session_id: Optional[str] = None, 
+	state: Optional[Dict[str, Any]] = None,
+	from_address: Optional[str] = None,  # master_graph에서 추출한 발신자 주소
+	date_range: Optional[Dict[str, str]] = None  # master_graph에서 추출한 날짜 범위 {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}
+) -> Dict[str, Any]:
 	"""사용자 질의로 IMAP 메일함을 검색하여 관련 메일 요약/상세를 반환합니다.
 
 	Args:
 		user_text: 사용자 질의 (예: "육아휴직 신청 관련 메일을 찾아줘")
 		session_id: 세션 ID (멀티턴 대화 지원)
 		state: OrchestratorState (선택적, Redis 숏텀 메모리에서 가져온 state)
+		from_address: master_graph에서 추출한 발신자 주소 (있으면 우선 사용)
+		date_range: master_graph에서 추출한 날짜 범위 (있으면 우선 사용)
 
 	.env 지원:
 		현재 작업 디렉터리의 .env 파일을 자동으로 읽어 환경변수에 주입하려 시도합니다(존재 시).
@@ -2043,12 +2058,139 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 				return {"ok": False, "error": f"이메일 동기화 실패: {sync_result.get('message', '알 수 없는 오류')}"}
 			print(f"[EMAIL SEARCH] 초기 동기화 완료: {sync_result.get('count', 0)}개 메일")
 		
-		# LLM을 사용하여 발신자 이름과 이메일 주소 추출
-		sender_info = await _extract_sender_info_with_llm(query)
-		sender_name = sender_info.get("name")
-		sender_email = sender_info.get("email")
+		# 발신자 정보 추출 (master_graph에서 전달받은 정보 우선 사용)
+		sender_name = None
+		sender_email = None
 		
-		if sender_email:
+		if from_address:
+			# master_graph에서 추출한 발신자 주소 사용
+			print(f"[EMAIL SEARCH] master_graph에서 추출한 발신자 주소 사용: {from_address}")
+			sender_email = from_address.lower().strip()
+		else:
+			# master_graph에서 정보가 없으면 LLM으로 추출
+			sender_info = await _extract_sender_info_with_llm(query)
+			sender_name = sender_info.get("name")
+			sender_email = sender_info.get("email")
+		
+		# 날짜 범위 처리 (master_graph에서 전달받은 정보 우선 사용)
+		date_range_timestamps = None
+		if date_range:
+			# master_graph에서 추출한 날짜 범위를 timestamp로 변환
+			start_date_str = date_range.get("start")
+			end_date_str = date_range.get("end")
+			if start_date_str and end_date_str:
+				try:
+					# "YYYY-MM-DD" 형식을 datetime으로 변환
+					start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
+					end_dt = datetime.strptime(end_date_str, "%Y-%m-%d")
+					# 하루의 끝 시간으로 설정 (23:59:59)
+					end_dt = end_dt.replace(hour=23, minute=59, second=59)
+					
+					date_range_timestamps = {
+						"start_timestamp": int(start_dt.timestamp()),
+						"end_timestamp": int(end_dt.timestamp())
+					}
+					print(f"[EMAIL SEARCH] master_graph에서 추출한 날짜 범위 사용: {start_date_str} ~ {end_date_str}")
+				except ValueError as e:
+					logger.warning(f"날짜 범위 파싱 실패: {e}")
+		
+		# 검색 로직 (날짜 범위 우선, 그 다음 발신자, 마지막 키워드)
+		if date_range_timestamps:
+			# 날짜 범위 검색
+			start_ts = date_range_timestamps["start_timestamp"]
+			end_ts = date_range_timestamps["end_timestamp"]
+			
+			# 날짜 범위로 검색 (Redis Sorted Set 사용)
+			email_ids = await storage.redis.zrangebyscore(
+				f"{storage.email_key_prefix}:index:by_date",
+				min=start_ts,
+				max=end_ts,
+				withscores=False
+			)
+			
+			if not email_ids:
+				return {
+					"ok": True,
+					"message": f"📭 해당 날짜 범위({date_range.get('start')} ~ {date_range.get('end')})에 메일을 찾지 못했습니다.",
+					"rows": [],
+					"items": [],
+					"email_ids": [],
+					"last_search_keyword": None
+				}
+			
+			# Pipeline으로 메타데이터 일괄 조회
+			pipeline = storage.redis.pipeline()
+			for email_id_bytes in email_ids:
+				email_id = email_id_bytes.decode('utf-8') if isinstance(email_id_bytes, bytes) else email_id_bytes
+				pipeline.hgetall(f"{storage.email_key_prefix}:metadata:{email_id}")
+			
+			metadata_list = await pipeline.execute()
+			
+			# 결과 파싱
+			date_results = []
+			for email_id_bytes, metadata in zip(email_ids, metadata_list):
+				if not metadata:
+					continue
+				
+				email_id = email_id_bytes.decode('utf-8') if isinstance(email_id_bytes, bytes) else email_id_bytes
+				metadata_dict = {}
+				for k, v in metadata.items():
+					key = k.decode('utf-8') if isinstance(k, bytes) else k
+					val = v.decode('utf-8') if isinstance(v, bytes) else v
+					metadata_dict[key] = val
+				
+				date_results.append({
+					"id": email_id,
+					**metadata_dict
+				})
+			
+			# 발신자로 추가 필터링 (있는 경우)
+			if sender_email:
+				results = [r for r in date_results if sender_email.lower() in r.get("from_addr", "").lower()]
+				search_keyword = f"{sender_email} ({date_range.get('start')} ~ {date_range.get('end')})"
+			elif sender_name:
+				results = [r for r in date_results if sender_name.lower() in r.get("from_addr", "").lower()]
+				search_keyword = f"{sender_name} ({date_range.get('start')} ~ {date_range.get('end')})"
+			else:
+				# 날짜 범위 검색인 경우, 날짜 관련 키워드는 필터링하지 않음
+				# "어제", "오늘", "저번주" 등은 날짜를 나타내는 것이지 검색 키워드가 아님
+				
+				# 키워드 추출
+				extracted_keyword = _extract_keywords(query)
+				
+				# 날짜 관련 키워드 목록
+				date_related_terms = {"어제", "오늘", "내일", "저번주", "지난주", "이번주", "다음주", "온", "날", "일에", "보여줘", "보여", "알려줘", "찾아줘", "메일", "이메일"}
+				
+				# 추출된 키워드가 날짜 관련 용어뿐인지 확인
+				if not extracted_keyword:
+					# 키워드가 없으면 모든 날짜 범위 결과 반환
+					results = date_results
+					search_keyword = f"{date_range.get('start')} ~ {date_range.get('end')}"
+				else:
+					keyword_lower = extracted_keyword.lower()
+					keyword_tokens = keyword_lower.split()
+					
+					# 키워드가 날짜 관련 용어만 포함하는지 확인
+					is_only_date_query = all(
+						any(date_term in token for date_term in date_related_terms)
+						for token in keyword_tokens
+					) or any(date_term in keyword_lower for date_term in date_related_terms if len(date_term) >= 2)
+					
+					if is_only_date_query:
+						# 날짜만 요청한 경우: 모든 날짜 범위 결과 반환
+						results = date_results
+						search_keyword = f"{date_range.get('start')} ~ {date_range.get('end')}"
+					else:
+						# 실제 검색 키워드가 있는 경우: 필터링 (예: "어제 프로젝트 관련 메일")
+						results = []
+						for r in date_results:
+							subject = r.get("subject", "").lower()
+							snippet = r.get("snippet", "").lower()
+							from_addr = r.get("from_addr", "").lower()
+							if (keyword_lower in subject or keyword_lower in snippet or keyword_lower in from_addr):
+								results.append(r)
+						search_keyword = extracted_keyword
+		elif sender_email:
 			# 이메일 주소가 있는 경우: 발신자 이메일로 검색
 			print(f"[EMAIL SEARCH] 발신자 이메일 검색: {sender_email}")
 			results = await storage.search_emails_by_from_address(sender_email, limit=100)
@@ -2071,12 +2213,14 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 				"ok": True,
 				"message": f"📭 '{search_keyword}' 관련 메일을 찾지 못했습니다.\n\n💡 다른 키워드로 검색해보세요.",
 				"rows": [],
-				"items": []
+				"items": [],
+				"email_ids": [],
+				"last_search_keyword": search_keyword
 			}
 		
 		# 검색 결과 포맷팅 및 상세 내용 가져오기
 		items = []
-		html_emails = []  # HTML 포맷팅된 메일들
+		email_data = {}  # JSON 형식으로 저장할 데이터
 		
 		# IMAP 연결 준비
 		host = _get_env("IMAP_HOST") or "imap.naver.com"
@@ -2111,6 +2255,14 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 				"actual_index": idx - 1
 			})
 			
+			# 기본 메타데이터
+			email_info = {
+				"subject": result.get("subject", "(제목 없음)"),
+				"from": result.get("from_addr", "(발신자 없음)"),
+				"date": result.get("date", ""),
+				"content": ""  # 본문 내용
+			}
+			
 			# IMAP에서 전체 본문 가져오기
 			if mail:
 				try:
@@ -2127,48 +2279,25 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 							# 본문 및 첨부 파일 추출
 							text_body, html_body, attachments = _get_email_body_and_attachments(msg)
 							
-							# HTML 포맷팅
-							email_html = format_email_html(
-								subject=result.get("subject", "(제목 없음)"),
-								sender=result.get("from_addr", "(발신자 없음)"),
-								date=result.get("date", ""),
-								text_body=text_body,
-								html_body=html_body,
-								attachments=attachments
-							)
-							
-							html_emails.append(email_html)
+							# 본문 내용 설정 (HTML이 있으면 HTML, 없으면 텍스트)
+							if html_body:
+								email_info["content"] = html_body
+							elif text_body:
+								email_info["content"] = text_body
+							else:
+								email_info["content"] = result.get("snippet", "")
 						else:
-							# 메일을 가져올 수 없는 경우 메타데이터만 표시
-							html_emails.append(format_email_html(
-								subject=result.get("subject", "(제목 없음)"),
-								sender=result.get("from_addr", "(발신자 없음)"),
-								date=result.get("date", ""),
-								text_body=result.get("snippet", ""),
-								html_body="",
-								attachments=[]
-							))
+							# 메일을 가져올 수 없는 경우 스니펫 사용
+							email_info["content"] = result.get("snippet", "")
 				except Exception as e:
 					logger.error(f"메일 상세 내용 가져오기 실패 (ID: {email_id}): {e}")
-					# 오류 발생 시 메타데이터만 표시
-					html_emails.append(format_email_html(
-						subject=result.get("subject", "(제목 없음)"),
-						sender=result.get("from_addr", "(발신자 없음)"),
-						date=result.get("date", ""),
-						text_body=result.get("snippet", ""),
-						html_body="",
-						attachments=[]
-					))
+					email_info["content"] = result.get("snippet", "")
 			else:
-				# IMAP 연결 실패 시 메타데이터만 표시
-				html_emails.append(format_email_html(
-					subject=result.get("subject", "(제목 없음)"),
-					sender=result.get("from_addr", "(발신자 없음)"),
-					date=result.get("date", ""),
-					text_body=result.get("snippet", ""),
-					html_body="",
-					attachments=[]
-				))
+				# IMAP 연결 실패 시 스니펫 사용
+				email_info["content"] = result.get("snippet", "")
+			
+			# 번호를 키로 사용하여 저장
+			email_data[str(idx)] = email_info
 		
 		# IMAP 연결 종료
 		if mail:
@@ -2177,25 +2306,13 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 			except Exception:
 				pass
 		
-		# 모든 메일 HTML을 하나로 합치기
-		all_html_content = f"""
-		<div style="font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px;">
-			<h1 style="color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px;">
-				📧 검색 결과: '{search_keyword}' 관련 메일 {len(results)}개
-			</h1>
-		"""
+		# 기존 메시지 형식으로 최상위 키 생성
+		summary_message = f"📧 검색 결과: '{search_keyword}' 관련 메일 {len(results)}개"
 		
-		for idx, email_html in enumerate(html_emails, 1):
-			all_html_content += f"""
-			<div style="margin-bottom: 40px; border: 1px solid #ddd; border-radius: 8px; padding: 20px; background-color: #fff;">
-				<div style="background-color: #f0f0f0; padding: 10px; margin-bottom: 15px; border-radius: 5px;">
-					<strong style="color: #666;">메일 {idx} / {len(html_emails)}</strong>
-				</div>
-				{email_html}
-			</div>
-			"""
-		
-		all_html_content += "</div>"
+		# JSON 형식 결과 생성
+		json_result = {
+			summary_message: email_data  # 기존 메시지를 최상위 키로 사용
+		}
 		
 		# 검색 결과를 email_search_context에 저장
 		cache = _get_email_cache(session_id, state)
@@ -2208,12 +2325,19 @@ async def email_search(user_text: str, session_id: Optional[str] = None, state: 
 		if updated_state and state:
 			state.update(updated_state)
 		
+		# email_search_context에서 마지막 검색 키워드 가져오기
+		cache = _get_email_cache(session_id, state)
+		last_search_keyword = cache.get("last_keyword", search_keyword)
+		
 		return {
 			"ok": True,
-			"message": all_html_content,
-			"html": True,  # HTML 형식임을 표시
+			"message": json.dumps(json_result, ensure_ascii=False, indent=2),  # JSON 문자열로 변환
+			"json": True,  # JSON 형식임을 표시
+			"data": json_result,  # 파싱된 JSON 데이터
 			"rows": items,
-			"items": items
+			"items": items,
+			"email_ids": [item.get("email_id") for item in items if item.get("email_id")],
+			"last_search_keyword": last_search_keyword
 		}
 	except Exception as e:
 		import traceback

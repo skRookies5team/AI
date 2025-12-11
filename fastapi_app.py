@@ -376,11 +376,48 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     # Assistant 메시지 추가 (없으면 final_response로 생성)
                     if not conversation_history or conversation_history[-1].get("role") != "assistant":
                         if final_msg:
-                            assistant_message = {
-                                "role": "assistant",
-                                "content": final_msg,
-                                "timestamp": datetime.now().isoformat()
-                            }
+                            # 이메일 검색 결과인 경우 HTML 대신 요약 메시지와 UID 리스트만 저장
+                            # email_ids는 master_graph에서 반환된 result에서 가져옴
+                            email_ids = final_state.get("email_ids", [])
+                            last_keyword = final_state.get("last_search_keyword")
+                            
+                            # HTML이 포함되어 있거나 email_ids가 있으면 이메일 검색 결과로 판단
+                            is_email_search_result = (
+                                email_ids or 
+                                "<div" in final_msg or 
+                                "📧" in final_msg or 
+                                ("메일" in final_msg and ("찾았" in final_msg or "검색" in final_msg))
+                            )
+                            
+                            if is_email_search_result and email_ids:
+                                # 이메일 검색 결과: HTML 대신 요약 메시지와 UID 리스트만 저장
+                                email_count = len(email_ids)
+                                search_keyword = last_keyword or "검색"
+                                conversation_summary = f"📧 '{search_keyword}' 관련 메일 {email_count}개를 찾았습니다."
+                                
+                                assistant_message = {
+                                    "role": "assistant",
+                                    "content": conversation_summary,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "email_ids": email_ids  # UID 리스트만 저장 (HTML 제외)
+                                }
+                            else:
+                                # 일반 메시지 (HTML이 있어도 email_ids가 없으면 그대로 저장)
+                                # 단, HTML이 너무 길면 요약
+                                if len(final_msg) > 10000 and "<div" in final_msg:
+                                    # HTML이 너무 길면 요약 메시지로 저장
+                                    conversation_summary = "📧 이메일 검색 결과를 표시했습니다."
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": conversation_summary,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
+                                else:
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": final_msg,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
                             conversation_history.append(assistant_message)
                     
                     # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
@@ -489,12 +526,50 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             
             # Assistant 메시지 추가 (없으면 final_response로 생성)
             if not conversation_history or conversation_history[-1].get("role") != "assistant":
-                if final_state.get("final_response"):
-                    assistant_message = {
-                        "role": "assistant",
-                        "content": final_state.get("final_response"),
-                        "timestamp": datetime.now().isoformat()
-                    }
+                final_msg = final_state.get("final_response")
+                if final_msg:
+                    # 이메일 검색 결과인 경우 HTML 대신 요약 메시지와 UID 리스트만 저장
+                    # email_ids는 master_graph에서 반환된 result에서 가져옴
+                    email_ids = final_state.get("email_ids", [])
+                    last_keyword = final_state.get("last_search_keyword")
+                    
+                    # HTML이 포함되어 있거나 email_ids가 있으면 이메일 검색 결과로 판단
+                    is_email_search_result = (
+                        email_ids or 
+                        "<div" in final_msg or 
+                        "📧" in final_msg or 
+                        ("메일" in final_msg and ("찾았" in final_msg or "검색" in final_msg))
+                    )
+                    
+                    if is_email_search_result and email_ids:
+                        # 이메일 검색 결과: HTML 대신 요약 메시지와 UID 리스트만 저장
+                        email_count = len(email_ids)
+                        search_keyword = last_keyword or "검색"
+                        conversation_summary = f"📧 '{search_keyword}' 관련 메일 {email_count}개를 찾았습니다."
+                        
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": conversation_summary,
+                            "timestamp": datetime.now().isoformat(),
+                            "email_ids": email_ids  # UID 리스트만 저장 (HTML 제외)
+                        }
+                    else:
+                        # 일반 메시지 (HTML이 있어도 email_ids가 없으면 그대로 저장)
+                        # 단, HTML이 너무 길면 요약
+                        if len(final_msg) > 10000 and "<div" in final_msg:
+                            # HTML이 너무 길면 요약 메시지로 저장
+                            conversation_summary = "📧 이메일 검색 결과를 표시했습니다."
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": conversation_summary,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        else:
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": final_msg,
+                                "timestamp": datetime.now().isoformat()
+                            }
                     conversation_history.append(assistant_message)
             
             # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
