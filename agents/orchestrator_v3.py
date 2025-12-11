@@ -165,6 +165,25 @@ def load_orchestrator_prompts() -> Dict[str, Any]:
     print("✅ Orchestrator 프롬프트 로드 완료")
     return prompts
 
+def load_all_prompts() -> Dict[str, Any]:
+    """전체 프롬프트 YAML 파일을 로드합니다 (tech, qa, email 등 모든 섹션 포함).
+    
+    특허 검색 모드 응답 감지를 위해 tech 섹션에 접근할 때 사용됩니다.
+    
+    Returns:
+        전체 프롬프트 딕셔너리
+    """
+    current_dir = Path(__file__).parent
+    yaml_path = current_dir / "agent_prompts.yaml"
+    
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"프롬프트 파일을 찾을 수 없습니다: {yaml_path}")
+    
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        all_prompts = yaml.safe_load(f)
+    
+    return all_prompts
+
 # 모듈 로드 시 프롬프트 미리 로드 (첫 요청 시 지연 방지)
 try:
     _load_orchestrator_prompts_sync()
@@ -199,53 +218,143 @@ def get_history_check_prompt(history_context: str = "") -> str:
 def check_tech_ask_source_state(query: str, state: OrchestratorState, user_message: Message) -> Optional[Dict[str, Any]]:
     """Tech 도메인의 ask_source 상태를 확인하고 tech 도메인으로 유지할지 결정."""
     tech_search_context = state.get("tech_search_context", {})
-    if not tech_search_context:
-        return None
     
-    # article 또는 patent의 상태 확인
-    for agent_type in ["article", "patent"]:
-        if agent_type in tech_search_context:
-            agent_ctx = tech_search_context[agent_type]
-            # agent_ctx가 None이 아니고 딕셔너리인지 확인
-            if agent_ctx and isinstance(agent_ctx, dict):
-                intent = agent_ctx.get("intent")
+    # YAML에서 키워드 로드 (함수 시작 부분에서 한 번만 로드 - 특허 검색 관련)
+    config = load_orchestrator_config()
+    keywords_config = config.get("keywords", {})
+    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
+    server_data_keywords = keywords_config.get("server_data_keywords", [])  # YAML에서 로드
+    
+    # tech_search_context가 있는 경우 기존 로직 수행
+    if tech_search_context:
+        # article 또는 patent의 상태 확인
+        for agent_type in ["article", "patent"]:
+            if agent_type in tech_search_context:
+                agent_ctx = tech_search_context[agent_type]
+                # agent_ctx가 None이 아니고 딕셔너리인지 확인
+                if agent_ctx and isinstance(agent_ctx, dict):
+                    intent = agent_ctx.get("intent")
+                    
+                    # ask_source 또는 ask_search_mode 상태 확인
+                    if intent == "ask_source" or intent == "ask_search_mode":
+                        # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in tech_continuation_keywords) or query.isdigit():
+                            print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+                        # ask_search_mode 상태에서도 서버 데이터 질문 처리
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in server_data_keywords):
+                            print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+                    
+                    # 일반 특허 검색 컨텍스트 확인 (추가)
+                    elif intent == "search":
+                        # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in server_data_keywords):
+                            print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+    
+    # tech_search_context가 비어있을 때도 대화 히스토리에서 특허 검색 관련 질문 확인
+    # (Redis 저장이 지연되거나 누락된 경우 대비 - LLM 기반)
+    conversation_history = state.get("conversation_history", [])
+    if conversation_history and len(conversation_history) >= 2:
+        try:
+            # 대화 히스토리 컨텍스트 구성
+            recent_messages = conversation_history[-2:]
+            history_context = "\n\n최근 대화 내용:\n"
+            for msg in recent_messages:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                history_context += f"{role}: {content}\n"
+            
+            # YAML에서 프롬프트 로드 (전체 YAML 로드 필요 - tech 섹션 접근)
+            prompts = load_all_prompts()
+            tech_config = prompts.get("tech", {})
+            patent_config = tech_config.get("sub_agents", {}).get("patent", {})
+            prompt_template = patent_config.get("search_mode_response_detection_prompt", "")
+            
+            if prompt_template:
+                # 프롬프트 치환
+                system_prompt = prompt_template.replace("{history_context}", history_context).replace("{user_query}", query)
                 
-                # ask_source 또는 ask_search_mode 상태 확인
-                if intent == "ask_source" or intent == "ask_search_mode":
-                    # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
-
-                    config = load_orchestrator_config()
-                    keywords_config = config.get("keywords", {})
-                    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
-
-                    if any(k in query for k in tech_continuation_keywords) or query.isdigit():
-                        print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
-                    # ask_search_mode 상태에서도 서버 데이터 질문 처리
-                    if any(k in query for k in server_data_keywords):
-                        print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
+                # LLM 직접 호출 (기존 parse_search_mode_with_llm() 방식과 동일)
+                import json
+                import re
+                from langchain_openai import ChatOpenAI
                 
-                # 일반 특허 검색 컨텍스트 확인 (추가)
-                elif intent == "search":
-                    # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
-                    server_data_keywords = [
-                        "서버에", "서버에 데이터", "데이터가 있나", "데이터 있나",
-                        "서버에 있나", "서버에 있는지", "데이터 있는지",
-                        "서버", "벡터", "db", "데이터베이스", "밀버스"
-                    ]
-                    if any(k in query for k in server_data_keywords):
-                        print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if api_key:
+                    # OPENAI_MODEL 환경 변수에서 가져오기 (기본값: gpt-4o-mini)
+                    model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+                    
+                    llm = ChatOpenAI(
+                        model=model_name,
+                        temperature=0,
+                        api_key=api_key
+                    )
+                    
+                    response = llm.invoke(system_prompt)
+                    content = response.content.strip()
+                    
+                    # JSON 파싱 (parse_search_mode_with_llm()과 동일한 방식)
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group())
+                            is_search_mode_response = result.get("is_search_mode_response", False)
+                            confidence = result.get("confidence", 0.0)
+                            
+                            if is_search_mode_response and confidence >= 0.7:
+                                search_mode = result.get("search_mode")
+                                print(f"✅ Tech 도메인 LLM 기반 감지: '{query}' → tech 도메인 (검색 모드: {search_mode}, 신뢰도: {confidence:.2f})")
+                                return {
+                                    "domain": "tech",
+                                    "conversation_history": [user_message]
+                                }
+                        except json.JSONDecodeError:
+                            print(f"⚠️ 특허 검색 모드 응답 JSON 파싱 실패: {content}")
+            else:
+                print("⚠️ 특허 검색 모드 응답 감지 프롬프트가 YAML에 없습니다.")
+        except Exception as e:
+            print(f"⚠️ 특허 검색 모드 LLM 판단 실패: {e}")
+            # Fallback: 키워드 기반 (기존 로직 유지)
+            recent_messages = conversation_history[-2:]
+            has_patent_query = False
+            has_search_mode_question = False
+            
+            for msg in recent_messages:
+                content = msg.get("content", "").lower()
+                
+                # 특허 관련 키워드 확인
+                patent_keywords = ["특허", "patent", "특허를", "특허 찾아", "특허 검색"]
+                if any(kw in content for kw in patent_keywords):
+                    has_patent_query = True
+                
+                # 검색 방식 선택 질문 확인
+                if "검색 방식을 선택" in content or "서버 기반 검색" in content or "웹 검색" in content:
+                    has_search_mode_question = True
+            
+            # 특허 검색 질문이 있고 검색 방식 선택 질문이 있었으면, 현재 입력이 검색 모드 선택 응답일 가능성
+            if has_patent_query and has_search_mode_question:
+                # 검색 모드 선택 관련 키워드 확인
+                if any(k in query for k in tech_continuation_keywords) or query.isdigit() or any(k in query for k in server_data_keywords):
+                    print(f"✅ Tech 도메인 대화 히스토리 기반 감지 (Fallback): '{query}' → tech 도메인 (특허 검색 모드 선택 응답)")
+                    return {
+                        "domain": "tech",
+                        "conversation_history": [user_message]
+                    }
+    
     return None
 
 
