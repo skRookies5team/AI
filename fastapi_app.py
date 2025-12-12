@@ -152,6 +152,17 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ 초기화 중 오류 발생 (계속 진행): {e}")
 
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """서버 종료 시 백그라운드 태스크 정리."""
+    try:
+        from agents.master_graphs.email.email_search_agent import stop_all_email_checkers
+        await stop_all_email_checkers()
+        print("🛑 서버 종료: 이메일 체커 태스크 cancel 완료")
+    except Exception as e:
+        print(f"🛑 서버 종료: 이메일 체커 태스크 정리 실패(무시): {e}")
+
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
