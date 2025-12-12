@@ -1198,6 +1198,56 @@
         
         // 페이지 로드 시 세션 ID 표시
         updateSessionDisplay();
+
+        // ===== 알림(SSE) =====
+        let notificationSource = null;
+
+        function escapeHTML(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function startNotificationStream() {
+            try {
+                if (notificationSource) {
+                    notificationSource.close();
+                    notificationSource = null;
+                }
+
+                const url = `/api/notifications/stream?session_id=${encodeURIComponent(currentSessionId)}`;
+                notificationSource = new EventSource(url);
+
+                notificationSource.onmessage = (event) => {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        if (payload.type === 'email_new' && payload.data) {
+                            const pretty = JSON.stringify(payload.data, null, 2);
+                            addBotMessage(
+                                `<div><b>📬 새 메일 도착</b> <span style="color:#666;font-size:12px;">(${payload.session_id})</span></div>` +
+                                `<pre style="white-space:pre-wrap; margin-top:8px; font-size:12px; line-height:1.4;">${escapeHTML(pretty)}</pre>`
+                            );
+                        }
+                    } catch (e) {
+                        console.error('알림 파싱 실패:', e, event.data);
+                    }
+                };
+
+                notificationSource.addEventListener('ping', () => {
+                    // keep-alive
+                });
+
+                notificationSource.onerror = (err) => {
+                    // 네트워크 환경에 따라 재연결이 자동으로 시도됨
+                    console.warn('알림 스트림 오류:', err);
+                };
+            } catch (e) {
+                console.error('알림 스트림 시작 실패:', e);
+            }
+        }
         
         // 세션 정보 조회
         async function loadSessionInfo() {
@@ -1220,6 +1270,9 @@
         
         // 페이지 로드 시 세션 정보 조회
         loadSessionInfo();
+
+        // 페이지 로드 시 알림 스트림 시작
+        startNotificationStream();
         
         // 세션 모달 표시
         function showSessionModal() {
@@ -1251,6 +1304,7 @@
                     localStorage.setItem('chat_session_id', currentSessionId);
                     updateSessionDisplay();
                     closeSessionModal();
+                    startNotificationStream();
                     
                     // 채팅 메시지 초기화
                     document.getElementById('chatMessages').innerHTML = '';
@@ -1293,6 +1347,7 @@
                     updateSessionDisplay();
                     loadSessionInfo();
                     closeSessionModal();
+                    startNotificationStream();
                     
                     // 채팅 메시지 초기화
                     document.getElementById('chatMessages').innerHTML = '';
@@ -1909,6 +1964,7 @@
                                         currentSessionId = data.session_id;
                                         localStorage.setItem('chat_session_id', currentSessionId);
                                         console.log('세션 ID 업데이트:', currentSessionId);
+                                        startNotificationStream();
                                     }
                                     
                                     const botMessage = data.message || '죄송합니다. 응답을 생성할 수 없습니다.';
