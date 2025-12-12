@@ -204,13 +204,22 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 	# 쿼리가 비어있으면 즉시 반환
 	if not query or not query.strip():
 		return {"to_emails": [], "to_names": [], "cc": None, "bcc": None}
+
+	# ✅ 우선순위 1: 쿼리에 이메일 주소가 있으면 LLM 없이 정규식으로 즉시 추출 (가장 안정적)
+	email_pattern = r'[A-Za-z0-9._%+-]+@[A-Za-z0-9]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
+	emails = re.findall(email_pattern, query)
+	if emails:
+		return {
+			"to_emails": [e.strip().lower() for e in emails if e],
+			"to_names": [],
+			"cc": None,
+			"bcc": None
+		}
 	
 	try:
 		api_key = _get_env("OPENAI_API_KEY")
 		if not api_key:
 			# API 키가 없으면 정규식으로 fallback
-			email_pattern = r'[A-Za-z0-9._%+-]+@[A-Za-z0-9]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
-			emails = re.findall(email_pattern, query)
 			return {
 				"to_emails": [e.lower() for e in emails] if emails else [],
 				"to_names": [],
@@ -244,7 +253,8 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 
 이메일 주소가 없으면 "to_emails"는 빈 배열로 반환하세요.
 이름이 없으면 "to_names"는 빈 배열로 반환하세요."""),
-			("user", "다음 질의에서 수신자 정보를 추출해주세요:\n{{query}}")
+			# ⚠️ 여기서는 {query}가 실제 변수입니다. ({{query}}로 쓰면 리터럴이 되어 LLM이 쿼리를 못 봄)
+			("user", "다음 질의에서 수신자 정보를 추출해주세요:\n{query}")
 		])
 		
 		chain = prompt_template | llm
@@ -283,6 +293,11 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 				bcc = bcc.strip().lower() if "@" in str(bcc) else None
 			else:
 				bcc = None
+
+			# ✅ 안전장치: LLM이 빈 배열을 반환하면 정규식으로 보강 (LLM 파싱 성공 시 fallback이 안 타는 문제 방지)
+			if not to_emails:
+				emails = re.findall(email_pattern, query)
+				to_emails = [e.strip().lower() for e in emails if e]
 			
 			return {
 				"to_emails": to_emails,
@@ -1317,7 +1332,7 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 	"""IMAP 최신 recent_limit개 vs Redis(해당 세션) 최신 recent_limit개 비교 → 새 메일 메타데이터 반환."""
 	redis_client = _get_redis_client()
 	if not redis_client:
-		print(f"[EMAIL CHECK][{session_id}] Redis 연결 실패")
+		logger.debug(f"[EMAIL CHECK][{session_id}] Redis 연결 실패")
 		return []
 
 	storage = EmailRedisStorage(redis_client, session_id)
@@ -1325,7 +1340,7 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 
 	# Redis 최신 recent_limit개
 	if not await storage.redis.exists(redis_by_date_key):
-		print(f"[EMAIL CHECK][{session_id}] Redis 동기화 데이터 없음 ({redis_by_date_key})")
+		logger.debug(f"[EMAIL CHECK][{session_id}] Redis 동기화 데이터 없음 ({redis_by_date_key})")
 		return []
 
 	redis_recent_ids_raw = await storage.redis.zrevrange(redis_by_date_key, 0, recent_limit - 1)
@@ -1344,7 +1359,7 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 			user = f"{nid}@naver.com"
 	pwd = _get_env("NAVER_APP_PASSWORD") or ""
 	if not user or not pwd:
-		print(f"[EMAIL CHECK][{session_id}] IMAP 접속 정보 없음")
+		logger.debug(f"[EMAIL CHECK][{session_id}] IMAP 접속 정보 없음")
 		return []
 
 	mail = imaplib.IMAP4_SSL(host, port)
@@ -1363,39 +1378,6 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 
 		ids.reverse()
 		ids = ids[:recent_limit]
-
-		# 디버그: IMAP에서 가져온 "가장 최근 N개" 메일 ID 출력
-		# - 메일함이 크면 매 체크마다 출력이 많을 수 있어 환경변수로 제어
-		try:
-			sample_n = int(_get_env("EMAIL_CHECK_IMAP_SAMPLE", "10") or "10")
-		except Exception:
-			sample_n = 10
-		if sample_n > 0:
-			sample_items: List[Dict[str, str]] = []
-			for uid_bytes in ids[: min(sample_n, len(ids))]:
-				try:
-					uid_str = uid_bytes.decode("utf-8") if isinstance(uid_bytes, (bytes, bytearray)) else str(uid_bytes)
-					st, msg_data = mail.uid("fetch", uid_str, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-					if st != "OK" or not msg_data or not msg_data[0]:
-						continue
-					header_data = msg_data[0][1]
-					if not isinstance(header_data, (bytes, bytearray)):
-						continue
-					msg = email_pkg.message_from_bytes(header_data)
-					subject = _decode_mime_header(msg.get("Subject", ""))
-					from_addr = _decode_mime_header(msg.get("From", ""))
-					date = _decode_header_value(msg.get("Date", ""))
-					sample_items.append(
-						{
-							"date": date or "",
-							"from": from_addr or "",
-							"subject": subject or "(제목 없음)",
-						}
-					)
-				except Exception as e:
-					logger.debug(f"[EMAIL CHECK][{session_id}] 샘플 헤더 fetch 실패: {e}")
-					continue
-			print(f"[EMAIL CHECK][{session_id}] IMAP 최신 {len(sample_items)}개 메일(샘플): {sample_items}")
 
 		new_pairs: List[Tuple[str, bytes]] = []
 		for uid_bytes in ids:
@@ -1439,7 +1421,7 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 		return new_emails
 	except Exception as e:
 		logger.error(f"[EMAIL CHECK][{session_id}] 체크 실패: {e}")
-		print(f"[EMAIL CHECK][{session_id}] 체크 실패: {e}")
+		# 콘솔 스팸 방지: 에러는 logger로만 남김
 		return []
 	finally:
 		try:
@@ -1456,11 +1438,9 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 		if redis_client:
 			storage = EmailRedisStorage(redis_client, session_id)
 			if not await storage.has_synced_data():
-				print(f"[EMAIL CHECK][{session_id}] 초기 동기화(1000개) 시작...")
 				sync_result = await sync_emails_to_redis(session_id, limit=1000)
-				print(f"[EMAIL CHECK][{session_id}] 초기 동기화 결과: {sync_result.get('message')}")
 	except Exception as e:
-		print(f"[EMAIL CHECK][{session_id}] 초기 동기화 중 오류(무시): {e}")
+		logger.debug(f"[EMAIL CHECK][{session_id}] 초기 동기화 중 오류(무시): {e}")
 
 	while True:
 		try:
@@ -1468,14 +1448,13 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 				print(f"\r[EMAIL CHECK][{session_id}] 다음 체크까지 {remaining}초", end="", flush=True)
 				await asyncio.sleep(1)
 			print()
+			print(f"[EMAIL CHECK][{session_id}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - IMAP 최신 100개 체크 시작")
 
 			new_emails = await _check_new_emails_for_session(session_id, recent_limit=100)
 			if not new_emails:
-				print(f"[EMAIL CHECK][{session_id}] 새 메일 없음")
 				continue
 
-			# 새 메일을 "검색 결과"와 유사한 JSON 포맷으로 출력
-			print(f"📧 [EMAIL CHECK][{session_id}] 새 메일 {len(new_emails)}개!")
+			# 새 메일은 프론트로만 발행 (콘솔 출력 X)
 			email_data: Dict[str, Dict[str, str]] = {}
 
 			# IMAP에서 본문까지 가져와 content 채우기 (UID 기반)
@@ -1538,7 +1517,7 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 
 			summary_message = f"📧 새 메일 도착: {len(new_emails)}개"
 			json_result = {summary_message: email_data}
-			# 프론트로 알림 발행 (콘솔 출력 대신)
+			# 프론트로 알림 발행
 			publish_notification(
 				session_id,
 				{
@@ -1565,10 +1544,13 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 						for e in new_emails
 					]
 				)
-				print(f"✅ [EMAIL CHECK][{session_id}] Redis 저장 완료 (+{len(new_emails)})")
+		except asyncio.CancelledError:
+			# 종료 시에는 1줄만 남기고 깔끔하게 종료
+			print(f"[EMAIL CHECK][{session_id}] 체커 종료(cancelled)")
+			raise
 		except Exception as e:
 			logger.error(f"[EMAIL CHECK][{session_id}] 백그라운드 오류: {e}")
-			print(f"[EMAIL CHECK][{session_id}] 백그라운드 오류: {e}")
+			# 콘솔 스팸 방지: 에러는 logger로만 남김
 			await asyncio.sleep(60)
 
 
@@ -1581,6 +1563,27 @@ def start_email_checker_for_session(session_id: str, check_interval: int = 30) -
 		_background_email_checker_for_session(session_id, check_interval=check_interval)
 	)
 	print(f"📧 [EMAIL CHECK][{session_id}] 체커 시작 (interval={check_interval}s)")
+
+
+async def stop_all_email_checkers() -> None:
+	"""서버 종료 시 모든 이메일 체커 태스크를 취소(cancel)하고 정리합니다."""
+	if not _ACTIVE_EMAIL_CHECKERS:
+		return
+
+	tasks = []
+	for sid, task in list(_ACTIVE_EMAIL_CHECKERS.items()):
+		if task and not task.done():
+			task.cancel()
+			tasks.append(task)
+
+	# 태스크 종료 대기 (예외는 무시)
+	if tasks:
+		try:
+			await asyncio.gather(*tasks, return_exceptions=True)
+		except Exception:
+			pass
+
+	_ACTIVE_EMAIL_CHECKERS.clear()
 
 def has_pending_email_results(session_id: Optional[str] = None, state: Optional[Dict[str, Any]] = None) -> bool:
 	"""최근 검색 결과가 캐시에 남아 있는지 여부 (세션별).
