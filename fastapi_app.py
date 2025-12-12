@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.session_manager import get_session_manager
+from agents.notifications import get_notification_queue
 import asyncio
 import threading
 from datetime import datetime, timedelta
@@ -238,6 +239,37 @@ async def serve_document(filename: str):
     )
 
 
+@app.get("/api/notifications/stream")
+async def notifications_stream(session_id: str):
+    """세션별 알림 스트림(SSE). 새 메일 수신 등 백그라운드 이벤트를 프론트로 푸시합니다."""
+
+    async def event_generator():
+        q = get_notification_queue(session_id)
+        while True:
+            try:
+                # 15초마다 ping으로 연결 유지
+                payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except asyncio.TimeoutError:
+                yield "event: ping\ndata: {}\n\n"
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                err = {"type": "error", "message": str(e)}
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(payload: ChatRequest):
     """스트리밍 챗봇 엔드포인트 - 실시간 작업 상태 표시."""
@@ -245,6 +277,13 @@ async def chat_stream_endpoint(payload: ChatRequest):
         try:
             # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
             session_id = payload.session_id or f"session_{payload.employee_id}"
+
+            # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션만 이메일 수신감지 시작(중복 실행 방지)
+            try:
+                from agents.master_graphs.email.email_search_agent import start_email_checker_for_session
+                start_email_checker_for_session(session_id, check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+            except Exception as e:
+                print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
             
             # 세션 관리자로 이전 세션 데이터 전체 로드 (conversation_history + 컨텍스트들)
             session_manager = await get_session_manager()
@@ -469,6 +508,13 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     try:
         # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
         session_id = payload.session_id or f"session_{payload.employee_id}"
+
+        # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션만 이메일 수신감지 시작(중복 실행 방지)
+        try:
+            from agents.master_graphs.email.email_search_agent import start_email_checker_for_session
+            start_email_checker_for_session(session_id, check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+        except Exception as e:
+            print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
         
         # 세션 관리자로 이전 세션 데이터 전체 로드 (conversation_history + 컨텍스트들)
         session_manager = await get_session_manager()
