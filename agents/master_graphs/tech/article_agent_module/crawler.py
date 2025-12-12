@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import sys
+import platform
+import concurrent.futures
 import time
 from dataclasses import dataclass
 from html import unescape
@@ -13,20 +17,54 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from playwright.sync_api import (
+from playwright.async_api import (
     BrowserContext,
     TimeoutError as PlaywrightTimeoutError,
-    sync_playwright,
+    async_playwright,
 )
 
 LOGGER = logging.getLogger(__name__)
 
 BASE_URL = "https://scienceon.kisti.re.kr"
 SEARCH_URL = f"{BASE_URL}/main/mainForm.do"
-RESULT_LIMIT = 10
+RESULT_LIMIT = 3
 WAIT_AFTER_ENTER_SECONDS = 5
 WAIT_AFTER_NETWORK_IDLE_SECONDS = 3
-PDF_DOWNLOAD_DIR = Path(__file__).resolve().parent / "pdf"
+PDF_DOWNLOAD_DIR = Path.home() / "Downloads"
+
+# User-Agent 설정 (실제 브라우저처럼 보이도록)
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Rate limiting 설정
+MIN_REQUEST_INTERVAL = 15  # 최소 15초 간격
+_last_request_time: Optional[float] = None
+_rate_limiter_lock: Optional[asyncio.Lock] = None
+
+
+def _get_rate_limiter_lock() -> asyncio.Lock:
+    """Rate limiter용 asyncio.Lock을 가져온다 (lazy initialization)."""
+    global _rate_limiter_lock
+    if _rate_limiter_lock is None:
+        # LangServe 환경에서는 항상 이벤트 루프가 실행 중
+        _rate_limiter_lock = asyncio.Lock()
+    return _rate_limiter_lock
+
+
+async def _wait_for_rate_limit() -> None:
+    """요청 간 최소 간격을 유지한다."""
+    global _last_request_time
+    lock = _get_rate_limiter_lock()
+    async with lock:
+        if _last_request_time is not None:
+            elapsed = time.time() - _last_request_time
+            if elapsed < MIN_REQUEST_INTERVAL:
+                wait_time = MIN_REQUEST_INTERVAL - elapsed
+                LOGGER.info(f"Rate limiting: {wait_time:.1f}초 대기 중...")
+                await asyncio.sleep(wait_time)
+        _last_request_time = time.time()
 
 
 @dataclass
@@ -36,6 +74,7 @@ class PaperResult:
     title: str
     pdf_link: str
     pdf_path: Optional[str] = None
+    identifier: Optional[str] = None
 
 
 def _extract_pdf_info(onclick_value: str) -> Optional[Dict[str, str]]:
@@ -118,7 +157,7 @@ def _sanitize_filename(candidate: str, fallback: str) -> str:
     return sanitized
 
 
-def _download_pdf(
+async def _download_pdf(
     context: BrowserContext,
     url: str,
     download_dir: Path,
@@ -126,15 +165,15 @@ def _download_pdf(
     title: str,
 ) -> Optional[str]:
     """주어진 URL에서 PDF를 다운로드하고 로컬 경로를 반환한다."""
-    download_page = context.new_page()
+    download_page = await context.new_page()
     try:
-        with download_page.expect_download(timeout=60_000) as download_info:
-            download_page.goto(url, timeout=60_000)
-        download = download_info.value
+        async with download_page.expect_download(timeout=60_000) as download_info:
+            await download_page.goto(url, timeout=60_000)
+        download = await download_info.value
         suggested_name = download.suggested_filename or title or f"paper_{index}"
         filename = _sanitize_filename(suggested_name, f"paper_{index:02d}")
         file_path = download_dir / filename
-        download.save_as(str(file_path))
+        await download.save_as(str(file_path))
         LOGGER.info("PDF 다운로드 성공: %s -> %s", title, file_path)
         return str(file_path)
     except PlaywrightTimeoutError:
@@ -143,10 +182,140 @@ def _download_pdf(
         LOGGER.exception("PDF 다운로드 실패: %s", url)
     finally:
         try:
-            download_page.close()
+            await download_page.close()
         except Exception:  # pragma: no cover - page close 실패 무시
             LOGGER.debug("다운로드 페이지 종료 중 오류가 발생했지만 무시합니다.", exc_info=True)
     return None
+
+
+async def download_pdf_to_memory(
+    pdf_link: str,
+    use_playwright: bool = True
+) -> Optional[bytes]:
+    """PDF를 메모리로 다운로드 (로컬 저장 없음).
+    
+    Args:
+        pdf_link: PDF URL
+        use_playwright: True면 Playwright 사용 (동적 페이지용), False면 requests 사용
+        
+    Returns:
+        PDF 바이트 데이터 또는 None
+    """
+    # Windows에서는 무조건 별도 스레드에서 실행 (ProactorEventLoop 사용)
+    if use_playwright and platform.system() == "Windows":
+        def run_in_thread():
+            """별도 스레드에서 ProactorEventLoop로 실행"""
+            # ProactorEventLoop 직접 생성 (Playwright는 async subprocess를 사용하므로 필요)
+            new_loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(new_loop)
+            
+            try:
+                result = new_loop.run_until_complete(
+                    _download_pdf_to_memory_impl(pdf_link, use_playwright=True)
+                )
+                return result
+            except Exception as e:
+                LOGGER.warning(f"별도 스레드에서 PDF 다운로드 실패: {e}")
+                # 예외를 반환하지 않고 None을 반환하여 호출자에게 전달
+                return None
+            finally:
+                new_loop.close()
+                asyncio.set_event_loop(None)
+        
+        # asyncio.to_thread을 사용하여 이벤트 루프 블로킹 방지
+        # Python 3.9+에서는 asyncio.to_thread 사용 가능
+        try:
+            # asyncio.to_thread은 별도 스레드에서 실행하고 await 가능
+            result = await asyncio.to_thread(run_in_thread)
+            return result
+        except AttributeError:
+            # Python 3.8 이하에서는 ThreadPoolExecutor 사용
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = loop.run_in_executor(executor, run_in_thread)
+                return await future
+    
+    # 일반 경로: 현재 이벤트 루프 사용 (Windows가 아니거나 use_playwright=False인 경우)
+    return await _download_pdf_to_memory_impl(pdf_link, use_playwright)
+
+
+async def _download_pdf_to_memory_impl(
+    pdf_link: str,
+    use_playwright: bool = True
+) -> Optional[bytes]:
+    """PDF를 메모리로 다운로드 구현 함수 (내부용)."""
+    if use_playwright:
+        # Playwright 사용 (JavaScript가 필요한 경우)
+        # Playwright의 Download 객체는 read() 메서드가 없으므로 임시 파일 사용
+        import tempfile
+        temp_path = None
+        try:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    accept_downloads=True,
+                    user_agent=USER_AGENT,
+                )
+                try:
+                    page = await context.new_page()
+                    # 임시 파일 경로 생성
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                    temp_path = temp_file.name
+                    temp_file.close()
+                    
+                    async with page.expect_download(timeout=60_000) as download_info:
+                        await page.goto(pdf_link, timeout=60_000)
+                    download = await download_info.value
+                    await download.save_as(temp_path)
+                    
+                    # 임시 파일을 메모리로 읽기
+                    with open(temp_path, 'rb') as f:
+                        pdf_bytes = f.read()
+                    
+                    # PDF 형식 검증
+                    if not pdf_bytes.startswith(b"%PDF"):
+                        LOGGER.warning(f"PDF 형식이 올바르지 않습니다 (Playwright): {pdf_link}")
+                        return None
+                    
+                    LOGGER.info(f"PDF 메모리 다운로드 성공 (Playwright): {len(pdf_bytes)} bytes")
+                    return pdf_bytes
+                finally:
+                    await context.close()
+                    await browser.close()
+        except NotImplementedError as e:
+            LOGGER.warning(f"Playwright subprocess 오류 (Windows 환경), requests로 재시도: {e}")
+        except Exception as e:
+            LOGGER.warning(f"Playwright로 PDF 다운로드 실패, requests로 재시도: {e}")
+        finally:
+            # 임시 파일 정리
+            try:
+                if temp_path and Path(temp_path).exists():
+                    Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+    
+    # requests 사용 (단순 HTTP GET)
+    try:
+        import requests
+        response = requests.get(pdf_link, stream=True, timeout=60, headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+        
+        pdf_bytes = response.content
+        
+        # PDF 형식 검증
+        if not pdf_bytes.startswith(b"%PDF"):
+            LOGGER.warning(f"PDF 형식이 올바르지 않습니다 (requests): {pdf_link}")
+            # Content-Type도 확인
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "text/html" in content_type:
+                LOGGER.warning(f"HTML 응답을 받았습니다 (에러 페이지일 가능성): {pdf_link}")
+            return None
+        
+        LOGGER.info(f"PDF 메모리 다운로드 성공 (requests): {len(pdf_bytes)} bytes")
+        return pdf_bytes
+    except Exception as e:
+        LOGGER.error(f"PDF 다운로드 실패: {e}")
+        return None
 
 
 def _build_pdf_link(pdf_info: Dict[str, str], query: str) -> str:
@@ -253,6 +422,25 @@ def _extract_pdf_link(item: Tag, query: str) -> str:
     return "원문보기 링크 없음"
 
 
+def _extract_doi(item: Tag) -> Optional[str]:
+    """HTML 요소에서 식별자(DOI 또는 내부 식별자)를 추출한다."""
+    # 방법 1: hidden input에서 DOI 추출
+    doi_input = item.select_one("input[id^='orgDoi_'][value*='doi.org']")
+    if doi_input:
+        value = doi_input.get("value", "")
+        doi_match = re.search(r"10\.\d+/[^\s<>\"']+", value)
+        if doi_match:
+            return doi_match.group(0)
+    
+    # 방법 2: DOI가 없으면 item의 id에서 식별자 추출
+    item_id = item.get("id", "")
+    if item_id.startswith("result_item_"):
+        identifier = item_id.replace("result_item_", "")
+        return identifier
+    
+    return None
+
+
 def _parse_items(
     soup: BeautifulSoup,
     selectors: Sequence[str],
@@ -283,7 +471,8 @@ def _parse_items(
         raw_title = title_tag.get_text(strip=True) if title_tag else "제목 없음"
         title = " ".join(raw_title.split())
         pdf_link = _extract_pdf_link(item=item, query=query)
-        results.append(PaperResult(title=title, pdf_link=pdf_link))
+        identifier = _extract_doi(item)
+        results.append(PaperResult(title=title, pdf_link=pdf_link, identifier=identifier))
 
     if not results:
         LOGGER.warning("파싱 결과가 비어 있습니다. HTML 구조 변경 여부를 확인하세요.")
@@ -291,7 +480,7 @@ def _parse_items(
     return results
 
 
-def search_scienceon_papers(
+async def search_scienceon_papers(
     query: str,
     limit: int = RESULT_LIMIT,
     wait_after_enter: int = WAIT_AFTER_ENTER_SECONDS,
@@ -310,11 +499,65 @@ def search_scienceon_papers(
         download_dir (Optional[str]): 사용자 지정 저장 경로. None이면 기본 폴더(`pdf/`).
 
     Returns:
-        List[Dict[str, str]]: 논문 제목, 원문 링크, (다운로드 시) 로컬 경로 정보를 담은 목록.
+        List[Dict[str, str]]: 논문 제목, 원문 링크, 식별자, (다운로드 시) 로컬 경로 정보를 담은 목록.
 
     Raises:
         RuntimeError: 페이지 로딩 타임아웃 또는 크롤링 오류 발생 시.
     """
+    # 🆕 Windows에서는 무조건 별도 스레드에서 실행 (ProactorEventLoop 사용)
+    if platform.system() == "Windows":
+        def run_in_thread():
+            """별도 스레드에서 ProactorEventLoop로 실행"""
+            # 현재 스레드의 이벤트 루프 확인 (있으면 안 됨)
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            
+            # ProactorEventLoop 직접 생성 (Playwright는 async subprocess를 사용하므로 필요)
+            new_loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(new_loop)
+            
+            try:
+                result = new_loop.run_until_complete(
+                    _search_scienceon_papers_impl(
+                        query, limit, wait_after_enter, wait_after_network_idle,
+                        enable_downloads, download_dir
+                    )
+                )
+                return result
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise
+            finally:
+                new_loop.close()
+                asyncio.set_event_loop(None)
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_in_thread)
+            result = future.result()
+            return result
+    
+    # 일반 경로: 현재 이벤트 루프 사용 (Windows가 아닌 경우)
+    return await _search_scienceon_papers_impl(
+        query, limit, wait_after_enter, wait_after_network_idle,
+        enable_downloads, download_dir
+    )
+
+
+async def _search_scienceon_papers_impl(
+    query: str,
+    limit: int = RESULT_LIMIT,
+    wait_after_enter: int = WAIT_AFTER_ENTER_SECONDS,
+    wait_after_network_idle: int = WAIT_AFTER_NETWORK_IDLE_SECONDS,
+    enable_downloads: bool = True,
+    download_dir: Optional[str] = None,
+) -> List[Dict[str, str]]:
+    """ScienceON 검색 구현 함수 (내부용)."""
+    # Rate limiting 적용
+    await _wait_for_rate_limit()
+    
     LOGGER.info("ScienceON 검색 시작: query=%s, limit=%d", query, limit)
 
     selectors = (
@@ -328,22 +571,26 @@ def search_scienceon_papers(
     should_download = enable_downloads or download_dir is not None
 
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(accept_downloads=should_download)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            context = await browser.new_context(
+                accept_downloads=should_download,
+                user_agent=USER_AGENT,
+            )
             try:
-                page = context.new_page()
+                page = await context.new_page()
 
-                page.goto(SEARCH_URL, timeout=60_000)
-                page.wait_for_selector("#totSearchKeyword", timeout=15_000)
-                page.fill("#totSearchKeyword", query)
-                page.keyboard.press("Enter")
+                # wait_until을 domcontentloaded로 변경하여 빠른 로딩
+                await page.goto(SEARCH_URL, timeout=90_000, wait_until="domcontentloaded")
+                await page.wait_for_selector("#totSearchKeyword", timeout=20_000)
+                await page.fill("#totSearchKeyword", query)
+                await page.keyboard.press("Enter")
 
-                time.sleep(wait_after_enter)
-                page.wait_for_load_state("networkidle", timeout=30_000)
-                time.sleep(wait_after_network_idle)
+                await asyncio.sleep(wait_after_enter)
+                await page.wait_for_load_state("networkidle", timeout=30_000)
+                await asyncio.sleep(wait_after_network_idle)
 
-                html = page.content()
+                html = await page.content()
                 soup = BeautifulSoup(html, "html.parser")
 
                 results = _parse_items(
@@ -367,7 +614,7 @@ def search_scienceon_papers(
                                 result.title,
                             )
                             continue
-                        pdf_path = _download_pdf(
+                        pdf_path = await _download_pdf(
                             context=context,
                             url=result.pdf_link,
                             download_dir=target_dir,
@@ -377,14 +624,21 @@ def search_scienceon_papers(
                         if pdf_path:
                             result.pdf_path = pdf_path
             finally:
-                context.close()
-                browser.close()
+                await context.close()
+                await browser.close()
+    except NotImplementedError as e:
+        import traceback
+        traceback.print_exc()
+        LOGGER.error(f"Playwright 초기화 실패 (Windows 환경 문제): {e}")
+        return []
     except PlaywrightTimeoutError as exc:
         LOGGER.exception("ScienceON 페이지 로딩 중 타임아웃이 발생했습니다.")
-        raise RuntimeError("ScienceON 페이지 로딩에 실패했습니다.") from exc
+        return []
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         LOGGER.exception("ScienceON 크롤링 중 오류가 발생했습니다.")
-        raise RuntimeError("ScienceON 크롤링 중 알 수 없는 오류가 발생했습니다.") from exc
+        return []
 
     LOGGER.info("ScienceON 검색 완료: 결과 %d건", len(results))
     payloads: List[Dict[str, str]] = []
@@ -395,11 +649,13 @@ def search_scienceon_papers(
         }
         if result.pdf_path:
             result_dict["pdf_path"] = result.pdf_path
+        if result.identifier:
+            result_dict["identifier"] = result.identifier
         payloads.append(result_dict)
     return payloads
 
 
-def download_pdfs_from_results(
+async def download_pdfs_from_results(
     results: List[Dict[str, str]],
     download_dir: Optional[str] = None,
 ) -> List[Dict[str, str]]:
@@ -415,6 +671,51 @@ def download_pdfs_from_results(
     if not results:
         return results
     
+    # Windows에서는 무조건 별도 스레드에서 실행 (ProactorEventLoop 사용)
+    if platform.system() == "Windows":
+        def run_in_thread():
+            """별도 스레드에서 ProactorEventLoop로 실행"""
+            # ProactorEventLoop 직접 생성 (Playwright는 async subprocess를 사용하므로 필요)
+            new_loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(new_loop)
+            
+            try:
+                result = new_loop.run_until_complete(
+                    _download_pdfs_from_results_impl(results, download_dir)
+                )
+                return result
+            except Exception as e:
+                LOGGER.warning(f"별도 스레드에서 PDF 다운로드 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                return results  # 오류 발생 시 원본 결과 반환
+            finally:
+                new_loop.close()
+                asyncio.set_event_loop(None)
+        
+        # asyncio.to_thread을 사용하여 이벤트 루프 블로킹 방지
+        try:
+            result = await asyncio.to_thread(run_in_thread)
+            return result
+        except AttributeError:
+            # Python 3.8 이하에서는 ThreadPoolExecutor 사용
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = loop.run_in_executor(executor, run_in_thread)
+                return await future
+    
+    # 일반 경로: 현재 이벤트 루프 사용 (Windows가 아닌 경우)
+    return await _download_pdfs_from_results_impl(results, download_dir)
+
+
+async def _download_pdfs_from_results_impl(
+    results: List[Dict[str, str]],
+    download_dir: Optional[str] = None,
+) -> List[Dict[str, str]]:
+    """PDF 다운로드 구현 함수 (내부용)."""
+    if not results:
+        return results
+    
     target_dir = (
         Path(download_dir).expanduser().resolve()
         if download_dir
@@ -425,9 +726,12 @@ def download_pdfs_from_results(
     updated_results: List[Dict[str, str]] = []
     
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(accept_downloads=True)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            context = await browser.new_context(
+                accept_downloads=True,
+                user_agent=USER_AGENT,
+            )
             try:
                 for index, result in enumerate(results, start=1):
                     pdf_link = result.get("pdf_link", "")
@@ -443,7 +747,7 @@ def download_pdfs_from_results(
                         updated_results.append(result)
                         continue
                     
-                    pdf_path = _download_pdf(
+                    pdf_path = await _download_pdf(
                         context=context,
                         url=pdf_link,
                         download_dir=target_dir,
@@ -456,20 +760,14 @@ def download_pdfs_from_results(
                         result_copy["pdf_path"] = pdf_path
                     updated_results.append(result_copy)
             finally:
-                context.close()
-                browser.close()
+                await context.close()
+                await browser.close()
+    except NotImplementedError as e:
+        LOGGER.warning(f"Playwright subprocess 오류 (Windows 환경): {e}")
+        return results  # 오류 발생 시 원본 결과 반환
     except Exception as exc:
         LOGGER.exception("PDF 다운로드 중 오류 발생")
         # 오류 발생 시 원본 결과 반환
         return results
     
     return updated_results
-
-
-if __name__ == "__main__":
-    user_query = input("검색어를 입력하세요: ")
-    papers = search_scienceon_papers(user_query)
-    print("\n=== 검색 결과 ===")
-    for index, paper in enumerate(papers, start=1):
-        print(f"[{index}] {paper['title']}")
-        print(f"원문보기: {paper['pdf_link']}\n")
