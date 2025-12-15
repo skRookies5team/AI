@@ -463,6 +463,49 @@ class SessionManager:
             except Exception as e:
                 print(f"[WARNING] 세션 state 저장 실패 (session_id={session_id}): {e}")
 
+    async def get_google_tokens(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """사용자별 Google OAuth 토큰 조회.
+        
+        Args:
+            user_id: 토큰을 조회할 사용자 ID
+        
+        Returns:
+            저장된 토큰 딕셔너리. 토큰이 없거나 오류가 발생하면 None.
+        """
+        if not user_id:
+            return None
+        
+        try:
+            key = f"google_tokens:{user_id}"
+            value = await self.redis.get(key)
+            if value is None:
+                return None
+            return json.loads(value)
+        except Exception as exc:  # pragma: no cover - Redis 오류 로그
+            print(f"[WARNING] Google 토큰 조회 실패 (user_id={user_id}): {exc}")
+            return None
+
+    async def save_google_tokens(self, user_id: str, tokens: Dict[str, Any], *, ttl: Optional[int] = None) -> None:
+        """사용자별 Google OAuth 토큰 저장.
+        
+        Args:
+            user_id: 토큰을 저장할 사용자 ID
+            tokens: access_token, refresh_token 등을 포함한 토큰 정보
+            ttl: 토큰 만료 시간(초). 지정하지 않으면 세션 기본 TTL 사용.
+        """
+        if not user_id or not tokens:
+            return
+        
+        try:
+            key = f"google_tokens:{user_id}"
+            existing = await self.get_google_tokens(user_id) or {}
+            merged_tokens = {**existing, **tokens}
+            payload = json.dumps(merged_tokens, ensure_ascii=False, default=str)
+            expiry = ttl if ttl is not None else self.ttl
+            await self.redis.setex(key, expiry, payload)
+        except Exception as exc:  # pragma: no cover - Redis 오류 로그
+            print(f"[WARNING] Google 토큰 저장 실패 (user_id={user_id}): {exc}")
+
 
 # 전역 세션 관리자 인스턴스
 _session_manager: Optional[SessionManager] = None

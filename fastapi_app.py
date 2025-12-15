@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form, Query, Response
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from pydantic import BaseModel, Field
@@ -17,9 +17,15 @@ from agents.session_manager import get_session_manager
 import asyncio
 import threading
 from datetime import datetime, timedelta
+import time
+from typing import Dict, Tuple
+
+from google_auth_oauthlib.flow import Flow
 
 # Orchestrator 그래프 캐시 (앱 시작 시 한 번만 생성)
 _orchestrator_graph = None
+_oauth_state_store: Dict[str, Tuple[str, float]] = {}
+_OAUTH_STATE_TTL_SECONDS = 600
 
 def get_cached_orchestrator_graph():
     """캐시된 오케스트레이터 그래프 반환 (앱 시작 시 한 번만 생성).
@@ -33,6 +39,54 @@ def get_cached_orchestrator_graph():
         _orchestrator_graph = get_orchestrator_graph(checkpointer=None)
         print("✅ Orchestrator 그래프 초기화 완료 (이제 재사용됩니다)")
     return _orchestrator_graph
+
+
+def _get_app_base_url() -> str:
+    """애플리케이션 기본 URL을 반환."""
+    return os.environ.get("APP_BASE_URL", "http://localhost:8000").rstrip("/")
+
+
+def _create_google_oauth_flow() -> Flow:
+    """Google OAuth Flow 인스턴스를 생성."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth 클라이언트 정보가 설정되지 않았습니다. GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET를 확인하세요.",
+        )
+
+    redirect_uri = os.environ.get("GOOGLE_REDIRECT_URI")
+    if not redirect_uri:
+        redirect_uri = f"{_get_app_base_url()}/auth/google/callback"
+
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": client_id,
+                "project_id": os.environ.get("GOOGLE_PROJECT_ID", "gaagoo-local"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": client_secret,
+                "redirect_uris": [redirect_uri],
+            }
+        },
+        scopes=["https://www.googleapis.com/auth/calendar"],
+    )
+    flow.redirect_uri = redirect_uri
+    return flow
+
+
+def _cleanup_expired_oauth_states() -> None:
+    """만료된 OAuth state를 정리."""
+    now = time.time()
+    expired_keys = [
+        state for state, (_, ts) in _oauth_state_store.items()
+        if now - ts > _OAUTH_STATE_TTL_SECONDS
+    ]
+    for state in expired_keys:
+        _oauth_state_store.pop(state, None)
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -168,7 +222,7 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., description="사용자 입력 질의 문장")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화 지원)")
-    employee_id: Optional[int] = Field(default=1001, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4001, description="사원 번호")
 
 
 class ChatResponse(BaseModel):
@@ -187,7 +241,7 @@ class ChatResponse(BaseModel):
 class SessionRequest(BaseModel):
     """세션 변경 요청 모델."""
     session_id: Optional[str] = Field(default=None, description="세션 ID (None이면 새 세션 생성)")
-    employee_id: Optional[int] = Field(default=1001, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4001, description="사원 번호")
 
 
 class SessionResponse(BaseModel):
@@ -636,7 +690,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 async def upload_document_endpoint(
     file: UploadFile = FastAPIFile(...),
     document_title: str = Form(...),
-    employee_id: int = Form(1001)
+    employee_id: int = Form(4001)
 ) -> DocumentUploadResponse:
     """문서 업로드 엔드포인트 (Milvus Vector DB 저장).
     
@@ -759,8 +813,87 @@ async def upload_document_endpoint(
         ) from exc
 
 
+@app.get("/auth/google")
+async def google_oauth_start(user_id: str = Query(..., description="Google 캘린더와 연동할 사용자 ID")) -> RedirectResponse:
+    """Google OAuth 인증 페이지로 리다이렉트."""
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id가 필요합니다.")
+
+    _cleanup_expired_oauth_states()
+
+    try:
+        flow = _create_google_oauth_flow()
+        authorization_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+        )
+
+        _oauth_state_store[state] = (user_id, time.time())
+        return RedirectResponse(authorization_url)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Google OAuth 시작 중 오류가 발생했습니다: {exc}") from exc
+
+
+@app.get("/auth/google/callback")
+async def google_oauth_callback(code: str = Query(...), state: str = Query(...)) -> Response:
+    """Google OAuth 인증 후 토큰을 저장."""
+    _cleanup_expired_oauth_states()
+
+    state_entry = _oauth_state_store.pop(state, None)
+    if not state_entry:
+        raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다. 다시 시도해주세요.")
+
+    user_id, _ = state_entry
+
+    try:
+        flow = _create_google_oauth_flow()
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Google OAuth 토큰 교환 실패: {exc}") from exc
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 관리자가 초기화되지 않았습니다. Redis 설정을 확인하세요.")
+
+    existing_tokens = await session_manager.get_google_tokens(user_id) or {}
+    tokens = {
+        "access_token": credentials.token,
+        "refresh_token": credentials.refresh_token or existing_tokens.get("refresh_token"),
+        "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
+        "scopes": list(credentials.scopes) if credentials.scopes else existing_tokens.get("scopes", []),
+        "token_uri": credentials.token_uri,
+        "client_id": credentials.client_id,
+        "client_secret": credentials.client_secret,
+    }
+
+    ttl_seconds = None
+    if tokens.get("refresh_token"):
+        ttl_seconds = int(os.environ.get("GOOGLE_TOKEN_TTL", 60 * 60 * 24 * 30))
+    elif credentials.expiry:
+        ttl_seconds = max(int(credentials.expiry.timestamp() - time.time()), 60)
+
+    await session_manager.save_google_tokens(user_id, tokens, ttl=ttl_seconds)
+
+    success_html = """
+    <html>
+        <head>
+            <title>Google 인증 완료</title>
+        </head>
+        <body>
+            <h2>✅ Google 계정 연동이 완료되었습니다.</h2>
+            <p>이 창을 닫고 다시 일정 관련 요청을 진행해주세요.</p>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=success_html)
+
+
 @app.post("/api/session/new", response_model=SessionResponse)
-async def create_new_session(employee_id: int = 1001) -> SessionResponse:
+async def create_new_session(employee_id: int = 4001) -> SessionResponse:
     """새 세션 생성.
     
     Args:
@@ -809,7 +942,7 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
         )
     else:
         # 새 세션 생성
-        employee_id = payload.employee_id or 1001
+        employee_id = payload.employee_id or 4001
         session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
         return SessionResponse(
             ok=True,
@@ -849,3 +982,177 @@ async def health_check():
     """헬스 체크 엔드포인트."""
     return {"status": "ok", "service": "깐부 AI Agent 시스템"}
 
+
+# ===== 테스트용 엔드포인트 (연차/반차 & 일정 관리) =====
+
+class LeaveTestRequest(BaseModel):
+    """연차 테스트 요청 모델."""
+    query: str = Field(..., description="연차 관련 질의")
+    employee_id: int = Field(default=12345, description="사원 번호")
+    session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
+
+
+class LeaveTestResponse(BaseModel):
+    """연차 테스트 응답 모델."""
+    ok: bool = Field(..., description="성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    slot_state: Optional[dict] = Field(default=None, description="슬롯 상태")
+    awaiting_slots: Optional[list] = Field(default=None, description="대기 중인 슬롯")
+    action: Optional[str] = Field(default=None, description="실행된 액션")
+
+
+@app.post("/api/test/leave", response_model=LeaveTestResponse)
+async def test_leave_endpoint(payload: LeaveTestRequest) -> LeaveTestResponse:
+    """연차/반차 기능 테스트 엔드포인트.
+    
+    테스트 시나리오:
+    1. 연차 조회: {"query": "내 연차 잔여일수 알려줘"}
+    2. 연차 신청: {"query": "내일 연차 신청"}
+    3. 반차 신청: {"query": "내일 오후 반차"}
+    4. 연차 취소 (멀티턴):
+       - 1단계: {"query": "연차 취소하고 싶어"}
+       - 2단계: {"query": "1번", "session_id": "<1단계에서 받은 session_id>"}
+    5. 연차 수정 (멀티턴):
+       - 1단계: {"query": "연차 수정하고 싶어"}
+       - 2단계: {"query": "1번", "session_id": "<1단계에서 받은 session_id>"}
+       - 3단계: {"query": "12월 20일로 변경", "session_id": "<동일 session_id>"}
+    """
+    try:
+        from agents.master_graphs.schedule.nodes.leave_nodes import process_leave_request
+        from agents.state import OrchestratorState
+        
+        # 세션 ID 설정
+        session_id = payload.session_id or f"test_leave_{payload.employee_id}"
+        
+        # 세션 관리자로 이전 컨텍스트 로드
+        session_manager = await get_session_manager()
+        session_data = {"schedule_context": {}}
+        if session_manager:
+            loaded_data = await session_manager.load_session_data(session_id)
+            session_data = {"schedule_context": loaded_data.get("schedule_context", {})}
+        
+        # State 구성
+        state = OrchestratorState(
+            query=payload.query,
+            employee_id=payload.employee_id,
+            user_id=str(payload.employee_id),
+            messages=[],
+            schedule_context=session_data.get("schedule_context", {}),
+        )
+        
+        # Leave 노드 실행
+        result = await process_leave_request(state)
+        
+        # 세션 저장 (멀티턴 대화 지원)
+        if session_manager:
+            session_state = {
+                "schedule_context": result.get("schedule_context", {})
+            }
+            await session_manager.save_session_state(session_id, session_state)
+        
+        # 응답 구성
+        leave_context = result.get("schedule_context", {}).get("leave", {})
+        
+        return LeaveTestResponse(
+            ok=True,
+            message=result.get("final_response", "처리 완료"),
+            slot_state=leave_context.get("slot_state"),
+            awaiting_slots=leave_context.get("awaiting_slots"),
+            action=leave_context.get("slot_state", {}).get("intent")
+        )
+        
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"연차 테스트 실패: {exc}") from exc
+
+
+class ScheduleTestRequest(BaseModel):
+    """일정 테스트 요청 모델."""
+    query: str = Field(..., description="일정 관련 질의")
+    employee_id: int = Field(default=12345, description="사원 번호")
+    user_id: Optional[str] = Field(default=None, description="사용자 ID (Google Calendar)")
+    session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
+
+
+class ScheduleTestResponse(BaseModel):
+    """일정 테스트 응답 모델."""
+    ok: bool = Field(..., description="성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    slot_state: Optional[dict] = Field(default=None, description="슬롯 상태")
+    awaiting_slots: Optional[list] = Field(default=None, description="대기 중인 슬롯")
+    action: Optional[str] = Field(default=None, description="실행된 액션")
+    auth_required: Optional[bool] = Field(default=False, description="Google 인증 필요 여부")
+
+
+@app.post("/api/test/schedule", response_model=ScheduleTestResponse)
+async def test_schedule_endpoint(payload: ScheduleTestRequest) -> ScheduleTestResponse:
+    """일정 관리 기능 테스트 엔드포인트 (Google Calendar 연동).
+    
+    테스트 시나리오:
+    1. 일정 조회: {"query": "오늘 일정 알려줘"}
+    2. 일정 생성: {"query": "내일 오후 2시 팀 미팅"}
+    3. 일정 삭제 (멀티턴):
+       - 1단계: {"query": "일정 삭제"}
+       - 2단계: {"query": "1번", "session_id": "<1단계에서 받은 session_id>"}
+    4. 일정 수정 (멀티턴):
+       - 1단계: {"query": "일정 수정"}
+       - 2단계: {"query": "1번", "session_id": "<동일 session_id>"}
+       - 3단계: {"query": "내일 3시로 변경", "session_id": "<동일 session_id>"}
+       
+    Note: Google Calendar 연동이 필요한 경우 auth_required=true 반환
+    """
+    try:
+        from agents.master_graphs.schedule.nodes.schedule_nodes import process_schedule_request
+        from agents.state import OrchestratorState
+        
+        # 세션 ID 설정
+        user_id = payload.user_id or str(payload.employee_id)
+        session_id = payload.session_id or f"test_schedule_{user_id}"
+        
+        # 세션 관리자로 이전 컨텍스트 로드
+        session_manager = await get_session_manager()
+        session_data = {"schedule_context": {}}
+        if session_manager:
+            loaded_data = await session_manager.load_session_data(session_id)
+            session_data = {"schedule_context": loaded_data.get("schedule_context", {})}
+        
+        # State 구성
+        state = OrchestratorState(
+            query=payload.query,
+            employee_id=payload.employee_id,
+            user_id=user_id,
+            messages=[],
+            schedule_context=session_data.get("schedule_context", {}),
+        )
+        
+        # Schedule 노드 실행
+        result = await process_schedule_request(state)
+        
+        # 세션 저장 (멀티턴 대화 지원)
+        if session_manager:
+            session_state = {
+                "schedule_context": result.get("schedule_context", {})
+            }
+            await session_manager.save_session_state(session_id, session_state)
+        
+        # 응답 구성
+        schedule_context = result.get("schedule_context", {}).get("schedule", {})
+        message = result.get("final_response", "처리 완료")
+        
+        # Google 인증 필요 여부 확인
+        auth_required = "Google 캘린더 연동이 필요합니다" in message or "인증이 필요합니다" in message
+        
+        return ScheduleTestResponse(
+            ok=True,
+            message=message,
+            slot_state=schedule_context.get("slot_state"),
+            awaiting_slots=schedule_context.get("awaiting_slots"),
+            action=schedule_context.get("slot_state", {}).get("intent"),
+            auth_required=auth_required
+        )
+        
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"일정 테스트 실패: {exc}") from exc

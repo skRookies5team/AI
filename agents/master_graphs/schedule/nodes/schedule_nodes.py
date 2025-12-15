@@ -1,18 +1,34 @@
-"""일정 관리 노드 - HybridScheduler + LLM 파싱."""
+"""일정 관리 노드 - Slot Manager Pattern."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Literal
+from typing import Any, Dict, Optional, Literal, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+import os
+import re
 
 from agents.state import OrchestratorState
 from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
 from agents.master_graphs.schedule.utils.date_parser import parse_korean_date_with_llm
 from agents.master_graphs.schedule.utils.entity_parser import extract_schedule_entities
-from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired  # [OAuth] 인증 유도 예외
-# HybridScheduler 싱글톤 인스턴스
+from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
+from agents.master_graphs.schedule.models.schedule_models import ScheduleSlotDecision
+from agents.master_graphs.schedule.utils.schedule_slot_manager import analyze_schedule_slots
+
+
 _scheduler = None
+
+# 일정 등록 필수 정보 정의
+CREATION_SLOT_ORDER = ["title", "start_time", "end_time", "description", "location"]
+CREATION_SLOT_DESCRIPTIONS = {
+    "title": "일정 제목",
+    "start_time": "시작 일시 (예: 2025-12-13 14:00)",
+    "end_time": "종료 일시 (예: 2025-12-13 15:00)",
+    "description": "일정 설명",
+    "location": "장소 (선택사항)",
+}
 
 
 def _get_scheduler() -> HybridScheduler:
@@ -25,25 +41,19 @@ def _get_scheduler() -> HybridScheduler:
 
 @dataclass
 class ParsedScheduleIntent:
-    """파싱된 일정 의도 (leave_nodes와 동일 패턴)."""
+    """파싱된 일정 의도."""
     action: Literal["조회", "생성", "삭제", "수정"]
     title: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
     user_id: Optional[str] = None
+    event_id: Optional[str] = None
 
 
 async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
-    """일정 요청 처리.
-    
-    Args:
-        state: 오케스트레이터 상태
-        
-    Returns:
-        처리 결과 딕셔너리
-    """
+    """일정 요청 처리 - Slot Manager Pattern."""
     query = state.get("query", "")
     user_id = state.get("user_id") or state.get("employee_id")
     
@@ -57,48 +67,147 @@ async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
     
     print(f"[Schedule Node] 쿼리: {query}, user_id: {user_id}")
     
-    # 1. 액션 결정 (키워드 기반)
-    action = _determine_action(query)
+    # 1. slot_state 및 awaiting_slots 추출
+    slot_state_ctx = schedule_context.get("slot_state") or {}
+    awaiting_slots_ctx = schedule_context.get("awaiting_slots") or []
     
-    # 2. 특수 케이스: "오늘 일정" 같은 전체 조회 (user_id 불필요)
-    if action == "조회" and not user_id:
-        schedule_context["last_query"] = query
-        schedule_context["last_action"] = action
-        message = "사용자 인증이 되지 않아 개인 일정을 조회할 수 없습니다. 로그인 후 다시 시도해주세요."
-        return {
-            "final_response": message,
-            "messages": [message],
-            "schedule_context": state["schedule_context"],
-        }
-    
-    # 3. LLM 기반 파싱
-    parsed = await _parse_schedule_intent(query, user_id, action)
-    
-    # 4. user_id 검증 (생성/삭제/수정은 필수)
-    if not parsed.user_id and action in ["생성", "삭제", "수정"]:
-        return {
-            "final_response": "일정 관리를 위해서는 사용자 인증(user_id)이 필요합니다.",
-            "messages": ["일정 관리를 위해서는 사용자 인증이 필요합니다."],
-            "schedule_context": state["schedule_context"],
-        }
-    
-    # 5. 액션별 처리
-    if parsed.action == "조회":
-        result = await _query_schedule(parsed, state)
-    elif parsed.action == "생성":
-        result = await _create_schedule(parsed, state)
-    elif parsed.action == "삭제":
-        result = await _delete_schedule(parsed, state)
-    elif parsed.action == "수정":
-        result = await _update_schedule(parsed, state)
+    # 2. 액션 결정
+    inferred_action = _determine_action(query)
+    if awaiting_slots_ctx and slot_state_ctx.get("intent"):
+        action = slot_state_ctx["intent"]
+        should_reset_context = False
     else:
-        # fallback
-        result = await _query_schedule(parsed, state)
+        action = inferred_action
+        should_reset_context = True
     
-    # 6. Redis 컨텍스트 업데이트
-    schedule_context["last_query"] = query
-    schedule_context["last_action"] = parsed.action
-
+    # 3. 컨텍스트 리셋 여부 판단
+    if should_reset_context:
+        _maybe_reset_schedule_context(schedule_context, action, query)
+    
+    # 4. slot_state_payload 구성
+    slot_state_payload = _build_slot_state_payload(action, schedule_context)
+    
+    # 5. LLM 슬롯 분석
+    slot_decision = await analyze_schedule_slots(query, slot_state_payload)
+    
+    # 6. action 정규화
+    normalized_action = _map_decision_action(slot_decision.action, action) if slot_decision else action
+    
+    # 7. ParsedIntent 생성
+    parsed = await _parse_schedule_intent(
+        query, user_id, normalized_action,
+        schedule_context, awaiting_slots_ctx, slot_decision, slot_state_payload
+    )
+    
+    # 8. slot_decision 적용
+    followup_question = _apply_slot_decision(
+        parsed, slot_decision, schedule_context, slot_state_payload, query
+    )
+    
+    # 8.5. 일정 생성 시 초기 프롬프트 표시 (회의실 패턴)
+    if parsed.action == "생성":
+        initial_missing = _collect_creation_missing(parsed, schedule_context)
+        slot_state_ctx = schedule_context.get("slot_state") or {}
+        slot_values = slot_state_ctx.get("slots") or {}
+        previous_awaiting = slot_state_payload.get("awaiting_slots") or []
+        previous_slots = slot_state_payload.get("slots") or {}
+        
+        has_existing_slot_progress = bool(
+            previous_awaiting
+            or any(value not in (None, "", [], {}) for value in previous_slots.values())
+            or any(value not in (None, "", [], {}) for value in slot_values.values())
+        )
+        
+        if initial_missing and not has_existing_slot_progress:
+            initial_prompt = _build_initial_creation_prompt(initial_missing)
+            slot_state_ctx.setdefault("intent", parsed.action)
+            slot_state_ctx.setdefault("slots", {})
+            slot_state_ctx["missing_slots"] = initial_missing
+            schedule_context["slot_state"] = slot_state_ctx
+            schedule_context["awaiting_slots"] = initial_missing
+            schedule_context["last_question"] = initial_prompt
+            state["last_domain"] = "schedule"
+            state["domain"] = "schedule"
+            
+            return {
+                "final_response": initial_prompt,
+                "messages": [initial_prompt],
+                "schedule_context": state["schedule_context"],
+            }
+    
+    # 8.6. 일정 삭제 시 기간 입력 확인 (초기)
+    if parsed.action == "삭제":
+        slot_state_ctx = schedule_context.get("slot_state") or {}
+        slots = slot_state_ctx.get("slots") or {}
+        previous_awaiting = slot_state_payload.get("awaiting_slots") or []
+        
+        # 삭제 선택 대기 중이 아니고, 기간 정보가 없으면 기간 입력 요청
+        if "delete_selection" not in previous_awaiting:
+            start_date = parsed.start_time or _parse_iso_datetime(slots.get("start_time"))
+            end_date = parsed.end_time or _parse_iso_datetime(slots.get("end_time"))
+            
+            if not start_date or not end_date:
+                schedule_context["awaiting_slots"] = ["start_time", "end_time"]
+                schedule_context["last_question"] = "삭제할 일정의 기간을 알려주세요.\n예: 오늘부터 다음주까지, 12월 1일부터 12월 31일까지"
+                state["last_domain"] = "schedule"
+                state["domain"] = "schedule"
+                
+                return {
+                    "final_response": "삭제할 일정의 기간을 알려주세요.\n예: 오늘부터 다음주까지, 12월 1일부터 12월 31일까지",
+                    "messages": ["삭제할 일정의 기간을 알려주세요.\n예: 오늘부터 다음주까지, 12월 1일부터 12월 31일까지"],
+                    "schedule_context": state["schedule_context"],
+                }
+    
+    # 8.7. 일정 조회 시 기간 입력 확인 (초기)
+    if parsed.action == "조회":
+        slot_state_ctx = schedule_context.get("slot_state") or {}
+        slots = slot_state_ctx.get("slots") or {}
+        previous_awaiting = slot_state_payload.get("awaiting_slots") or []
+        
+        # 기간 정보가 없으면 기간 입력 요청
+        start_date = parsed.start_time or _parse_iso_datetime(slots.get("start_time"))
+        end_date = parsed.end_time or _parse_iso_datetime(slots.get("end_time"))
+        
+        if not start_date or not end_date:
+            schedule_context["awaiting_slots"] = ["start_time", "end_time"]
+            schedule_context["last_question"] = "조회할 일정의 기간을 알려주세요.\n예: 이번주, 다음주, 12월 1일부터 12월 31일까지"
+            state["last_domain"] = "schedule"
+            state["domain"] = "schedule"
+            
+            return {
+                "final_response": "조회할 일정의 기간을 알려주세요.\n예: 이번주, 다음주, 12월 1일부터 12월 31일까지",
+                "messages": ["조회할 일정의 기간을 알려주세요.\n예: 이번주, 다음주, 12월 1일부터 12월 31일까지"],
+                "schedule_context": state["schedule_context"],
+            }
+    
+    # 9. followup이 있으면 즉시 반환
+    if followup_question:
+        schedule_context["last_question"] = followup_question
+        state["last_domain"] = "schedule"
+        state["domain"] = "schedule"
+        
+        return {
+            "final_response": followup_question,
+            "messages": [followup_question],
+            "schedule_context": state["schedule_context"],
+        }
+    
+    # 10. 액션 처리
+    if parsed.action == "조회":
+        result = await _handle_query(parsed, state)
+    elif parsed.action == "생성":
+        result = await _handle_create(parsed, state)
+    elif parsed.action == "삭제":
+        result = await _handle_delete(parsed, state, schedule_context)
+    elif parsed.action == "수정":
+        result = await _handle_update(parsed, state, schedule_context)
+    else:
+        result = await _handle_query(parsed, state)
+    
+    # 11. slot_state 저장
+    _persist_slot_state(schedule_context, parsed)
+    
+    # 12. 응답 반환
     state["last_domain"] = "schedule"
     state["domain"] = "schedule"
     
@@ -109,94 +218,396 @@ async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
     }
 
 
+# ========== Utility Functions (Meeting Room Pattern) ==========
+
+def _build_slot_state_payload(current_action: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    """Slot Manager에 전달할 payload 구성."""
+    existing_state = context.get("slot_state") or {}
+    return {
+        "intent": existing_state.get("intent") or current_action,
+        "slots": existing_state.get("slots") or {},
+        "delete_candidates": context.get("delete_candidates") or [],
+        "update_candidates": context.get("update_candidates") or [],
+        "awaiting_slots": context.get("awaiting_slots") or [],
+        "last_question": context.get("last_question"),
+    }
+
+
+def _apply_slot_decision(
+    parsed: ParsedScheduleIntent,
+    slot_decision: Optional[ScheduleSlotDecision],
+    context: Dict[str, Any],
+    slot_state_payload: Dict[str, Any],
+    raw_query: str
+) -> Optional[str]:
+    """LLM 슬롯 결정을 컨텍스트에 적용."""
+    if slot_decision is None:
+        context.pop("awaiting_slots", None)
+        return None
+    
+    # slots 병합
+    merged_slots = dict(slot_state_payload.get("slots") or {})
+    for key, value in (slot_decision.filled_slots or {}).items():
+        normalized = _normalize_slot_value(key, value)
+        if normalized is not None:
+            merged_slots[key] = normalized
+    
+    parsed_slots = _export_parsed_slots(parsed)
+    for key, value in parsed_slots.items():
+        if value is not None:
+            merged_slots[key] = value
+    
+    # 슬롯이 채워진 경우 missing_slots 재계산
+    recalculated_missing = []
+    for slot_name in (slot_decision.missing_slots or []):
+        if slot_name not in merged_slots or merged_slots[slot_name] is None:
+            recalculated_missing.append(slot_name)
+        elif slot_name in ["title", "description", "location"] and not str(merged_slots[slot_name]).strip():
+            recalculated_missing.append(slot_name)
+    
+    context["slot_state"] = {
+        "intent": parsed.action,
+        "slots": merged_slots,
+        "missing_slots": recalculated_missing,
+    }
+    
+    # 여러 슬롯이 누락되었으면 한 번에 물어봄 (회의실 패턴)
+    if recalculated_missing and slot_decision.should_ask:
+        # 삭제 액션일 때는 기간만 물어봄 (title 등은 불필요)
+        if parsed.action == "삭제":
+            if "start_time" in recalculated_missing or "end_time" in recalculated_missing:
+                context["awaiting_slots"] = ["start_time", "end_time"]
+                context["last_question"] = "삭제할 일정의 기간을 알려주세요.\n예: 오늘부터 다음주까지, 12월 1일부터 12월 31일까지"
+                return "삭제할 일정의 기간을 알려주세요.\n예: 오늘부터 다음주까지, 12월 1일부터 12월 31일까지"
+            elif "delete_selection" in recalculated_missing:
+                # 삭제 선택 대기 중
+                return None
+        # 조회 액션일 때도 기간만 물어봄
+        elif parsed.action == "조회":
+            if "start_time" in recalculated_missing or "end_time" in recalculated_missing:
+                context["awaiting_slots"] = ["start_time", "end_time"]
+                context["last_question"] = "조회할 일정의 기간을 알려주세요.\n예: 이번주, 다음주, 12월 1일부터 12월 31일까지"
+                return "조회할 일정의 기간을 알려주세요.\n예: 이번주, 다음주, 12월 1일부터 12월 31일까지"
+        # 생성 액션일 때는 복합 질문
+        elif len(recalculated_missing) > 1 and parsed.action == "생성":
+            slot_descriptions = [
+                CREATION_SLOT_DESCRIPTIONS.get(slot, slot)
+                for slot in recalculated_missing
+                if slot != "location"  # location은 선택사항
+            ]
+            if slot_descriptions:
+                combined_question = "다음 정보를 알려주세요:\n" + "\n".join(
+                    f"- {desc}" for desc in slot_descriptions
+                )
+                context["awaiting_slots"] = recalculated_missing
+                context["last_question"] = combined_question
+                print(f"[복합 질문 생성] missing={recalculated_missing}")
+                return combined_question
+        elif slot_decision.followup_question:
+            context["awaiting_slots"] = recalculated_missing
+            context["last_question"] = slot_decision.followup_question
+            return slot_decision.followup_question
+    
+    context.pop("awaiting_slots", None)
+    return None
+
+
+def _persist_slot_state(context: Dict[str, Any], parsed: ParsedScheduleIntent) -> None:
+    """액션 완료 후 slot_state 저장."""
+    slot_state = context.get("slot_state") or {}
+    slot_state["intent"] = parsed.action
+    slot_state["slots"] = _export_parsed_slots(parsed)
+    if "missing_slots" not in slot_state:
+        slot_state["missing_slots"] = []
+    context["slot_state"] = slot_state
+
+
+def _normalize_slot_value(slot_name: str, value: Any) -> Any:
+    """슬롯 값 타입 정규화."""
+    if value is None:
+        return None
+    
+    if slot_name in ["start_time", "end_time"]:
+        # 시간은 ISO 문자열로 유지
+        if isinstance(value, str):
+            return value
+        elif isinstance(value, datetime):
+            return value.isoformat()
+    
+    elif slot_name == "selection_index":
+        return int(value)
+    
+    return value
+
+
+def _export_parsed_slots(parsed: ParsedScheduleIntent) -> Dict[str, Any]:
+    """ParsedIntent를 직렬화 가능한 dict로 변환."""
+    return {
+        "title": parsed.title,
+        "description": parsed.description,
+        "location": parsed.location,
+        "start_time": parsed.start_time.isoformat() if parsed.start_time else None,
+        "end_time": parsed.end_time.isoformat() if parsed.end_time else None,
+        "event_id": parsed.event_id,
+    }
+
+
+def _map_decision_action(decision_action: str, fallback: str) -> str:
+    """LLM 액션을 내부 액션으로 매핑."""
+    mapping = {
+        "조회": "조회",
+        "생성": "생성",
+        "삭제": "삭제",
+        "수정": "수정",
+        "유지": fallback,
+    }
+    return mapping.get(decision_action, fallback)
+
+
+def _maybe_reset_schedule_context(context: Dict[str, Any], action: str, query: str) -> None:
+    """명시적 의도 변경 시 컨텍스트 리셋."""
+    action_keywords = {
+        "조회": ["조회", "찾아", "보여"],
+        "생성": ["생성", "등록", "추가"],
+        "삭제": ["삭제", "취소"],
+        "수정": ["수정", "변경"],
+    }
+    
+    current_intent = context.get("slot_state", {}).get("intent")
+    if current_intent and current_intent != action:
+        for kw in action_keywords.get(action, []):
+            if kw in query:
+                context.pop("slot_state", None)
+                context.pop("awaiting_slots", None)
+                break
+
+
+def _extract_selection_index(query: str) -> Optional[int]:
+    """사용자 입력에서 선택 번호 추출."""
+    patterns = [
+        r'(\d+)\s*번',
+        r'(\d+)\s*번째',
+        r'^(\d+)$',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, query.strip())
+        if match:
+            return int(match.group(1))
+    
+    korean_numbers = {
+        "첫": 1, "하나": 1,
+        "둘": 2, "이": 2,
+        "셋": 3, "삼": 3,
+    }
+    
+    for korean, num in korean_numbers.items():
+        if korean in query:
+            return num
+    
+    return None
+
+
+def _collect_creation_missing(parsed: ParsedScheduleIntent, context: Dict[str, Any]) -> List[str]:
+    """일정 생성에 필요한 필수 슬롯 중 비어 있는 항목을 수집한다."""
+    slot_state = context.get("slot_state") or {}
+    slots = slot_state.get("slots") or {}
+    
+    missing: List[str] = []
+    
+    # 제목 확인
+    title_candidate = (parsed.title or "").strip()
+    if not title_candidate:
+        title_candidate = (slots.get("title") or "").strip()
+    if not title_candidate:
+        missing.append("title")
+    
+    # 시작 시간 확인
+    if not parsed.start_time and not slots.get("start_time"):
+        missing.append("start_time")
+    
+    # 종료 시간 확인
+    if not parsed.end_time and not slots.get("end_time"):
+        missing.append("end_time")
+    
+    # 설명 확인 (선택사항이지만 권장)
+    description_candidate = (parsed.description or "").strip()
+    if not description_candidate:
+        description_candidate = (slots.get("description") or "").strip()
+    if not description_candidate:
+        missing.append("description")
+    
+    return missing
+
+
+def _build_initial_creation_prompt(missing_slots: List[str]) -> str:
+    """일정 생성을 위한 초기 프롬프트를 생성한다."""
+    lines = ["일정을 등록하려면 아래 정보가 필요합니다:", ""]
+    
+    for slot_name in CREATION_SLOT_ORDER:
+        if slot_name in missing_slots:
+            desc = CREATION_SLOT_DESCRIPTIONS.get(slot_name, slot_name)
+            lines.append(f"- {desc}")
+    
+    lines.append("")
+    lines.append("차례대로 알려주시면 곧바로 등록을 진행하겠습니다.")
+    
+    return "\n".join(lines)
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    """ISO 문자열을 datetime으로 안전하게 변환한다."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _to_rfc3339(dt: datetime) -> str:
+    """datetime을 RFC3339 형식(Google Calendar API 호환)으로 변환한다."""
+    if dt.tzinfo is None:
+        # naive datetime은 로컬 시간으로 간주
+        local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+        dt = dt.replace(tzinfo=local_tz)
+    
+    # UTC로 변환
+    utc_dt = dt.astimezone(ZoneInfo("UTC"))
+    # Z 포맷으로 변환 (타임존 정보 제거하고 Z 추가)
+    return utc_dt.strftime('%Y-%m-%dT%H:%M:%S') + "Z"
+
+
+# ========== Action Handlers ==========
+
 async def _parse_schedule_intent(
     query: str,
     user_id: Optional[str],
-    action: str
+    action: str,
+    context: Dict[str, Any],
+    awaiting_slots: Optional[List[str]],
+    slot_decision: Optional[ScheduleSlotDecision],
+    slot_state_payload: Dict[str, Any]
 ) -> ParsedScheduleIntent:
-    """쿼리에서 일정 의도를 파싱.
+    """쿼리에서 일정 의도 파싱."""
+    existing_slots = slot_state_payload.get("slots", {})
+    awaiting_set = set(awaiting_slots or [])
     
-    Args:
-        query: 사용자 쿼리
-        user_id: 사용자 ID
-        action: 결정된 액션
-        
-    Returns:
-        파싱된 의도
-    """
-    # 1. 날짜 파싱 (LLM)
-    start_date, end_date = await parse_korean_date_with_llm(query)
-    
-    # 2. 엔티티 추출 (LLM)
+    # 엔티티 추출
     if action == "생성":
         entities = await extract_schedule_entities(query)
+        
+        # 쉼표로 구분된 입력 처리 (예: "제목, 설명, 장소")
+        if ("title" in awaiting_set or "description" in awaiting_set or "location" in awaiting_set) and "," in query:
+            parts = [part.strip() for part in query.split(",")]
+            idx = 0
+            if "title" in awaiting_set and idx < len(parts):
+                entities["title"] = parts[idx]
+                print(f"[쉼표 파싱] title: {parts[idx]}")
+                idx += 1
+            if "description" in awaiting_set and idx < len(parts):
+                entities["description"] = parts[idx]
+                print(f"[쉼표 파싱] description: {parts[idx]}")
+                idx += 1
+            if "location" in awaiting_set and idx < len(parts):
+                entities["location"] = parts[idx]
+                print(f"[쉼표 파싱] location: {parts[idx]}")
+                idx += 1
     else:
         entities = {}
     
+    # 날짜 파싱
+    start_time = None
+    end_time = None
+    
+    if existing_slots.get("start_time"):
+        start_time = datetime.fromisoformat(existing_slots["start_time"].replace("Z", "+00:00"))
+    if existing_slots.get("end_time"):
+        end_time = datetime.fromisoformat(existing_slots["end_time"].replace("Z", "+00:00"))
+    
+    # 날짜 정보가 있는 쿼리면 파싱 (생성, 삭제, 조회 모두)
+    if not awaiting_slots or action in ["생성", "삭제", "조회"]:
+        # 기간 입력 대기 중이거나 아직 기간이 없으면 파싱 시도
+        if action == "삭제" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
+            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            if start_date_obj:
+                start_time = start_date_obj
+                # 삭제는 기간이 필요하므로 end_time 기본값 설정
+                if end_date_obj:
+                    end_time = end_date_obj
+                elif not end_time:
+                    end_time = start_date_obj + timedelta(days=7)  # 기본 7일
+        elif action == "조회" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
+            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            if start_date_obj:
+                start_time = start_date_obj
+                # 조회도 기간이 필요하므로 end_time 기본값 설정
+                if end_date_obj:
+                    end_time = end_date_obj
+                elif not end_time:
+                    end_time = start_date_obj + timedelta(days=7)  # 기본 7일
+        elif action == "생성" or not awaiting_slots:
+            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            if start_date_obj:
+                start_time = start_date_obj
+                end_time = end_date_obj or (start_date_obj + timedelta(hours=1))
+    
+    # 선택 인덱스
+    selection_index = None
+    if awaiting_slots and ("delete_selection" in awaiting_slots or "update_selection" in awaiting_slots):
+        selection_index = _extract_selection_index(query)
+    # 삭제 액션이고 delete_candidates가 있으면 선택 인덱스 추출 시도
+    elif action == "삭제" and context.get("delete_candidates"):
+        selection_index = _extract_selection_index(query)
+        print(f"[삭제 선택 인덱스 추출] query='{query}', index={selection_index}")
+    
     return ParsedScheduleIntent(
         action=action,
-        title=entities.get("title"),
-        description=entities.get("description"),
-        location=entities.get("location"),
-        start_date=start_date,
-        end_date=end_date,
-        user_id=user_id,
+        title=entities.get("title") or existing_slots.get("title"),
+        description=entities.get("description") or existing_slots.get("description"),
+        location=entities.get("location") or existing_slots.get("location"),
+        start_time=start_time,
+        end_time=end_time,
+        user_id=str(user_id) if user_id else None,
+        event_id=str(selection_index) if selection_index else existing_slots.get("event_id"),
     )
 
 
-async def _query_schedule(
+async def _handle_query(
     parsed: ParsedScheduleIntent,
     state: OrchestratorState
 ) -> Dict[str, Any]:
-    """일정 조회 (Google Calendar + DB 하이브리드).
-    
-    Args:
-        parsed: 파싱된 일정 정보
-        state: 상태
-        
-    Returns:
-        조회 결과
-    """
+    """일정 조회."""
     scheduler = _get_scheduler()
     schedule_context = state["schedule_context"]["schedule"]
     
+    # 기간 확인
+    start_date = parsed.start_time
+    end_date = parsed.end_time
+    
+    # 기간이 없으면 이전 단계에서 이미 요청했으므로 에러
+    if not start_date or not end_date:
+        return {
+            "ok": False,
+            "message": "일정 조회를 위한 기간 정보가 필요합니다."
+        }
+    
     try:
-        # 1. 날짜 범위 기본값 설정
-        start_date = parsed.start_date
-        end_date = parsed.end_date
-        
-        if not start_date:
-            start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = start_date + timedelta(days=7)
-        
-        # 2. Google Calendar + DB에서 일정 조회
         if parsed.user_id:
-            # HybridScheduler 사용 (Google Calendar Primary)
             try:
                 events = await scheduler.get_events(
                     user_id=str(parsed.user_id),
-                    start_date=start_date.isoformat() + "Z",
-                    end_date=end_date.isoformat() + "Z"
+                    start_date=_to_rfc3339(start_date),
+                    end_date=_to_rfc3339(end_date)
                 )
             except GoogleAuthRequired as auth_error:
-                message = (
-                    "🔐 Google 캘린더 연동이 필요합니다.\n"
-                    f"아래 링크에서 계정을 연결한 뒤 다시 시도해주세요:\n{auth_error.auth_url}"
-                )
                 return {
                     "ok": False,
-                    "message": message,
-                    "events": [],
+                    "message": f"🔐 Google 캘린더 연동이 필요합니다.\n{auth_error.auth_url}"
                 }
             
-            # 컨텍스트 저장
             schedule_context["last_results"] = events
-            schedule_context["last_filters"] = {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-            }
             
-            # 응답 메시지 생성
             if not events:
                 message = f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')} 기간에 일정이 없습니다."
             else:
@@ -206,161 +617,253 @@ async def _query_schedule(
                     title = event.get('title', '제목 없음')
                     start = event.get('start_time', '')
                     location = event.get('location', '')
-                    room = event.get('meeting_room_name', '')
                     
-                    message += f"{idx}. {title}\n"
-                    message += f"   📍 시간: {start}\n"
+                    message += f"{idx}. {title}\n   🕐 {start}\n"
                     if location:
-                        message += f"   🏢 장소: {location}\n"
-                    if room:
-                        message += f"   🚪 회의실: {room}\n"
+                        message += f"   🏢 {location}\n"
                     message += "\n"
                 
                 if len(events) > 10:
                     message += f"... 외 {len(events) - 10}건"
             
-            return {"ok": True, "message": message, "events": events}
-        
+            return {"ok": True, "message": message}
         else:
-            message = "사용자 인증이 되지 않아 개인 일정을 조회할 수 없습니다. 로그인 후 다시 시도해주세요."
-            return {
-                "ok": False,
-                "message": message,
-                "events": [],
-            }
+            return {"ok": False, "message": "사용자 인증이 필요합니다."}
     
     except Exception as e:
         print(f"❌ 일정 조회 실패: {e}")
-        
-        return {
-            "ok": False,
-            "message": f"일정 조회 중 오류가 발생했습니다: {str(e)}",
-        }
+        return {"ok": False, "message": f"일정 조회 중 오류: {str(e)}"}
 
 
-async def _create_schedule(
+async def _handle_create(
     parsed: ParsedScheduleIntent,
     state: OrchestratorState
 ) -> Dict[str, Any]:
-    """일정 생성 (LLM 파싱 적용).
-    
-    Args:
-        parsed: 파싱된 일정 정보
-        state: 상태
-        
-    Returns:
-        생성 결과
-    """
+    """일정 생성."""
     scheduler = _get_scheduler()
     
-    # 날짜 기본값 설정
-    start_date = parsed.start_date
-    end_date = parsed.end_date
+    start_time = parsed.start_time or (datetime.now() + timedelta(days=1)).replace(hour=14, minute=0)
+    end_time = parsed.end_time or (start_time + timedelta(hours=1))
     
-    if not start_date:
-        start_date = (datetime.now() + timedelta(days=1)).replace(hour=14, minute=0, second=0, microsecond=0)
-        end_date = start_date.replace(hour=15, minute=0)
-    
-    # 이벤트 데이터 준비
     event_data = {
         'title': parsed.title or '새 일정',
         'description': parsed.description or '',
-        'start_time': start_date.isoformat(),
-        'end_time': end_date.isoformat(),
+        'start_time': start_time.isoformat(),
+        'end_time': end_time.isoformat(),
         'location': parsed.location or '',
         'attendees': [],
     }
     
     try:
         try:
-            created_event_response = await scheduler.create_event(
+            created_event = await scheduler.create_event(
                 user_id=str(parsed.user_id),
                 event_data=event_data
             )
         except GoogleAuthRequired as auth_error:
-            message = (
-                "🔐 Google 캘린더 연동이 필요합니다.\n"
-                f"아래 링크에서 계정을 연결한 뒤 다시 시도해주세요:\n{auth_error.auth_url}"
-            )
-            return {"ok": False, "message": message}
-        gcal_event = created_event_response
-        if isinstance(created_event_response, dict):
-            gcal_event = created_event_response.get("gcal_event")
+            return {"ok": False, "message": f"🔐 Google 캘린더 인증이 필요합니다: {auth_error.auth_url}"}
         
-        if gcal_event:
+        if created_event:
             return {
                 "ok": True,
-                "message": f"✅ 일정이 생성되었습니다!\n\n📌 제목: {event_data['title']}\n📍 시간: {start_date.strftime('%Y-%m-%d %H:%M')}"
+                "message": f"✅ 일정이 생성되었습니다!\n\n📌 {event_data['title']}\n🕐 {start_time.strftime('%Y-%m-%d %H:%M')}"
             }
-        else:
-            return {"ok": False, "message": "일정 생성에 실패했습니다."}
+        
+        return {"ok": False, "message": "일정 생성에 실패했습니다."}
     
     except Exception as e:
         print(f"❌ 일정 생성 실패: {e}")
         return {"ok": False, "message": f"일정 생성 중 오류: {str(e)}"}
 
 
-async def _delete_schedule(
+async def _handle_delete(
     parsed: ParsedScheduleIntent,
-    state: OrchestratorState
+    state: OrchestratorState,
+    context: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """일정 삭제.
+    """일정 삭제."""
+    scheduler = _get_scheduler()
+    slot_state = context.get("slot_state") or {}
+    slots = slot_state.get("slots") or {}
     
-    Args:
-        parsed: 파싱된 일정 정보
-        state: 상태
+    # event_id가 숫자면 선택 인덱스
+    if parsed.event_id and parsed.event_id.isdigit():
+        selection = int(parsed.event_id)
+        candidates = context.get("delete_candidates", [])
         
-    Returns:
-        삭제 결과
-    """
-    # TODO: 이전 조회 결과에서 이벤트 선택 후 삭제
-    # schedule_context["last_results"]에서 번호로 선택
+        if 1 <= selection <= len(candidates):
+            selected = candidates[selection - 1]
+            event_id = selected.get('gcal_event_id')
+            
+            try:
+                success = await scheduler.delete_event(
+                    user_id=str(parsed.user_id),
+                    event_id=event_id
+                )
+            except GoogleAuthRequired as auth_error:
+                return {"ok": False, "message": f"🔐 Google 캘린더 인증 필요: {auth_error.auth_url}"}
+            
+            if success:
+                context.pop("delete_candidates", None)
+                context.pop("awaiting_slots", None)
+                context.pop("slot_state", None)
+                return {
+                    "ok": True,
+                    "message": f"✅ 일정이 삭제되었습니다.\n\n- {selected.get('title')}\n- {selected.get('start_time')}"
+                }
+        
+        return {"ok": False, "message": "올바른 번호를 선택해주세요."}
     
-    return {
-        "ok": False,
-        "message": "일정 삭제 기능은 아직 구현 중입니다.\n먼저 '일정 조회'로 확인한 후 번호를 알려주세요."
-    }
+    # 기간 확인 - 슬롯에서 가져오거나 파싱된 값 사용
+    start_date = parsed.start_time or _parse_iso_datetime(slots.get("start_time"))
+    end_date = parsed.end_time or _parse_iso_datetime(slots.get("end_time"))
+    
+    # 기간이 없으면 이전 단계에서 이미 요청했으므로 에러
+    if not start_date or not end_date:
+        return {
+            "ok": False,
+            "message": "일정 삭제를 위한 기간 정보가 필요합니다."
+        }
+    
+    # 후보 목록 조회
+    try:
+        try:
+            events = await scheduler.get_events(
+                user_id=str(parsed.user_id),
+                start_date=_to_rfc3339(start_date),
+                end_date=_to_rfc3339(end_date)
+            )
+        except GoogleAuthRequired as auth_error:
+            return {"ok": False, "message": f"🔐 Google 캘린더 인증 필요: {auth_error.auth_url}"}
+        
+        if not events:
+            return {"ok": False, "message": f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')} 기간에 삭제 가능한 일정이 없습니다."}
+        
+        context["delete_candidates"] = events[:10]
+        context["awaiting_slots"] = ["delete_selection"]
+        
+        message = f"📋 삭제 가능한 일정 목록 ({start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}):\n\n"
+        for idx, event in enumerate(events[:10], 1):
+            message += f"{idx}. {event.get('title', '제목 없음')}\n   🕐 {event.get('start_time')}\n\n"
+        
+        if len(events) > 10:
+            message += f"... 외 {len(events) - 10}건\n\n"
+        
+        message += "❗ 삭제할 일정의 번호만 입력해주세요. (예: 2)"
+        
+        return {"ok": False, "message": message}
+    
+    except Exception as e:
+        print(f"❌ 일정 삭제 목록 조회 실패: {e}")
+        return {"ok": False, "message": f"일정 삭제 처리 중 오류: {str(e)}"}
 
 
-async def _update_schedule(
+async def _handle_update(
     parsed: ParsedScheduleIntent,
-    state: OrchestratorState
+    state: OrchestratorState,
+    context: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """일정 수정.
+    """일정 수정."""
+    scheduler = _get_scheduler()
     
-    Args:
-        parsed: 파싱된 일정 정보
-        state: 상태
+    # 선택된 항목이 있으면 수정 실행
+    if "selected_event_for_update" in context:
+        selected = context["selected_event_for_update"]
+        event_id = selected.get('gcal_event_id')
         
-    Returns:
-        수정 결과
-    """
-    # TODO: 이전 조회 결과에서 이벤트 선택 후 수정
+        entities = await extract_schedule_entities(context.get("last_update_query", ""))
+        start_date, end_date = await parse_korean_date_with_llm(context.get("last_update_query", ""))
+        
+        update_data = {}
+        
+        if entities.get('title'):
+            update_data['title'] = entities['title']
+        if entities.get('location'):
+            update_data['location'] = entities['location']
+        if start_date:
+            update_data['start_time'] = start_date.isoformat()
+            update_data['end_time'] = (end_date or (start_date + timedelta(hours=1))).isoformat()
+        
+        if not update_data:
+            return {"ok": False, "message": "수정할 내용을 찾을 수 없습니다."}
+        
+        try:
+            updated_event = await scheduler.update_event(
+                user_id=str(parsed.user_id),
+                event_id=event_id,
+                event_data=update_data
+            )
+        except GoogleAuthRequired as auth_error:
+            return {"ok": False, "message": f"🔐 Google 캘린더 인증 필요: {auth_error.auth_url}"}
+        
+        if updated_event:
+            context.pop("update_candidates", None)
+            context.pop("selected_event_for_update", None)
+            context.pop("awaiting_slots", None)
+            
+            return {
+                "ok": True,
+                "message": f"✅ 일정이 수정되었습니다.\n\n수정된 내용:\n" +
+                          (f"- 제목: {update_data.get('title')}\n" if 'title' in update_data else "") +
+                          (f"- 시간: {update_data.get('start_time')}\n" if 'start_time' in update_data else "")
+            }
+        
+        return {"ok": False, "message": "일정 수정에 실패했습니다."}
     
-    return {
-        "ok": False,
-        "message": "일정 수정 기능은 아직 구현 중입니다.\n먼저 '일정 조회'로 확인한 후 번호를 알려주세요."
-    }
+    # 첫 단계: 선택 요청
+    if parsed.event_id and parsed.event_id.isdigit():
+        selection = int(parsed.event_id)
+        candidates = context.get("update_candidates", [])
+        
+        if 1 <= selection <= len(candidates):
+            selected = candidates[selection - 1]
+            context["selected_event_for_update"] = selected
+            
+            return {
+                "ok": False,
+                "message": f"선택된 일정:\n- {selected.get('title')}\n- {selected.get('start_time')}\n\n변경할 내용을 입력해주세요."
+            }
+    
+    # 후보 목록 조회
+    try:
+        start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = start_date + timedelta(days=30)
+        
+        try:
+            events = await scheduler.get_events(
+                user_id=str(parsed.user_id),
+                start_date=_to_rfc3339(start_date),
+                end_date=_to_rfc3339(end_date)
+            )
+        except GoogleAuthRequired as auth_error:
+            return {"ok": False, "message": f"🔐 Google 캘린더 인증 필요: {auth_error.auth_url}"}
+        
+        if not events:
+            return {"ok": False, "message": "수정할 수 있는 일정이 없습니다."}
+        
+        context["update_candidates"] = events[:10]
+        context["awaiting_slots"] = ["update_selection"]
+        
+        message = "📋 수정 가능한 일정 목록:\n\n"
+        for idx, event in enumerate(events[:10], 1):
+            message += f"{idx}. {event.get('title', '제목 없음')}\n   🕐 {event.get('start_time')}\n\n"
+        
+        message += "\n수정할 일정 번호를 입력해주세요. (예: 1)"
+        
+        return {"ok": False, "message": message}
+    
+    except Exception as e:
+        print(f"❌ 일정 수정 목록 조회 실패: {e}")
+        return {"ok": False, "message": f"일정 수정 처리 중 오류: {str(e)}"}
 
 
 def _determine_action(query: str) -> str:
-    """간단한 키워드 기반 액션 결정 (한글 통일).
-    
-    Args:
-        query: 사용자 쿼리
-        
-    Returns:
-        액션 ("조회", "생성", "삭제", "수정")
-    """
-    # 생성
-    if any(k in query for k in ["등록", "생성", "추가", "만들", "예약", "넣어"]):
+    """키워드 기반 액션 결정 (fallback용)."""
+    if any(k in query for k in ["등록", "생성", "추가", "만들", "예약"]):
         return "생성"
-    # 삭제
     elif any(k in query for k in ["삭제", "취소", "지워", "제거"]):
         return "삭제"
-    # 수정
     elif any(k in query for k in ["수정", "변경", "바꿔", "고쳐"]):
         return "수정"
-    # 조회 (기본값)
     else:
         return "조회"
