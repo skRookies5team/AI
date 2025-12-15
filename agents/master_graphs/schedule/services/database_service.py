@@ -12,7 +12,7 @@ try:
     from sqlalchemy import text  # type: ignore[import]
     from sqlalchemy.exc import SQLAlchemyError  # type: ignore[import]
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine  # type: ignore[import]
-except ImportError as exc:  # pragma: no cover - 환경 누락 시 초기화 단계에서 바로 알림
+except ImportError as exc:  # pragma: no cover
     raise ImportError("SQLAlchemy 설치가 필요합니다. pyproject.toml 의존성을 확인하세요.") from exc
 
 
@@ -336,13 +336,27 @@ class DatabaseService:
                 },
             )
 
-    async def get_leave_list(self, employee_id: int, leave_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_leave_list(
+        self, 
+        employee_id: int, 
+        leave_type: Optional[str] = None,
+        status: Optional[str] = None,
+        include_past: bool = True
+    ) -> List[Dict[str, Any]]:
         """`leave_request` 테이블에서 신청 내역을 조회한다."""
         clauses = ["employee_id = :employee_id"]
         params: Dict[str, Any] = {"employee_id": employee_id}
+        
         if leave_type:
             clauses.append("leave_type = :leave_type")
             params["leave_type"] = leave_type
+        
+        if status:
+            clauses.append("status = :status")
+            params["status"] = status
+        
+        if not include_past:
+            clauses.append("start_date >= CURDATE()")
 
         where_sql = " AND ".join(clauses)
         sql = f"""
@@ -369,6 +383,113 @@ class DatabaseService:
             result = await session.execute(text(sql), params)
             return [dict(row) for row in result.mappings().all()]
 
+    async def cancel_leave_request(self, request_id: int) -> bool:
+        """연차 신청을 취소한다 (status를 '취소'로 변경)."""
+        # 1. 현재 상태 조회
+        select_sql = """
+        SELECT employee_id, total_days, status
+        FROM leave_request
+        WHERE id = :request_id
+        LIMIT 1;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(select_sql), {"request_id": request_id})
+            row = result.mappings().first()
+        
+        if not row:
+            return False
+        
+        employee_id = row["employee_id"]
+        total_days = float(row["total_days"])
+        current_status = row["status"]
+        
+        # 2. 상태 업데이트
+        update_sql = """
+        UPDATE leave_request
+        SET status = '취소', updated_at = NOW()
+        WHERE id = :request_id;
+        """
+        
+        async with self._session(transactional=True) as session:
+            await session.execute(text(update_sql), {"request_id": request_id})
+        
+        # 3. 대기 중이었다면 pending_days 복구
+        if current_status == "대기":
+            await self._update_leave_pending_days(
+                employee_id=employee_id,
+                delta=-total_days  # 음수로 복구
+            )
+        
+        return True
+
+    async def update_leave_request(self, request_id: int, update_data: Dict[str, Any]) -> bool:
+        """연차 신청 내용을 수정한다."""
+        # 1. 현재 정보 조회
+        select_sql = """
+        SELECT employee_id, total_days, status
+        FROM leave_request
+        WHERE id = :request_id
+        LIMIT 1;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(select_sql), {"request_id": request_id})
+            row = result.mappings().first()
+        
+        if not row:
+            return False
+        
+        employee_id = row["employee_id"]
+        old_total_days = float(row["total_days"])
+        current_status = row["status"]
+        
+        # 2. 업데이트할 필드 구성
+        set_clauses = ["updated_at = NOW()"]
+        params: Dict[str, Any] = {"request_id": request_id}
+        
+        if "start_date" in update_data:
+            set_clauses.append("start_date = :start_date")
+            params["start_date"] = update_data["start_date"]
+        
+        if "end_date" in update_data:
+            set_clauses.append("end_date = :end_date")
+            params["end_date"] = update_data["end_date"]
+        
+        if "total_days" in update_data:
+            set_clauses.append("total_days = :total_days")
+            params["total_days"] = update_data["total_days"]
+        
+        if "reason" in update_data:
+            set_clauses.append("reason = :reason")
+            params["reason"] = update_data["reason"]
+        
+        if "leave_type" in update_data:
+            set_clauses.append("leave_type = :leave_type")
+            params["leave_type"] = update_data["leave_type"]
+        
+        # 3. 업데이트 실행
+        update_sql = f"""
+        UPDATE leave_request
+        SET {', '.join(set_clauses)}
+        WHERE id = :request_id;
+        """
+        
+        async with self._session(transactional=True) as session:
+            await session.execute(text(update_sql), params)
+        
+        # 4. total_days가 변경되었고 대기 중이면 pending_days 조정
+        if "total_days" in update_data and current_status == "대기":
+            new_total_days = float(update_data["total_days"])
+            delta = new_total_days - old_total_days
+            if delta != 0:
+                await self._update_leave_pending_days(
+                    employee_id=employee_id,
+                    delta=delta
+                )
+        
+        return True
+
     # ------------------------------------------------------------------
     # 회의실 관련
     # ------------------------------------------------------------------
@@ -377,8 +498,8 @@ class DatabaseService:
         self,
         capacity: Optional[int] = None,
         floor: Optional[int] = None,
-        has_projector: Optional[bool] = None,  # 현재 스키마에는 없지만 인터페이스 유지
-        has_whiteboard: Optional[bool] = None,  # 현재 스키마에는 없지만 인터페이스 유지
+        has_projector: Optional[bool] = None,
+        has_whiteboard: Optional[bool] = None,
         has_video_conf: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         """`meeting_room` 정보를 조회한다."""
@@ -428,7 +549,7 @@ class DatabaseService:
         try:
             async with self._session(transactional=True) as session:
                 await session.execute(text(alter_sql))
-        except SQLAlchemyError as exc:  # pragma: no cover - 중복 컬럼 등 무시
+        except SQLAlchemyError as exc:
             if "Duplicate column name" not in str(exc):
                 print(f"⚠️ 회의실 예약 테이블 보정 실패: {exc}")
 
@@ -563,6 +684,63 @@ class DatabaseService:
         async with self._session() as session:
             result = await session.execute(text(sql), params)
             return [dict(row) for row in result.mappings().all()]
+
+    async def find_available_rooms(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        capacity: Optional[int] = None,
+        floor: Optional[int] = None,
+        has_video_conf: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
+        """특정 시간대에 예약 가능한 회의실 조회.
+        
+        Args:
+            start_time: 시작 시간
+            end_time: 종료 시간
+            capacity: 최소 수용 인원
+            floor: 층수
+            has_video_conf: 화상회의 가능 여부
+            
+        Returns:
+            예약 가능한 회의실 목록
+        """
+        await self._ensure_meeting_reservation_table()
+        
+        # 1. 조건에 맞는 모든 회의실 조회
+        all_rooms = await self.get_meeting_rooms(
+            capacity=capacity,
+            floor=floor,
+            has_video_conf=has_video_conf,
+        )
+        
+        if not all_rooms:
+            return []
+        
+        # 2. 해당 시간대에 예약된 회의실 ID 조회
+        sql = """
+        SELECT DISTINCT meeting_room_id
+        FROM meeting_room_reservation
+        WHERE start_time < :end_time
+          AND end_time > :start_time
+          AND status != 'CANCELLED';
+        """
+        params = {
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+        
+        async with self._session() as session:
+            result = await session.execute(text(sql), params)
+            busy_room_ids = {row[0] for row in result.fetchall()}
+        
+        # 3. 예약되지 않은 회의실만 반환
+        available_rooms = [
+            room for room in all_rooms
+            if room.get("id") not in busy_room_ids
+        ]
+        
+        return available_rooms
 
     async def update_room_reservation(
         self,

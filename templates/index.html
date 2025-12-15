@@ -958,7 +958,7 @@
                 <div class="session-modal-title">세션 변경</div>
                 <div class="session-input-group">
                     <label class="session-input-label">새 세션 ID (비워두면 새로 생성)</label>
-                    <input type="text" id="newSessionId" class="session-input" placeholder="예: session_1001_abc123">
+                    <input type="text" id="newSessionId" class="session-input" placeholder="예: session_4001_abc123">
                 </div>
                 <div class="session-modal-buttons">
                     <button class="session-btn session-btn-secondary" onclick="closeSessionModal()">취소</button>
@@ -1180,7 +1180,7 @@
         let currentSessionId = localStorage.getItem('chat_session_id');
         if (!currentSessionId) {
             // 초기 세션은 employee_id 기반으로 생성
-            currentSessionId = 'session_1001_' + Date.now().toString(36);
+            currentSessionId = 'session_4001_' + Date.now().toString(36);
             localStorage.setItem('chat_session_id', currentSessionId);
         }
         
@@ -1242,7 +1242,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ employee_id: 1001 })
+                    body: JSON.stringify({ employee_id: 4001 })
                 });
                 
                 if (response.ok) {
@@ -1282,7 +1282,7 @@
                     },
                     body: JSON.stringify({ 
                         session_id: newSessionId,
-                        employee_id: 1001 
+                        employee_id: 4001 
                     })
                 });
                 
@@ -1417,7 +1417,7 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('document_title', documentTitle);
-                formData.append('employee_id', '1001'); // 현재 사용자 ID
+                formData.append('employee_id', '4001'); // 현재 사용자 ID
 
                 uploadProgressText.textContent = '텍스트를 추출하고 있습니다...';
                 const response = await fetch('/api/upload-document', {
@@ -1860,7 +1860,7 @@
                 const payload = {
                     query: userMessage,
                     session_id: currentSessionId,  // 세션 ID 유지 (멀티턴 대화 지원)
-                    employee_id: 1001
+                    employee_id: 4001
                 };
 
                 // 스트리밍 엔드포인트 사용
@@ -2141,7 +2141,7 @@
                 const payload = {
                     query: query,
                     session_id: currentSessionId,  // 챗봇과 동일한 세션 ID 사용
-                    employee_id: 1001
+                    employee_id: 4001
                 };
 
                 const response = await fetch(API_URL, {
@@ -2459,7 +2459,7 @@
                 const formData = new FormData();
                 formData.append('file', chatSelectedFile);
                 formData.append('document_title', documentTitle);
-                formData.append('employee_id', '1001');
+                formData.append('employee_id', '4001');
 
                 const response = await fetch('/api/upload-document', {
                     method: 'POST',
