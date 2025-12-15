@@ -41,6 +41,8 @@ dependencies = [
     "pdfplumber>=0.11.8",
     "google-auth-oauthlib>=1.2.3",
     "google-api-python-client>=2.187.0",
+    "pdf2image>=1.17.0",
+    "pillow>=12.0.0",
 ]
 
 [tool.uv]

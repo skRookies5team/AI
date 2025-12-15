@@ -3,71 +3,106 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Literal, Dict, Any
 
 from pydantic import BaseModel, Field
 
 
-class EventType(str, Enum):
-    """일정 유형."""
-    MEETING = "회의"
-    BUSINESS_TRIP = "출장"
-    TASK = "업무"
-    VACATION = "휴가"
-    HALF_DAY = "반차"
-    SICK_LEAVE = "병가"
-    OTHER = "기타"
-
-
 class ScheduleEvent(BaseModel):
-    """일정 이벤트."""
-    event_id: Optional[str] = Field(None, description="이벤트 ID (Google Calendar ID)")
-    schedule_id: Optional[int] = Field(None, description="DB 스케줄 ID")
-    employee_id: int = Field(..., description="직원 ID")
+    """일정 이벤트 정보."""
+    event_id: Optional[str] = Field(None, description="이벤트 ID")
     title: str = Field(..., description="일정 제목")
-    description: Optional[str] = Field(None, description="상세 설명")
     start_time: datetime = Field(..., description="시작 시간")
     end_time: datetime = Field(..., description="종료 시간")
-    event_type: EventType = Field(EventType.OTHER, description="일정 유형")
+    description: Optional[str] = Field(None, description="일정 설명")
     location: Optional[str] = Field(None, description="장소")
-    meeting_room_id: Optional[int] = Field(None, description="회의실 ID")
     attendees: List[str] = Field(default_factory=list, description="참석자 이메일 목록")
-    is_all_day: bool = Field(False, description="종일 일정 여부")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "employee_id": 4001,
-                "title": "프로젝트 킥오프 미팅",
-                "description": "Q1 프로젝트 계획 수립",
-                "start_time": "2024-12-10T10:00:00",
-                "end_time": "2024-12-10T11:30:00",
-                "event_type": "회의",
+                "event_id": "evt_123",
+                "title": "팀 미팅",
+                "start_time": "2024-12-25T14:00:00",
+                "end_time": "2024-12-25T15:00:00",
+                "description": "주간 회의",
                 "location": "회의실 A",
-                "meeting_room_id": 1,
-                "attendees": ["user1@company.com", "user2@company.com"]
+                "attendees": ["user@example.com"]
             }
         }
 
 
-class ScheduleFilter(BaseModel):
-    """일정 조회 필터."""
-    employee_id: Optional[int] = Field(None, description="직원 ID")
-    employee_names: Optional[List[str]] = Field(None, description="직원 이름 목록")
-    start_date: Optional[datetime] = Field(None, description="시작일")
-    end_date: Optional[datetime] = Field(None, description="종료일")
-    event_types: Optional[List[EventType]] = Field(None, description="일정 유형 필터")
-    keyword: Optional[str] = Field(None, description="키워드 검색")
-    meeting_room_id: Optional[int] = Field(None, description="회의실 ID")
-    
+class ScheduleSlotDecision(BaseModel):
+    """일정 슬롯 매니저가 반환하는 구조화된 판단."""
+
+    action: Literal["조회", "생성", "삭제", "수정", "유지"] = Field(
+        ..., description="다음에 수행해야 할 기본 액션"
+    )
+    filled_slots: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="현재까지 수집된 슬롯 값"
+    )
+    missing_slots: List[str] = Field(
+        default_factory=list,
+        description="추가로 수집이 필요한 슬롯 이름 목록"
+    )
+    followup_question: Optional[str] = Field(
+        default=None,
+        description="사용자에게 추가로 물어볼 질문"
+    )
+    should_ask: bool = Field(
+        False,
+        description="followup_question을 사용자에게 바로 전달해야 하는지 여부"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
-                "employee_id": 4001,
-                "start_date": "2024-12-01T00:00:00",
-                "end_date": "2024-12-31T23:59:59",
-                "event_types": ["회의", "출장"],
-                "keyword": "프로젝트"
+                "action": "생성",
+                "filled_slots": {
+                    "title": "팀 미팅",
+                    "start_time": "2024-12-25T14:00:00"
+                },
+                "missing_slots": ["end_time"],
+                "followup_question": "일정 종료 시간을 알려주세요.",
+                "should_ask": True
+            }
+        }
+
+
+class ScheduleSlotState(BaseModel):
+    """슬롯 매니저가 추적하는 전체 일정 상태."""
+
+    intent: Literal["조회", "생성", "삭제", "수정"] = Field(
+        ..., description="현재 사용자의 의도"
+    )
+    slots: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="수집된 슬롯 값들을 저장하는 컨테이너"
+    )
+    delete_candidates: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="삭제 가능한 일정 목록"
+    )
+    update_candidates: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="수정 가능한 일정 목록"
+    )
+    awaiting_slots: List[str] = Field(
+        default_factory=list,
+        description="다음 턴에 질문해야 할 슬롯 목록"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "intent": "생성",
+                "slots": {
+                    "title": "팀 미팅",
+                    "start_time": "2024-12-25T14:00:00"
+                },
+                "delete_candidates": [],
+                "update_candidates": [],
+                "awaiting_slots": ["end_time"]
             }
         }
