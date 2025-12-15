@@ -32,19 +32,33 @@ orchestrator:
         - 예: "문서 작성 요청했던 적 있어?"
         - 예: "인재 추천 요청한 적 있어?"
 
-        **일반 질문과의 차이:**
-        - 일반 질문: "이메일에서 육아휴직 관련 내용 찾아줘" (새로운 요청)
-        - 확인 질문: "이메일에서 육아휴직 관련 내용 찾아달라고 요청한 적 있어?" (과거 요청 확인)
+        **일반 질문과의 차이 (중요: 반드시 구분하세요):**
+        - 일반 질문 (새로운 요청): "이메일에서 육아휴직 관련 내용 찾아줘" → **is_history_check=False**
+        - 일반 질문 (새로운 요청): "이메일에서 육아휴직 정보 찾아줘" → **is_history_check=False**
+        - 일반 질문 (새로운 요청): "내일 식단 알려줘" → **is_history_check=False**
+        - 확인 질문 (과거 요청 확인): "이메일에서 육아휴직 관련 내용 찾아달라고 요청한 적 있어?" → **is_history_check=True**
+        - 확인 질문 (과거 요청 확인): "내가 육아휴직 관련 내용 찾아달라고 한적이 있어?" → **is_history_check=True**
 
-        **확인하려는 작업 유형:**
-        - email_search: 이메일 검색 관련
-        - patent_search: 특허 검색 관련
-        - article_search: 논문 검색 관련
-        - leave_request: 연차/휴가 신청 관련
-        - document_generation: 문서 생성 관련
-        - meeting_reservation: 회의실 예약 관련
-        - recruitment_search: 인재 추천/이력서 검색 관련
+        **이전 대화 확인 질문 판단 기준:**
+        1. **과거형 확인 문구가 포함되어야 함**: "한적이 있어?", "한 적 있어?", "요청한 적 있어?", "했어?", "했었어?", "했나?", "했었나?", "했지?", "했었지?"
+        2. **직접 요청 동사만 있는 경우는 False**: "찾아줘", "알려줘", "검색해줘", "보여줘" 등이 있고 확인 문구가 없으면 새로운 요청
+        3. **확실하지 않으면 False**: 모호한 경우 새로운 요청으로 처리
+
+        **확인하려는 작업 유형 (is_history_check=True일 때만 설정):**
+        - email_search: 이메일 검색 관련 (질문에 "이메일", "메일" 키워드 포함)
+        - patent_search: 특허 검색 관련 (질문에 "특허" 키워드 포함)
+        - article_search: 논문 검색 관련 (질문에 "논문", "paper", "article" 키워드 포함)
+        - leave_request: 연차/휴가 신청 관련 (질문에 "연차", "휴가" 키워드 포함)
+        - document_generation: 문서 생성 관련 (질문에 "문서 작성", "보고서 작성" 키워드 포함)
+        - meeting_reservation: 회의실 예약 관련 (질문에 "회의실", "예약" 키워드 포함)
+        - recruitment_search: 인재 추천/이력서 검색 관련 (질문에 "인재", "이력서", "채용" 키워드 포함)
         - 기타: 위에 해당하지 않는 경우
+
+        **check_type 설정 주의사항:**
+        - 질문 내용과 일치하는 작업 유형을 선택해야 함
+        - 예: "이메일에서 찾아줘" → check_type은 email_search (article_search 아님)
+        - 예: "논문 찾아줘" → check_type은 article_search
+        - check_type이 질문 내용과 일치하지 않으면 신뢰도를 낮게 설정하세요
 
         {history_context}
 
@@ -1055,6 +1069,9 @@ orchestrator_config:
     email_results_max_count: 5
     query_preview_length: 50
     simple_selection_max_length: 3
+    # 이전 대화 확인 질문 분류 설정
+    history_check:
+      confidence_threshold: 0.85  # 신뢰도가 이 값보다 낮으면 일반 요청으로 처리
     simple_selection_keywords:
       - "네"
       - "예"
@@ -1077,6 +1094,12 @@ orchestrator_config:
           - "식단"
           - "메뉴"
           - "구내식당"
+        recruitment:
+          - "인재"
+          - "이력서"
+          - "채용"
+          - "지원자"
+          - "추천"
         # QA 구체적 키워드 (복리후생, 연차사용 등)
         qa_specific:
           - "복리후생"
@@ -1104,6 +1127,20 @@ orchestrator_config:
             - "식단"
             - "메뉴"
             - "구내식당"
+        recruitment:
+          keywords:
+            - "인재"
+            - "이력서"
+            - "채용"
+            - "지원자"
+            - "추천"
+          search_verbs:
+            - "추천"
+            - "검색"
+            - "찾아"
+            - "추천해줘"
+            - "검색해줘"
+            - "찾아줘"
             - "복리후생"
             - "연차사용"
             - "연차"
@@ -1144,6 +1181,8 @@ orchestrator_config:
         previous_generic_search: "네, 이전에 검색/찾기 요청을 하신 적이 있습니다."
         previous_qa_menu: "네, 이전에 식단/메뉴 관련 요청을 하신 적이 있습니다."
         previous_email_search: "네, 이전에 이메일에서 검색/찾기 요청을 하신 적이 있습니다."
+        previous_recruitment_request: "네, 이전에 '{keywords}' 관련 인재 추천/이력서 검색 요청을 하신 적이 있습니다."
+        previous_recruitment_search: "네, 이전에 인재 추천/이력서 검색 요청을 하신 적이 있습니다."
         more_email_help: "\n더 많은 메일을 검색하거나 특정 메일의 상세 내용을 원하신다면 말씀해 주세요! 😊"
       # 체크 타입 매핑
       check_type_mapping:

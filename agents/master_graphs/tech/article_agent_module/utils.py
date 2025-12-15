@@ -343,8 +343,7 @@ async def extract_text_from_pdf_with_vision(
         
         LOGGER.info(f"PDF를 이미지로 변환 중: {source_name} (Vision 모델: {vision_model})")
         
-        default_poppler_path = r"C:\a_program\poppler-25.11.0\Library\bin"
-        poppler_path = os.getenv("POPPLER_PATH", default_poppler_path)
+        poppler_path = os.getenv("POPPLER_PATH")
 
         try:
             images = await asyncio.to_thread(

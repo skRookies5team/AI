@@ -265,13 +265,18 @@ async def patent_search(
                 patent_context = tech_context.get("patent", {})
                 # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
                 previous_search_keyword = patent_context.get("last_search_phrase") or patent_context.get("last_keyword") or patent_context.get("query")
-                if previous_search_keyword:
-                    previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
-                    LOGGER.info("이전 검색 키워드 복원: '%s' (특허 번호: %s)", previous_search_keyword, app_no)
-            
+            # 사용자 요청문에서 추출한 원래 키워드 우선 사용
             if not previous_search_keyword:
-                previous_search_keyword = extract_keyword_from_text(f"{selected_patent.get('title', '')} {selected_patent.get('abstract', '')}")
-                LOGGER.info("특허 제목/초록에서 키워드 추출: '%s'", previous_search_keyword)
+                # 이전 검색 키워드가 없으면 사용자 요청문에서 추출한 키워드 사용
+                previous_search_keyword = extracted_keyword
+                LOGGER.info("사용자 요청문에서 추출한 키워드 사용: '%s' (특허 번호: %s)", previous_search_keyword, app_no)
+            else:
+                # 이전 검색 키워드가 있으면 그것을 사용 (사용자 요청문 키워드 우선)
+                if extracted_keyword:
+                    previous_search_keyword = extracted_keyword
+                    LOGGER.info("사용자 요청문 키워드로 덮어쓰기: '%s' (특허 번호: %s)", previous_search_keyword, app_no)
+                else:
+                    LOGGER.info("이전 검색 키워드 사용: '%s' (특허 번호: %s)", previous_search_keyword, app_no)
             
             if LANGCHAIN_AVAILABLE:
                 try:
@@ -376,12 +381,17 @@ async def patent_search(
             patent_context = tech_context.get("patent", {})
             # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
             previous_search_keyword = patent_context.get("last_search_phrase") or patent_context.get("last_keyword") or patent_context.get("query")
-            if previous_search_keyword:
-                previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
-                LOGGER.info("이전 검색 키워드 복원 (여러 특허): '%s'", previous_search_keyword)
-        
-        if not previous_search_keyword:
-            previous_search_keyword = extracted_keyword
+            # 사용자 요청문에서 추출한 원래 키워드 우선 사용
+            if not previous_search_keyword:
+                previous_search_keyword = extracted_keyword
+                LOGGER.info("사용자 요청문에서 추출한 키워드 사용 (여러 특허): '%s'", previous_search_keyword)
+            else:
+                # 이전 검색 키워드가 있어도 사용자 요청문 키워드가 우선
+                if extracted_keyword:
+                    previous_search_keyword = extracted_keyword
+                    LOGGER.info("사용자 요청문 키워드로 덮어쓰기 (여러 특허): '%s'", previous_search_keyword)
+                else:
+                    LOGGER.info("이전 검색 키워드 사용 (여러 특허): '%s'", previous_search_keyword)
         
         results = []
         for i, idx in enumerate(valid_indices, 1):
@@ -486,12 +496,17 @@ async def patent_search(
                 patent_context = tech_context.get("patent", {})
                 # last_search_phrase 우선 사용, 없으면 last_keyword 사용 (하위 호환성)
                 previous_search_keyword = patent_context.get("last_search_phrase") or patent_context.get("last_keyword") or patent_context.get("query")
-                if previous_search_keyword:
-                    previous_search_keyword = extract_keyword_from_text(previous_search_keyword)
-                    LOGGER.info("이전 검색 키워드 복원 (단일 특허): '%s'", previous_search_keyword)
-            
-            if not previous_search_keyword:
-                previous_search_keyword = extracted_keyword
+                # 사용자 요청문에서 추출한 원래 키워드 우선 사용
+                if not previous_search_keyword:
+                    previous_search_keyword = extracted_keyword
+                    LOGGER.info("사용자 요청문에서 추출한 키워드 사용 (단일 특허): '%s'", previous_search_keyword)
+                else:
+                    # 이전 검색 키워드가 있어도 사용자 요청문 키워드가 우선
+                    if extracted_keyword:
+                        previous_search_keyword = extracted_keyword
+                        LOGGER.info("사용자 요청문 키워드로 덮어쓰기 (단일 특허): '%s'", previous_search_keyword)
+                    else:
+                        LOGGER.info("이전 검색 키워드 사용 (단일 특허): '%s'", previous_search_keyword)
             
             if LANGCHAIN_AVAILABLE:
                 try:

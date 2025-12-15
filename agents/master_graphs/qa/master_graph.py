@@ -174,9 +174,17 @@ class QAMasterGraph(BaseMasterGraph):
         # 기존 qa_benefit_agent 사용 (비동기 호출, state 전달)
         result = await benefit_rag(query, orchestrator_state=state)
         
+        # 결과 처리: ok가 False면 error 사용, True면 message 사용
+        is_success = result.get("ok", False)
+        if is_success:
+            response_message = result.get("message", "복리후생 정보를 찾을 수 없습니다.")
+        else:
+            # 실패 시 error 메시지 사용, 없으면 기본 메시지
+            response_message = result.get("error", "복리후생 정보를 찾을 수 없습니다.")
+        
         return {
-            "final_response": result.get("message", "복리후생 정보를 찾을 수 없습니다."),
-            "messages": [result.get("message", "")],
+            "final_response": response_message,
+            "messages": [response_message],
             "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
         }
     

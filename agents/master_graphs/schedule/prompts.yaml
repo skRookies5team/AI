@@ -1,0 +1,99 @@
+# Schedule 도메인 프롬프트 설정
+
+description: "스케줄 도메인 - 연차/일정/회의 관리"
+features: |
+  - Redis 기반 컨텍스트 관리: 이전 연차 조회, 신청 내역, 회의실 추천 결과 등을 Redis에 저장
+  - Structured Output Parser: 연차 신청 시 날짜, 휴가 타입, 사유 등을 구조화된 형식으로 추출
+  - Human-in-the-loop: 연차 신청 및 회의실 예약 시 사용자 승인 요청
+sub_agents:
+  leave:
+    description: "연차/반차/병가/경조사 관리"
+    features: |
+      - Structured Output Parser 사용: 사용자 쿼리에서 action, leave_type, start_date, end_date, total_days, reason 등을 자동 추출
+      - Redis 컨텍스트: 이전 조회한 잔여 연차 정보, 신청 내역 등을 Redis에 저장하여 멀티턴 대화 지원
+      - Human-in-the-loop: 연차 신청 시 날짜 정보가 있으면 사용자에게 승인 요청 (승인/취소 처리)
+    capabilities:
+      - "연차/반차/병가/경조사 조회"
+      - "연차/반차/병가/경조사 신청 (승인 필요)"
+      - "연차 잔여일 확인"
+      - "연차 사용 내역 조회"
+      - "연차 추천 날짜 조회"
+    keywords:
+      positive:
+        - "연차"
+        - "반차"
+        - "병가"
+        - "경조사"
+        - "휴가"
+        - "신청"
+        - "잔여"
+        - "남은"
+        - "내역"
+        - "목록"
+      negative: []
+    examples:
+      - "내일 연차 신청하고 싶어"
+      - "남은 연차 알려줘"
+      - "연차 사용 내역 보여줘"
+  schedule:
+    description: "일정 관리 (일반 캘린더, 스케줄 조회/등록/취소)"
+    features: |
+      - Redis 컨텍스트: 이전 조회한 일정 필터, 검색 결과 등을 Redis에 저장하여 멀티턴 대화 지원
+    capabilities:
+      - "일정 조회"
+      - "일정 등록"
+      - "일정 취소"
+      - "일정 알림"
+      - "특정 날짜의 연차 사용자 조회"
+    keywords:
+      positive:
+        - "일정"
+        - "스케줄"
+        - "캘린더"
+        - "등록"
+        - "취소"
+        - "오늘"
+        - "내일"
+        - "이번 주"
+      negative: []
+    examples:
+      - "오늘 일정 알려줘"
+      - "다음 주 월요일 회의 일정 등록해줘"
+      - "3월 15일 일정 취소해줘"
+  meeting:
+    description: "회의실 예약 및 회의 관리"
+    features: |
+      - Redis 컨텍스트: 추천된 회의실 목록, 예약 대기 정보 등을 Redis에 저장하여 멀티턴 대화 지원
+      - Human-in-the-loop: 회의실 예약 요청 시 사용자에게 승인 요청 (승인/취소 처리)
+    capabilities:
+      - "회의실 조회"
+      - "회의실 예약 (승인 필요)"
+      - "회의실 취소"
+      - "회의실 추천"
+      - "예약 내역 조회"
+    keywords:
+      positive:
+        - "회의실"
+        - "회의"
+        - "예약"
+        - "방"
+        - "회의실 예약"
+        - "회의실 취소"
+      negative: []
+    examples:
+      - "내일 오후 2시 회의실 예약해줘"
+      - "10명 회의실 추천해줘"
+      - "3층 회의실 예약 현황 알려줘"
+      - "내일 사용가능한 회의실 알려줘"
+      - "사용 가능한 회의실 추천해줘"
+      - "빈 회의실 찾아줘"
+classification_criteria: |
+  사용자 질의를 분석하여 다음 스케줄 서브 에이전트 중 하나로 분류:
+  - leave: 연차, 반차, 병가, 경조사, 휴가 관련
+  - meeting: 회의실 관련 (예약, 조회, 추천, 취소, 사용가능한 회의실 찾기 등)
+    (중요: "회의실"이라는 키워드가 있으면 무조건 meeting으로 분류)
+    (중요: "사용가능한 회의실", "사용 가능한 회의실", "빈 회의실", "회의실 추천" 등은 모두 meeting)
+  - schedule: 일정, 캘린더, 스케줄 관련 (회의실이 아닌 일반 일정)
+output_format: '{"intent": "leave|meeting|schedule"}'
+
+

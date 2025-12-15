@@ -18,8 +18,10 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import END, StateGraph
 
 import urllib.parse
+import re
 import requests
 from bs4 import BeautifulSoup
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from agents.master_graphs.tech.article_agent_module.state import (
     ScienceONAgentState,
@@ -27,6 +29,7 @@ from agents.master_graphs.tech.article_agent_module.state import (
     HTTP_TIMEOUT,
     _get_int_env,
 )
+from agents.master_graphs.tech.article_agent_module.crawler import USER_AGENT
 from agents.master_graphs.tech.article_agent_module.utils import (
     get_user_friendly_error_message as _get_user_friendly_error_message,
 )
@@ -476,11 +479,10 @@ def _search_url(keyword: str) -> str:
     return f"{base_url}?queryText={q}"
 
 def _normalize_items_from_results(results: List[Dict[str, Any]], displayed_count: Optional[int] = None) -> List[Dict[str, Any]]:
+    """검색 결과를 정규화하여 반환합니다."""
     items: List[Dict[str, Any]] = []
     
-    limit = displayed_count if displayed_count is not None and displayed_count > 0 else min(10, len(results))
-    
-    for row in results[:limit]:
+    for row in results:
         title = str(row.get("title") or "").strip()
         pdf_link = (row.get("pdf_link") or "").strip()
         detail_link = (row.get("detail_link") or row.get("link") or "").strip()
@@ -720,7 +722,7 @@ async def article_master(
     except Exception as exc:
         LOGGER.exception(f"article_master 실행 중 오류: {exc}")
         # 폴백: 검색만 수행
-        fb = await asyncio.to_thread(article_search, query)
+        fb = await article_search(query)
         fb["message"] = f"{fb.get('message', '')} (agent 연동 실패로 폴백: {exc})"
         return fb
 
@@ -746,12 +748,13 @@ async def article_search(keyword: str) -> Dict:
                 - pdf_link (Optional[str]): PDF 링크(가능 시)
     """
     # 1) 에이전트 경로 (정확/풍부한 결과)
+    agent_error: Optional[str] = None
     try:
         state: Optional[ScienceONAgentState] = None
-        # 타임아웃 설정 추가
+        # 타임아웃 설정 추가 (더 긴 타임아웃)
         result_state = await asyncio.wait_for(
             run_scienceon_agent(user_input=keyword, state=state),
-            timeout=OPENAI_TIMEOUT * 2  # 에이전트 전체 실행 타임아웃
+            timeout=OPENAI_TIMEOUT * 3  # 에이전트 전체 실행 타임아웃 증가: 2배 -> 3배
         )
         results: List[Dict[str, Any]] = result_state.get("results", [])
         summary: str = result_state.get("summary", "") or ""
@@ -760,47 +763,103 @@ async def article_search(keyword: str) -> Dict:
         # items 정규화: agent.py 결과 필드를 그대로 보존한다
         items = _normalize_items_from_results(results, displayed_count=displayed_count)
 
-        return {
-            "ok": True,
-            "message": summary
-            or f"논문 검색 결과(키워드: {keyword})입니다. 상세는 검색 페이지를 참고하세요.",
-            "link": _search_url(keyword),
-            "items": items,
-        }
+        # 결과가 있으면 성공 반환
+        if items:
+            return {
+                "ok": True,
+                "message": summary
+                or f"논문 검색 결과(키워드: {keyword})입니다. 상세는 검색 페이지를 참고하세요.",
+                "link": _search_url(keyword),
+                "items": items,
+            }
+        else:
+            # 결과가 없으면 폴백으로 진행
+            agent_error = "검색 결과가 없습니다"
+            LOGGER.warning(f"에이전트 실행 완료했지만 검색 결과가 없음 (키워드: {keyword})")
     except asyncio.TimeoutError:
+        agent_error = "검색 시간이 초과되었습니다"
         LOGGER.warning(f"에이전트 실행 타임아웃 (키워드: {keyword})")
         # 폴백으로 이어감
+    except PlaywrightTimeoutError:
+        agent_error = "ScienceON 페이지 로딩 시간이 초과되었습니다"
+        LOGGER.warning(f"Playwright 타임아웃 (키워드: {keyword})")
+        # 폴백으로 이어감
     except Exception as e:
+        agent_error = f"검색 중 오류가 발생했습니다: {str(e)[:100]}"
         LOGGER.warning(f"에이전트 실행 실패: {e}")
         # 폴백으로 이어감
 
     # 2) 폴백: 간단 HTML 스크래핑(기존 동작 유지)
     url = _search_url(keyword)
     items: List[Dict] = []
+    fallback_success = False
     try:
-        resp = requests.get(url, timeout=HTTP_TIMEOUT)
+        # 타임아웃 증가: 10초 -> 20초
+        resp = requests.get(url, timeout=20, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
-        for a in soup.find_all("a"):
-            title = a.get_text(strip=True)
-            href = a.get("href") or ""
-            if not title or not href:
+        
+        # 더 정확한 셀렉터 사용
+        # 검색 결과 링크 찾기
+        result_links = soup.find_all("a", href=re.compile(r"/srch/selectPORSrchArticleList\.do|/srch/selectPORSrchArticle\.do"))
+        for link in result_links:
+            title = link.get_text(strip=True)
+            href = link.get("href") or ""
+            if not title or len(title) < 5:  # 너무 짧은 제목 제외
                 continue
-            if ".pdf" in href.lower():
-                base_url = "https://scienceon.kisti.re.kr/srch/selectPORSrchArticleList.do"
+            
+            # 상대 경로를 절대 경로로 변환
+            if href.startswith("/"):
+                full_url = urllib.parse.urljoin("https://scienceon.kisti.re.kr", href)
+            else:
+                full_url = urllib.parse.urljoin(url, href)
+            
+            items.append({
+                "title": title,
+                "pdf_link": None,
+                "detail_link": full_url,
+            })
+            if len(items) >= 10:  # 결과 개수 증가: 5개 -> 10개
+                break
+        
+        # PDF 링크도 별도로 찾기
+        pdf_links = soup.find_all("a", href=re.compile(r"\.pdf", re.IGNORECASE))
+        for pdf_link in pdf_links[:5]:
+            title = pdf_link.get_text(strip=True) or "PDF 문서"
+            href = pdf_link.get("href") or ""
+            if href:
+                if href.startswith("/"):
+                    full_url = urllib.parse.urljoin("https://scienceon.kisti.re.kr", href)
+                else:
+                    full_url = urllib.parse.urljoin(url, href)
+                
                 items.append({
                     "title": title,
-                    "pdf_link": urllib.parse.urljoin(base_url, href),
+                    "pdf_link": full_url,
                     "detail_link": None,
                 })
-            if len(items) >= 5:
-                break
-    except Exception:
-        pass
+        
+        fallback_success = len(items) > 0
+    except requests.exceptions.Timeout:
+        LOGGER.warning(f"HTML 스크래핑 타임아웃 (키워드: {keyword})")
+    except Exception as e:
+        LOGGER.warning(f"HTML 스크래핑 실패: {e}")
+
+    # 결과 메시지 구성
+    if fallback_success:
+        message = f"논문 검색 결과(키워드: {keyword})입니다. "
+        if agent_error:
+            message += f"(고급 검색 실패, 기본 검색 결과 제공) "
+        message += "상세는 검색 페이지를 참고하세요."
+    else:
+        message = f"논문 검색 중 문제가 발생했습니다. "
+        if agent_error:
+            message += f"{agent_error} "
+        message += f"다음 링크에서 직접 검색해 주세요: {url}"
 
     return {
-        "ok": True,
-        "message": f"논문 검색 결과(키워드: {keyword})입니다. 상세는 검색 페이지를 참고하세요.",
+        "ok": fallback_success or len(items) > 0,
+        "message": message,
         "link": url,
         "items": items,
     }

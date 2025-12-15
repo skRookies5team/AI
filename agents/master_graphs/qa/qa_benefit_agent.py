@@ -45,19 +45,12 @@ def _load_qa_benefit_config() -> Dict[str, Any]:
 		return _qa_benefit_config
 	
 	try:
-		current_dir = Path(__file__).parent.parent.parent.parent
-		yaml_path = current_dir / "agents" / "agent_prompts.yaml"
-		
-		if not yaml_path.exists():
-			# Fallback: 상대 경로로 시도
-			yaml_path = Path(__file__).parent.parent.parent / "agent_prompts.yaml"
-		
-		if yaml_path.exists():
-			with open(yaml_path, "r", encoding="utf-8") as f:
-				all_config = yaml.safe_load(f)
-			_qa_benefit_config = all_config.get("qa_benefit", {})
-		else:
-			_qa_benefit_config = {}
+		# llm_router의 통합 로더 사용
+		from agents.llm_router import load_agent_prompts
+		all_config = load_agent_prompts()
+		# qa 도메인 아래의 qa_benefit 설정 로드
+		qa_config = all_config.get("qa", {})
+		_qa_benefit_config = qa_config.get("qa_benefit", {})
 	except Exception as e:
 		print(f"[WARNING] QA Benefit 설정 로드 실패: {e}, 기본값 사용")
 		_qa_benefit_config = {}
@@ -186,13 +179,28 @@ class BenefitState(TypedDict, total=False):
 # ───────────────────────────────────────────────────────────
 # 키워드 추출 함수
 # ───────────────────────────────────────────────────────────
-def extract_keywords(text: str, min_length: int = 2) -> List[str]:
-	"""텍스트에서 키워드 추출 (한글, 영문, 숫자)."""
+def extract_keywords(text: str, min_length: Optional[int] = None, top_count: Optional[int] = None) -> List[str]:
+	"""텍스트에서 키워드 추출 (한글, 영문, 숫자).
+	
+	Args:
+		text: 추출할 텍스트
+		min_length: 최소 키워드 길이 (None이면 YAML에서 로드)
+		top_count: 상위 키워드 개수 (None이면 YAML에서 로드)
+	"""
+	# 키워드 추출 파라미터 (YAML에서 로드)
+	if min_length is None or top_count is None:
+		config = load_qa_benefit_config()
+		search_params = config.get("search_params", {})
+		if min_length is None:
+			min_length = search_params.get("keyword_min_length", 2)
+		if top_count is None:
+			top_count = search_params.get("keyword_top_count", 10)
+	
 	pattern = r'[가-힣a-zA-Z0-9]+'
 	keywords = re.findall(pattern, text.lower())
 	keywords = [kw for kw in keywords if len(kw) >= min_length]
 	keyword_counts = Counter(keywords)
-	return [kw for kw, _ in keyword_counts.most_common(10)]
+	return [kw for kw, _ in keyword_counts.most_common(top_count)]
 
 
 # ───────────────────────────────────────────────────────────
@@ -223,20 +231,32 @@ def analyze_query(state: BenefitState) -> BenefitState:
 
 
 def calculate_keyword_score(text: str, keywords: List[str]) -> float:
-	"""문서에서 키워드 매칭 점수 계산."""
+	"""문서에서 키워드 매칭 점수 계산.
+	
+	Args:
+		text: 문서 텍스트
+		keywords: 검색 키워드 리스트
+	"""
+	# 키워드 점수 가중치 (YAML에서 로드)
+	config = load_qa_benefit_config()
+	search_params = config.get("search_params", {})
+	exact_match_score = search_params.get("keyword_exact_match_score", 2.0)
+	count_multiplier = search_params.get("keyword_count_multiplier", 0.1)
+	substring_score = search_params.get("keyword_substring_score", 0.1)
+	
 	text_lower = text.lower()
 	score = 0.0
 	
 	for keyword in keywords:
 		if keyword in text_lower:
-			score += 2.0
-			score += text_lower.count(keyword) * 0.1
+			score += exact_match_score
+			score += text_lower.count(keyword) * count_multiplier
 		
 		if len(keyword) > 3:
 			for i in range(len(keyword) - 2):
 				substring = keyword[i:i+3]
 				if substring in text_lower:
-					score += 0.1
+					score += substring_score
 	
 	return score
 
@@ -250,11 +270,13 @@ def vector_search(state: BenefitState) -> BenefitState:
 	config = load_qa_benefit_config()
 	search_params = config.get("search_params", {})
 	vector_search_limit = search_params.get("vector_search_limit", 15)
+	milvus_metric_type = search_params.get("milvus_metric_type", "L2")
+	milvus_nprobe = search_params.get("milvus_nprobe", 10)
 	
 	search_results = _collection.search(
 		data=[query_embedding],
 		anns_field="embedding",
-		param={"metric_type": "L2", "params": {"nprobe": 10}},
+		param={"metric_type": milvus_metric_type, "params": {"nprobe": milvus_nprobe}},
 		limit=vector_search_limit,
 		output_fields=["content"]
 	)
@@ -424,18 +446,28 @@ def generate_answer(state: BenefitState) -> BenefitState:
 			"timings": state.get("timings", {})
 		}
 	
+	# 검색 결과가 없으면 명확한 메시지 반환
+	if not contexts or len(contexts) == 0:
+		answer = "복리후생 관련 정보를 찾을 수 없습니다. 질문을 다시 확인해 주시거나 다른 키워드로 검색해 주세요."
+		return {
+			"answer": answer,
+			"timings": state.get("timings", {})
+		}
+	
 	context_text = "\n\n".join([f"[문서 {i+1}]\n{ctx}" for i, ctx in enumerate(contexts)])
 	conversation_history = state.get("conversation_history")
 	
 	# 프롬프트 및 설정 (YAML에서 로드)
 	config = load_qa_benefit_config()
 	prompts = config.get("prompts", {})
-	system_prompt = prompts.get("system_prompt", """당신은 회사의 복리후생(Benefits) 정책을 안내하는 전문 AI 어시스턴트입니다.
-제공된 복리후생 관련 문서를 기반으로 직원들의 복리후생 혜택, 휴가, 건강보험, 연금, 각종 보상 및 복지 제도에 대해 정확하고 상세한 답변을 제공하세요.
-답변할 때는 문서의 내용을 직접 인용하거나 참고하여 답변하며, 구체적인 절차, 자격요건, 신청방법 등을 명확히 안내하세요.
-만약 문서에 없는 내용이라면, 그렇다고 명확히 말씀해주세요.
-이전 대화 내용을 기억하고 자연스럽게 대화하듯이 답변하세요.
-주의: 답변에는 "[참고 문서]" 섹션을 포함하지 마세요. 답변 내용만 제공하세요.""")
+	
+	# YAML에서 system_prompt 로드 (YAML에 정의되어 있어야 함)
+	system_prompt = prompts.get("system_prompt")
+	if not system_prompt:
+		raise ValueError(
+			"system_prompt가 YAML 설정 파일에 정의되어 있지 않습니다. "
+			"agents/master_graphs/qa/prompts.yaml 파일의 qa_benefit.prompts.system_prompt를 확인하세요."
+		)
 	
 	# 이전 대화 히스토리 구성
 	messages = [
@@ -452,23 +484,25 @@ def generate_answer(state: BenefitState) -> BenefitState:
 			if role and content:
 				messages.append((role, content))
 	
-	user_prompt = prompts.get("user_prompt", """다음은 회사의 복리후생 정책 문서에서 검색된 관련 내용입니다:
-
-{context}
-
-질문: {question}
-
-위 문서들을 참고하여 복리후생 관련 질문에 대한 상세하고 실용적인 답변을 한국어로 제공해주세요.
-답변에는 가능한 한 구체적인 절차, 자격요건, 신청방법, 문의처 등을 포함해주세요.
-이전 대화 내용이 있으면, 그것을 참고하여 자연스럽고 대화하듯이 답변하세요.
-주의: 답변 끝에 "[참고 문서]" 섹션을 추가하지 마세요.""")
+	# YAML에서 user_prompt 로드 (YAML에 정의되어 있어야 함)
+	user_prompt = prompts.get("user_prompt")
+	if not user_prompt:
+		raise ValueError(
+			"user_prompt가 YAML 설정 파일에 정의되어 있지 않습니다. "
+			"agents/master_graphs/qa/prompts.yaml 파일의 qa_benefit.prompts.user_prompt를 확인하세요."
+		)
 	messages.append(("user", user_prompt))
 	
 	prompt_template = ChatPromptTemplate.from_messages(messages)
 	
+	# LLM 설정 (YAML에서 로드)
+	llm_config = config.get("llm", {})
+	llm_model = llm_config.get("model", "gpt-4o-mini")
+	llm_temperature = llm_config.get("temperature", 0)
+	
 	llm = ChatOpenAI(
-		model="gpt-4o-mini",
-		temperature=0,
+		model=llm_model,
+		temperature=llm_temperature,
 		api_key=api_key
 	)
 	

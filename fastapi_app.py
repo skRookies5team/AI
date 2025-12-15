@@ -357,6 +357,15 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     if search_results:
                         rows = search_results
                 
+                # 문서 업데이트 UI 표시 플래그 확인
+                show_document_update_ui = final_state.get("show_document_update_ui", False)
+                
+                # 디버깅: 문서 업데이트 UI 플래그 확인
+                print(f"🔍 [FastAPI] 문서 업데이트 UI 플래그: {show_document_update_ui}")
+                print(f"🔍 [FastAPI] final_state keys: {list(final_state.keys())}")
+                if "show_document_update_ui" in final_state:
+                    print(f"🔍 [FastAPI] show_document_update_ui 값: {final_state['show_document_update_ui']}")
+                
                 result = {
                     "type": "complete",
                     "ok": True,
@@ -366,7 +375,10 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     "document_path": document_path,
                     "requires_input": requires_input,
                     "last_domain": last_domain,  # LLM 라우팅 시 결정된 도메인
+                    "show_document_update_ui": show_document_update_ui,  # 문서 업데이트 UI 표시 플래그
                 }
+                
+                print(f"🔍 [FastAPI] 응답에 포함된 show_document_update_ui: {result.get('show_document_update_ui')}")
                 yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
                 
                 # 노드 실행 후 세션 데이터 저장 (conversation_history + 컨텍스트들)
@@ -420,11 +432,10 @@ async def chat_stream_endpoint(payload: ChatRequest):
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
                         "document_context": final_state.get("document_context", {}),
-                        "recruitment_context": final_state.get("recruitment_context", {})
+                        "recruitment_context": final_state.get("recruitment_context", {}),
+                        "last_domain": final_state.get("last_domain")  # last_domain 저장
                     }
-                    print(f"[FASTAPI DEBUG] session_state 저장:")
-                    print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
-                    print(f"  - email_compose_context 키: {list(session_state.get('email_compose_context', {}).keys())}")
+                    # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
                     await session_manager.save_session_state(session_id, session_state)
         
         except Exception as exc:
@@ -494,9 +505,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "document_context": session_data.get("document_context", {}),
             "recruitment_context": session_data.get("recruitment_context", {})
         }
-        print(f"[FASTAPI DEBUG] input_state 로드:")
-        print(f"  - email_compose_context 존재: {bool(input_state.get('email_compose_context'))}")
-        print(f"  - email_compose_context 키: {list(input_state.get('email_compose_context', {}).keys())}")
+        # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
         
         # LangGraph 체크포인터 없이 실행 (세션 관리자가 대화 히스토리 관리)
         config = {"configurable": {"thread_id": session_id}}
@@ -552,11 +561,10 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),
                 "document_context": final_state.get("document_context", {}),
-                "recruitment_context": final_state.get("recruitment_context", {})
+                "recruitment_context": final_state.get("recruitment_context", {}),
+                "last_domain": final_state.get("last_domain")  # last_domain 저장
             }
-            print(f"[FASTAPI DEBUG] session_state 저장 (non-stream):")
-            print(f"  - email_compose_context 존재: {bool(session_state.get('email_compose_context'))}")
-            print(f"  - email_compose_context 키: {list(session_state.get('email_compose_context', {}).keys())}")
+            # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
             await session_manager.save_session_state(session_id, session_state)
         
         # Process Output

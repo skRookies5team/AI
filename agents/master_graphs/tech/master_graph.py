@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import asyncio
+import re
 
 from langgraph.graph import StateGraph, END
 
@@ -137,6 +138,21 @@ class TechMasterGraph(BaseMasterGraph):
         
         # 3. 선택지 답변이거나 연속된 대화인 경우 이전 에이전트 유지
         # 단, "찾아"는 제외 (명시적 요청일 수 있음)
+        
+        # 번호 선택 관련 키워드 (예: "10번 자세히 알려줘", "1번 상세", "2번 선택")
+        selection_keywords = ["번", "자세히", "상세", "선택", "알려", "보여", "알려줘", "보여줘"]
+        has_selection_keyword = any(k in query for k in selection_keywords)
+        
+        # 숫자 패턴 감지 (예: "10번", "1번", "2번 자세히", "10")
+        has_number_pattern = bool(re.match(r'^\d+', query.strip()))
+        
+        # 이전 검색 결과가 있고, 번호 선택 요청인 경우 우선 처리
+        if last_active_agent and (has_number_pattern or has_selection_keyword):
+            # 숫자로 시작하거나 번호 선택 키워드가 있으면 연속 대화로 판단
+            print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent}")
+            return {"intent": last_active_agent}
+        
+        # 기존 continuation 로직 (웹 검색 선택 등)
         is_continuation = any(k in query for k in ["웹", "사내", "1", "2", "3", "더"]) or query.isdigit()
         
         if is_continuation and last_active_agent:
