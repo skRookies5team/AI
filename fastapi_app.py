@@ -343,10 +343,14 @@ async def chat_stream_endpoint(payload: ChatRequest):
             # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
             session_id = payload.session_id or f"session_{payload.employee_id}"
 
-            # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션만 이메일 수신감지 시작(중복 실행 방지)
+            # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
             try:
-                from agents.master_graphs.email.email_search_agent import start_email_checker_for_session
-                start_email_checker_for_session(session_id, check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+                from agents.master_graphs.email.email_search_agent import (
+                    register_email_check_session,
+                    start_email_checker_supervisor,
+                )
+                register_email_check_session(session_id)
+                start_email_checker_supervisor(check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
             except Exception as e:
                 print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
             
@@ -380,7 +384,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "employee_id": payload.employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
-                "email_compose_context": session_data.get("email_compose_context", {}),
+                # Redis/세션에서 null(None)로 들어오는 경우 방어
+                "email_compose_context": session_data.get("email_compose_context") or {},
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
@@ -568,7 +573,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     session_state = {
                         "conversation_history": conversation_history,
                         "email_search_context": final_state.get("email_search_context", {}),
-                        "email_compose_context": final_state.get("email_compose_context", {}),
+                        # Redis/세션에 null로 저장되지 않도록 정규화
+                        "email_compose_context": final_state.get("email_compose_context") or {},
                         "qa_search_context": final_state.get("qa_search_context", {}),
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
@@ -614,10 +620,14 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
         session_id = payload.session_id or f"session_{payload.employee_id}"
 
-        # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션만 이메일 수신감지 시작(중복 실행 방지)
+        # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
         try:
-            from agents.master_graphs.email.email_search_agent import start_email_checker_for_session
-            start_email_checker_for_session(session_id, check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+            from agents.master_graphs.email.email_search_agent import (
+                register_email_check_session,
+                start_email_checker_supervisor,
+            )
+            register_email_check_session(session_id)
+            start_email_checker_supervisor(check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
         except Exception as e:
             print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
         
@@ -646,7 +656,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "employee_id": payload.employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
-            "email_compose_context": session_data.get("email_compose_context", {}),
+            # Redis/세션에서 null(None)로 들어오는 경우 방어
+            "email_compose_context": session_data.get("email_compose_context") or {},
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
@@ -742,7 +753,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             session_state = {
                 "conversation_history": conversation_history,
                 "email_search_context": final_state.get("email_search_context", {}),
-                "email_compose_context": final_state.get("email_compose_context", {}),
+                # Redis/세션에 null로 저장되지 않도록 정규화
+                "email_compose_context": final_state.get("email_compose_context") or {},
                 "qa_search_context": final_state.get("qa_search_context", {}),
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),

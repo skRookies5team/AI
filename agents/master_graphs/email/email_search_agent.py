@@ -1327,6 +1327,162 @@ async def sync_emails_to_redis(
 # 세션별 백그라운드 이메일 체커(중복 실행 방지)
 _ACTIVE_EMAIL_CHECKERS: Dict[str, asyncio.Task] = {}
 
+# ===== Email checker v2 (single supervisor per process) =====
+_EMAIL_CHECKER_SUPERVISOR_TASK: Optional[asyncio.Task] = None
+_EMAIL_CHECKER_ACTIVE_SESSIONS: set[str] = set()
+
+
+def register_email_check_session(session_id: str) -> None:
+	"""이메일 수신감지 대상 세션을 등록합니다.
+
+	- 프로세스 메모리 기반이므로, 프로세스가 재시작되면 다시 등록되어야 합니다.
+	- 실제 신규 메일 판별은 Redis({session_id}_EMAIL)의 최근 100개 UID와 IMAP 최신 100개 UID 비교로 수행됩니다.
+	"""
+	if session_id:
+		_EMAIL_CHECKER_ACTIVE_SESSIONS.add(session_id)
+
+
+async def _check_and_publish_new_emails_for_session(session_id: str, recent_limit: int = 100) -> None:
+	"""현재 세션의 Redis 캐시와 IMAP을 비교해 신규 메일이 있으면 프론트로 발행하고 Redis에 메타데이터를 추가합니다."""
+	# 초기 동기화(없으면) 보장
+	try:
+		redis_client = _get_redis_client()
+		if redis_client:
+			storage = EmailRedisStorage(redis_client, session_id)
+			if not await storage.has_synced_data():
+				await sync_emails_to_redis(session_id, limit=1000)
+	except Exception as e:
+		logger.debug(f"[EMAIL CHECK][{session_id}] 초기 동기화 중 오류(무시): {e}")
+
+	new_emails = await _check_new_emails_for_session(session_id, recent_limit=recent_limit)
+	if not new_emails:
+		return
+
+	email_data: Dict[str, Dict[str, str]] = {}
+
+	# IMAP에서 본문까지 가져와 content 채우기 (UID 기반)
+	host = _get_env("IMAP_HOST") or "imap.naver.com"
+	port = int(_get_env("IMAP_PORT") or "993")
+	user = _get_env("NAVER_EMAIL") or ""
+	if not user:
+		nid = _get_env("NAVER_ID") or ""
+		if nid:
+			user = f"{nid}@naver.com"
+	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+
+	mail = None
+	if user and pwd:
+		try:
+			mail = imaplib.IMAP4_SSL(host, port)
+			mail.login(user, pwd)
+			mail.select("INBOX")
+		except Exception as e:
+			logger.error(f"[EMAIL CHECK][{session_id}] IMAP 연결 실패: {e}")
+			mail = None
+
+	try:
+		for idx, e in enumerate(new_emails, 1):
+			email_info: Dict[str, str] = {
+				"subject": e.get("subject", "(제목 없음)"),
+				"from": e.get("from_addr", "(발신자 없음)"),
+				"date": e.get("date", ""),
+				"content": "",
+			}
+
+			if mail:
+				try:
+					uid_str = str(e.get("email_id") or "")
+					st, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
+					if st == "OK" and msg_data and msg_data[0]:
+						msg = email_pkg.message_from_bytes(msg_data[0][1])
+						text_body, html_body, attachments = _get_email_body_and_attachments(msg)
+						if html_body:
+							email_info["content"] = html_body
+						elif text_body:
+							email_info["content"] = text_body
+						else:
+							email_info["content"] = e.get("subject", "")
+					else:
+						email_info["content"] = e.get("subject", "")
+				except Exception as fetch_err:
+					logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={e.get('email_id')}): {fetch_err}")
+					email_info["content"] = e.get("subject", "")
+			else:
+				email_info["content"] = e.get("subject", "")
+
+			email_data[str(idx)] = email_info
+	finally:
+		if mail:
+			try:
+				mail.logout()
+			except Exception:
+				pass
+
+	summary_message = f"📧 새 메일 도착: {len(new_emails)}개"
+	json_result = {summary_message: email_data}
+	# 프론트로 알림 발행
+	publish_notification(
+		session_id,
+		{
+			"type": "email_new",
+			"session_id": session_id,
+			"data": json_result,
+			"timestamp": datetime.now().isoformat(),
+		},
+	)
+
+	redis_client = _get_redis_client()
+	if redis_client:
+		storage = EmailRedisStorage(redis_client, session_id)
+		await storage.save_email_metadata_batch(
+			[
+				{
+					"email_id": e["email_id"],
+					"subject": e["subject"],
+					"from_addr": e["from_addr"],
+					"date": e["date"],
+					"snippet": (e["subject"] or "")[:200],
+					"msg_id_bytes": e["msg_id_bytes"],
+				}
+				for e in new_emails
+			]
+		)
+
+
+async def _email_checker_supervisor_loop(check_interval: int = 30) -> None:
+	"""프로세스 당 1개만 실행되는 supervisor 루프.
+
+	- 등록된 세션들에 대해 주기적으로 신규 메일을 확인합니다.
+	- Ctrl+C/shutdown 시 cancel되어 즉시 종료되도록 CancelledError를 처리합니다.
+	"""
+	while True:
+		try:
+			# 콘솔 카운트다운 출력은 비활성화 (요청: "다음 체크" 문구 미출력)
+			await asyncio.sleep(check_interval)
+			print(f"[EMAIL CHECK] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - IMAP 최신 100개 체크 시작")
+
+			# 세션별 체크 (순차 실행: IMAP 부하/로그인 충돌 방지)
+			for sid in list(_EMAIL_CHECKER_ACTIVE_SESSIONS):
+				try:
+					await _check_and_publish_new_emails_for_session(sid, recent_limit=100)
+				except Exception as e:
+					logger.error(f"[EMAIL CHECK][{sid}] 체크 실패(무시): {e}")
+		except asyncio.CancelledError:
+			print("[EMAIL CHECK] supervisor 종료(cancelled)")
+			raise
+		except Exception as e:
+			logger.error(f"[EMAIL CHECK] supervisor 오류: {e}")
+			await asyncio.sleep(60)
+
+
+def start_email_checker_supervisor(check_interval: int = 30) -> None:
+	"""supervisor를 시작합니다(프로세스당 1회)."""
+	global _EMAIL_CHECKER_SUPERVISOR_TASK
+	if _EMAIL_CHECKER_SUPERVISOR_TASK and not _EMAIL_CHECKER_SUPERVISOR_TASK.done():
+		return
+	_EMAIL_CHECKER_SUPERVISOR_TASK = asyncio.create_task(_email_checker_supervisor_loop(check_interval=check_interval))
+	print(f"📧 [EMAIL CHECK] supervisor 시작 (interval={check_interval}s)")
+
 
 async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100) -> List[Dict[str, Any]]:
 	"""IMAP 최신 recent_limit개 vs Redis(해당 세션) 최신 recent_limit개 비교 → 새 메일 메타데이터 반환."""
@@ -1444,10 +1600,8 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 
 	while True:
 		try:
-			for remaining in range(check_interval, 0, -1):
-				print(f"\r[EMAIL CHECK][{session_id}] 다음 체크까지 {remaining}초", end="", flush=True)
-				await asyncio.sleep(1)
-			print()
+			# 콘솔 카운트다운 출력은 비활성화 (요청: "다음 체크" 문구 미출력)
+			await asyncio.sleep(check_interval)
 			print(f"[EMAIL CHECK][{session_id}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - IMAP 최신 100개 체크 시작")
 
 			new_emails = await _check_new_emails_for_session(session_id, recent_limit=100)
@@ -1556,17 +1710,26 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 
 def start_email_checker_for_session(session_id: str, check_interval: int = 30) -> None:
 	"""첫 채팅에서 알아낸 '현재 세션'만 이메일 체커 시작(중복 실행 방지)."""
-	task = _ACTIVE_EMAIL_CHECKERS.get(session_id)
-	if task and not task.done():
-		return
-	_ACTIVE_EMAIL_CHECKERS[session_id] = asyncio.create_task(
-		_background_email_checker_for_session(session_id, check_interval=check_interval)
-	)
-	print(f"📧 [EMAIL CHECK][{session_id}] 체커 시작 (interval={check_interval}s)")
+	# v2: 세션별 태스크를 만들지 않고 supervisor 1개만 돌립니다.
+	register_email_check_session(session_id)
+	start_email_checker_supervisor(check_interval=check_interval)
 
 
 async def stop_all_email_checkers() -> None:
 	"""서버 종료 시 모든 이메일 체커 태스크를 취소(cancel)하고 정리합니다."""
+	global _EMAIL_CHECKER_SUPERVISOR_TASK
+
+	# v2 supervisor stop
+	if _EMAIL_CHECKER_SUPERVISOR_TASK and not _EMAIL_CHECKER_SUPERVISOR_TASK.done():
+		_EMAIL_CHECKER_SUPERVISOR_TASK.cancel()
+		try:
+			await asyncio.gather(_EMAIL_CHECKER_SUPERVISOR_TASK, return_exceptions=True)
+		except Exception:
+			pass
+	_EMAIL_CHECKER_SUPERVISOR_TASK = None
+	_EMAIL_CHECKER_ACTIVE_SESSIONS.clear()
+
+	# v1 legacy session tasks stop (혹시 남아있을 수 있어 같이 정리)
 	if not _ACTIVE_EMAIL_CHECKERS:
 		return
 

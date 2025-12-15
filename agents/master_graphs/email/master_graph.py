@@ -353,7 +353,8 @@ class EmailMasterGraph(BaseMasterGraph):
         #     "답장해줘: 내일 가능해요"
         
         # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
-        email_compose_context = state.get("email_compose_context", {})
+        # NOTE: Redis/세션에서 null(None)로 들어오는 경우가 있어 .get() 사용 전에 정규화 필요
+        email_compose_context = state.get("email_compose_context") or {}
         
         # LLM을 사용하여 수신자 정보 추출
         recipient_info = await _extract_recipient_info_with_llm(query)
