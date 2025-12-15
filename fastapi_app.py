@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.session_manager import get_session_manager
+from agents.notifications import get_notification_queue
 import asyncio
 import threading
 from datetime import datetime, timedelta
@@ -205,6 +206,17 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ 초기화 중 오류 발생 (계속 진행): {e}")
 
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """서버 종료 시 백그라운드 태스크 정리."""
+    try:
+        from agents.master_graphs.email.email_search_agent import stop_all_email_checkers
+        await stop_all_email_checkers()
+        print("🛑 서버 종료: 이메일 체커 태스크 cancel 완료")
+    except Exception as e:
+        print(f"🛑 서버 종료: 이메일 체커 태스크 정리 실패(무시): {e}")
+
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
@@ -292,6 +304,37 @@ async def serve_document(filename: str):
     )
 
 
+@app.get("/api/notifications/stream")
+async def notifications_stream(session_id: str):
+    """세션별 알림 스트림(SSE). 새 메일 수신 등 백그라운드 이벤트를 프론트로 푸시합니다."""
+
+    async def event_generator():
+        q = get_notification_queue(session_id)
+        while True:
+            try:
+                # 15초마다 ping으로 연결 유지
+                payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except asyncio.TimeoutError:
+                yield "event: ping\ndata: {}\n\n"
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                err = {"type": "error", "message": str(e)}
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(payload: ChatRequest):
     """스트리밍 챗봇 엔드포인트 - 실시간 작업 상태 표시."""
@@ -299,6 +342,17 @@ async def chat_stream_endpoint(payload: ChatRequest):
         try:
             # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
             session_id = payload.session_id or f"session_{payload.employee_id}"
+
+            # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
+            try:
+                from agents.master_graphs.email.email_search_agent import (
+                    register_email_check_session,
+                    start_email_checker_supervisor,
+                )
+                register_email_check_session(session_id)
+                start_email_checker_supervisor(check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+            except Exception as e:
+                print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
             
             # 세션 관리자로 이전 세션 데이터 전체 로드 (conversation_history + 컨텍스트들)
             session_manager = await get_session_manager()
@@ -330,7 +384,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "employee_id": payload.employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
-                "email_compose_context": session_data.get("email_compose_context", {}),
+                # Redis/세션에서 null(None)로 들어오는 경우 방어
+                "email_compose_context": session_data.get("email_compose_context") or {},
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
@@ -470,18 +525,56 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     # Assistant 메시지 추가 (없으면 final_response로 생성)
                     if not conversation_history or conversation_history[-1].get("role") != "assistant":
                         if final_msg:
-                            assistant_message = {
-                                "role": "assistant",
-                                "content": final_msg,
-                                "timestamp": datetime.now().isoformat()
-                            }
+                            # 이메일 검색 결과인 경우 HTML 대신 요약 메시지와 UID 리스트만 저장
+                            # email_ids는 master_graph에서 반환된 result에서 가져옴
+                            email_ids = final_state.get("email_ids", [])
+                            last_keyword = final_state.get("last_search_keyword")
+                            
+                            # HTML이 포함되어 있거나 email_ids가 있으면 이메일 검색 결과로 판단
+                            is_email_search_result = (
+                                email_ids or 
+                                "<div" in final_msg or 
+                                "📧" in final_msg or 
+                                ("메일" in final_msg and ("찾았" in final_msg or "검색" in final_msg))
+                            )
+                            
+                            if is_email_search_result and email_ids:
+                                # 이메일 검색 결과: HTML 대신 요약 메시지와 UID 리스트만 저장
+                                email_count = len(email_ids)
+                                search_keyword = last_keyword or "검색"
+                                conversation_summary = f"📧 '{search_keyword}' 관련 메일 {email_count}개를 찾았습니다."
+                                
+                                assistant_message = {
+                                    "role": "assistant",
+                                    "content": conversation_summary,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "email_ids": email_ids  # UID 리스트만 저장 (HTML 제외)
+                                }
+                            else:
+                                # 일반 메시지 (HTML이 있어도 email_ids가 없으면 그대로 저장)
+                                # 단, HTML이 너무 길면 요약
+                                if len(final_msg) > 10000 and "<div" in final_msg:
+                                    # HTML이 너무 길면 요약 메시지로 저장
+                                    conversation_summary = "📧 이메일 검색 결과를 표시했습니다."
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": conversation_summary,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
+                                else:
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": final_msg,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
                             conversation_history.append(assistant_message)
                     
                     # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
                     session_state = {
                         "conversation_history": conversation_history,
                         "email_search_context": final_state.get("email_search_context", {}),
-                        "email_compose_context": final_state.get("email_compose_context", {}),
+                        # Redis/세션에 null로 저장되지 않도록 정규화
+                        "email_compose_context": final_state.get("email_compose_context") or {},
                         "qa_search_context": final_state.get("qa_search_context", {}),
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
@@ -526,6 +619,17 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     try:
         # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
         session_id = payload.session_id or f"session_{payload.employee_id}"
+
+        # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
+        try:
+            from agents.master_graphs.email.email_search_agent import (
+                register_email_check_session,
+                start_email_checker_supervisor,
+            )
+            register_email_check_session(session_id)
+            start_email_checker_supervisor(check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+        except Exception as e:
+            print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
         
         # 세션 관리자로 이전 세션 데이터 전체 로드 (conversation_history + 컨텍스트들)
         session_manager = await get_session_manager()
@@ -552,7 +656,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "employee_id": payload.employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
-            "email_compose_context": session_data.get("email_compose_context", {}),
+            # Redis/세션에서 null(None)로 들어오는 경우 방어
+            "email_compose_context": session_data.get("email_compose_context") or {},
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
@@ -598,19 +703,58 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             
             # Assistant 메시지 추가 (없으면 final_response로 생성)
             if not conversation_history or conversation_history[-1].get("role") != "assistant":
-                if final_state.get("final_response"):
-                    assistant_message = {
-                        "role": "assistant",
-                        "content": final_state.get("final_response"),
-                        "timestamp": datetime.now().isoformat()
-                    }
+                final_msg = final_state.get("final_response")
+                if final_msg:
+                    # 이메일 검색 결과인 경우 HTML 대신 요약 메시지와 UID 리스트만 저장
+                    # email_ids는 master_graph에서 반환된 result에서 가져옴
+                    email_ids = final_state.get("email_ids", [])
+                    last_keyword = final_state.get("last_search_keyword")
+                    
+                    # HTML이 포함되어 있거나 email_ids가 있으면 이메일 검색 결과로 판단
+                    is_email_search_result = (
+                        email_ids or 
+                        "<div" in final_msg or 
+                        "📧" in final_msg or 
+                        ("메일" in final_msg and ("찾았" in final_msg or "검색" in final_msg))
+                    )
+                    
+                    if is_email_search_result and email_ids:
+                        # 이메일 검색 결과: HTML 대신 요약 메시지와 UID 리스트만 저장
+                        email_count = len(email_ids)
+                        search_keyword = last_keyword or "검색"
+                        conversation_summary = f"📧 '{search_keyword}' 관련 메일 {email_count}개를 찾았습니다."
+                        
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": conversation_summary,
+                            "timestamp": datetime.now().isoformat(),
+                            "email_ids": email_ids  # UID 리스트만 저장 (HTML 제외)
+                        }
+                    else:
+                        # 일반 메시지 (HTML이 있어도 email_ids가 없으면 그대로 저장)
+                        # 단, HTML이 너무 길면 요약
+                        if len(final_msg) > 10000 and "<div" in final_msg:
+                            # HTML이 너무 길면 요약 메시지로 저장
+                            conversation_summary = "📧 이메일 검색 결과를 표시했습니다."
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": conversation_summary,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        else:
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": final_msg,
+                                "timestamp": datetime.now().isoformat()
+                            }
                     conversation_history.append(assistant_message)
             
             # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
             session_state = {
                 "conversation_history": conversation_history,
                 "email_search_context": final_state.get("email_search_context", {}),
-                "email_compose_context": final_state.get("email_compose_context", {}),
+                # Redis/세션에 null로 저장되지 않도록 정규화
+                "email_compose_context": final_state.get("email_compose_context") or {},
                 "qa_search_context": final_state.get("qa_search_context", {}),
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),
