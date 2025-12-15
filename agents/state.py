@@ -24,7 +24,7 @@ class OrchestratorState(TypedDict):
     current_weekday: Optional[str]  # 현재 요일 (예: "월요일")
     
     # Workflow Context
-    domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech'
+    domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech', 'recruitment'
     last_domain: Optional[str]  # 이전 대화의 도메인 (단순 답변 시 라우팅용)
     intent: Optional[str]  # 'business_trip', 'research', 'meeting', etc.
     template_name: Optional[str]  # 문서 템플릿 이름 (예: 'work_performance_review', 'hr_summary_report')
@@ -136,6 +136,20 @@ class OrchestratorState(TypedDict):
     #   "last_template_type": str,  # 마지막 생성한 문서 템플릿 타입
     #   "last_variables": Dict,  # 마지막 사용한 변수들
     #   "pending_document": Optional[Dict],  # 생성 대기 중인 문서 정보
+    # }
+    
+    # Recruitment Context (Redis 숏텀 메모리로 관리)
+    recruitment_context: Optional[Dict[str, Any]]  # 채용(인재 추천/이력서) 관련 컨텍스트
+    # 구조: {
+    #   "resume_search": {
+    #     "last_query": str,  # 마지막 검색 쿼리
+    #     "last_results": List[Dict],  # 마지막 검색 결과 (번호, resume_id, name, position, content 포함)
+    #     "displayed_count": int,  # 표시된 결과 개수
+    #   },
+    #   "resume_summarize": {
+    #     "last_resume_id": str,  # 마지막 요약한 이력서 ID
+    #     "last_summary": Dict,  # 마지막 요약 결과
+    #   }
     # }
     
     # Final Output

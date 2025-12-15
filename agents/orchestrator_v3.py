@@ -18,6 +18,7 @@ import os
 import yaml
 import time
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -25,16 +26,18 @@ from langgraph.graph import StateGraph, END
 
 from agents.state import OrchestratorState, Message
 from agents.llm_router import classify_intent_with_llm
-from agents.structured_output import extract_structured_output, QueryIntent, HistoryCheckIntent
+from agents.structured_output import extract_structured_output, QueryIntent
 from agents.redis_optimizer import optimize_state_before_save
 from agents.domain_node_handler import process_domain_node_result
 from agents.utils import check_detailed_response_in_history, get_clarification_message
+from agents.history_check_handler import detect_history_check_query, handle_history_check_query
 from agents.master_graphs import (
     get_schedule_master_graph,
     get_document_master_graph,
     get_qa_master_graph,
     get_email_master_graph,
     get_tech_master_graph,
+    get_recruitment_master_graph,
 )
 
 
@@ -45,6 +48,7 @@ MASTER_GRAPHS = {
     "qa": get_qa_master_graph,
     "email": get_email_master_graph,
     "tech": get_tech_master_graph,
+    "recruitment": get_recruitment_master_graph,
 }
 
 
@@ -98,6 +102,7 @@ def _load_orchestrator_prompts_sync() -> Dict[str, Any]:
     """오케스트레이터 프롬프트를 YAML 파일에서 동기적으로 로드합니다.
     
     모듈 로드 시 또는 첫 호출 시 실행됩니다.
+    common_prompts.yaml 파일에서 orchestrator 섹션을 로드합니다.
     
     Returns:
         오케스트레이터 프롬프트 딕셔너리
@@ -107,9 +112,9 @@ def _load_orchestrator_prompts_sync() -> Dict[str, Any]:
     if _orchestrator_prompts is not None:
         return _orchestrator_prompts
     
-    # agent_prompts.yaml 파일 경로 찾기
+    # common_prompts.yaml 파일 경로 찾기
     current_dir = Path(__file__).parent
-    yaml_path = current_dir / "agent_prompts.yaml"
+    yaml_path = current_dir / "common_prompts.yaml"
     
     if not yaml_path.exists():
         raise FileNotFoundError(f"프롬프트 파일을 찾을 수 없습니다: {yaml_path}")
@@ -121,7 +126,7 @@ def _load_orchestrator_prompts_sync() -> Dict[str, Any]:
     _orchestrator_config = all_prompts.get("orchestrator_config", {})
     
     if not _orchestrator_prompts:
-        raise ValueError("agent_prompts.yaml에 'orchestrator' 섹션이 없습니다.")
+        raise ValueError("common_prompts.yaml에 'orchestrator' 섹션이 없습니다.")
     
     return _orchestrator_prompts
 
@@ -139,7 +144,7 @@ def load_orchestrator_config() -> Dict[str, Any]:
     
     # 첫 호출 시에만 로드
     current_dir = Path(__file__).parent
-    yaml_path = current_dir / "agent_prompts.yaml"
+    yaml_path = current_dir / "common_prompts.yaml"
     
     if not yaml_path.exists():
         raise FileNotFoundError(f"프롬프트 파일을 찾을 수 없습니다: {yaml_path}")
@@ -165,6 +170,18 @@ def load_orchestrator_prompts() -> Dict[str, Any]:
     print("✅ Orchestrator 프롬프트 로드 완료")
     return prompts
 
+def load_all_prompts() -> Dict[str, Any]:
+    """전체 프롬프트 YAML 파일을 로드합니다 (tech, qa, email 등 모든 섹션 포함).
+
+    특허 검색 모드 응답 감지를 위해 tech 섹션에 접근할 때 사용됩니다.
+    llm_router의 load_agent_prompts 함수를 사용하여 모든 분리된 yaml 파일을 병합합니다.
+
+    Returns:
+        전체 프롬프트 딕셔너리
+    """
+    from agents.llm_router import load_agent_prompts
+    return load_agent_prompts()
+
 # 모듈 로드 시 프롬프트 미리 로드 (첫 요청 시 지연 방지)
 try:
     _load_orchestrator_prompts_sync()
@@ -174,86 +191,204 @@ except Exception as e:
     print(f"[WARNING] Orchestrator 프롬프트 사전 로드 실패 (나중에 다시 시도): {e}")
 
 
-def get_history_check_prompt(history_context: str = "") -> str:
-    """이전 대화 확인 질문 분류를 위한 프롬프트를 반환합니다.
-    
-    Args:
-        history_context: 이전 대화 내용 컨텍스트
-        
-    Returns:
-        시스템 프롬프트 문자열
-    """
-    prompts = load_orchestrator_prompts()
-    history_check_prompt = prompts.get("prompts", {}).get("history_check", {}).get("system_prompt", "")
-    
-    if not history_check_prompt:
-        raise ValueError("orchestrator.prompts.history_check.system_prompt가 없습니다.")
-    
-    # 플레이스홀더 치환
-    placeholder = prompts.get("prompts", {}).get("history_check", {}).get("history_context_placeholder", "{history_context}")
-    prompt = history_check_prompt.replace(placeholder, history_context)
-    
-    return prompt
-
-
 def check_tech_ask_source_state(query: str, state: OrchestratorState, user_message: Message) -> Optional[Dict[str, Any]]:
     """Tech 도메인의 ask_source 상태를 확인하고 tech 도메인으로 유지할지 결정."""
     tech_search_context = state.get("tech_search_context", {})
-    if not tech_search_context:
-        return None
     
-    # article 또는 patent의 상태 확인
-    for agent_type in ["article", "patent"]:
-        if agent_type in tech_search_context:
-            agent_ctx = tech_search_context[agent_type]
-            # agent_ctx가 None이 아니고 딕셔너리인지 확인
-            if agent_ctx and isinstance(agent_ctx, dict):
-                intent = agent_ctx.get("intent")
-                
-                # ask_source 또는 ask_search_mode 상태 확인
-                if intent == "ask_source" or intent == "ask_search_mode":
-                    # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
+    # YAML에서 키워드 로드 (함수 시작 부분에서 한 번만 로드 - 특허 검색 관련)
+    config = load_orchestrator_config()
+    keywords_config = config.get("keywords", {})
+    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
+    server_data_keywords = keywords_config.get("server_data_keywords", [])  # YAML에서 로드
 
-                    config = load_orchestrator_config()
-                    keywords_config = config.get("keywords", {})
-                    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
+    # tech_search_context가 있는 경우 기존 로직 수행
+    if tech_search_context:
+        # article 또는 patent의 상태 확인
+        for agent_type in ["article", "patent"]:
+            if agent_type in tech_search_context:
+                agent_ctx = tech_search_context[agent_type]
+                # agent_ctx가 None이 아니고 딕셔너리인지 확인
+                if agent_ctx and isinstance(agent_ctx, dict):
+                    intent = agent_ctx.get("intent")
 
-                    if any(k in query for k in tech_continuation_keywords) or query.isdigit():
-                        print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
-                    # ask_search_mode 상태에서도 서버 데이터 질문 처리
-                    if any(k in query for k in server_data_keywords):
-                        print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
-                
-                # 일반 특허 검색 컨텍스트 확인 (추가)
-                elif intent == "search":
-                    # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
-                    server_data_keywords = [
-                        "서버에", "서버에 데이터", "데이터가 있나", "데이터 있나",
-                        "서버에 있나", "서버에 있는지", "데이터 있는지",
-                        "서버", "벡터", "db", "데이터베이스", "밀버스"
-                    ]
-                    if any(k in query for k in server_data_keywords):
-                        print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
-                        return {
-                            "domain": "tech",
-                            "conversation_history": [user_message]
-                        }
+                    # ask_source 또는 ask_search_mode 상태 확인
+                    if intent == "ask_source" or intent == "ask_search_mode":
+                        # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in tech_continuation_keywords) or query.isdigit():
+                            print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+                        # ask_search_mode 상태에서도 서버 데이터 질문 처리
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in server_data_keywords):
+                            print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+
+                    # 일반 특허 검색 컨텍스트 확인 (추가)
+                    elif intent == "search":
+                        # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
+                        # YAML에서 이미 로드된 키워드 사용
+                        if any(k in query for k in server_data_keywords):
+                            print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
+                            return {
+                                "domain": "tech",
+                                "conversation_history": [user_message]
+                            }
+
+    # tech_search_context가 비어있을 때도 대화 히스토리에서 특허 검색 관련 질문 확인
+    # (Redis 저장이 지연되거나 누락된 경우 대비 - LLM 기반)
+    conversation_history = state.get("conversation_history", [])
+    
+    # "1번", "2번" 같은 번호 선택이 특허 검색 결과 선택일 수 있음을 확인
+    if conversation_history and len(conversation_history) >= 2:
+        # 최근 대화에서 특허 검색 결과가 있었는지 확인
+        recent_messages = conversation_history[-5:]  # 최근 5개 메시지 확인 (더 넓은 범위)
+        has_patent_search_results = False
+        has_number_selection_pattern = False
+        
+        # 번호 선택 패턴 확인 (예: "1번", "1번 자세히", "1번 알려줘", "1", "1번 보여줘" 등)
+        number_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기)?', re.IGNORECASE)
+        if number_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2):
+            has_number_selection_pattern = True
+        
+        # 최근 대화에서 특허 검색 결과 메시지 확인
+        for msg in recent_messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "")
+            
+            # assistant 메시지에서 특허 검색 결과 패턴 확인
+            if role == "assistant":
+                # 특허 검색 결과 패턴: "특허 X개를 찾았습니다", "다음 특허 중에서", "번호를 입력하세요" 등
+                patent_result_patterns = [
+                    r'특허\s*\d+개',
+                    r'다음\s*특허\s*중에서',
+                    r'번호를\s*입력하세요',
+                    r'자세히\s*보려면\s*번호를',
+                    r'선택해주세요',
+                    r'특허\s*중에서\s*자세히',
+                    r'관련\s*특허\s*\d+개',
+                    r'찾았습니다',
+                ]
+                for pattern in patent_result_patterns:
+                    if re.search(pattern, content, re.IGNORECASE):
+                        has_patent_search_results = True
+                        break
+            
+            # user 메시지에서 특허 검색 요청 확인
+            if role == "user":
+                patent_keywords = ["특허", "patent", "특허를", "특허 찾아", "특허 검색", "바이러스 특허"]
+                if any(kw in content for kw in patent_keywords):
+                    has_patent_search_results = True
+        
+        # 번호 선택 패턴이 있고 특허 검색 결과가 있었으면 tech 도메인으로 유지
+        if has_number_selection_pattern and has_patent_search_results:
+            print(f"✅ Tech 도메인 대화 히스토리 기반 감지: '{query}' → tech 도메인 (특허 검색 결과 선택)")
+            return {
+                "domain": "tech",
+                "conversation_history": [user_message]
+            }
+    
+    if conversation_history and len(conversation_history) >= 2:
+        try:
+            # 대화 히스토리 컨텍스트 구성
+            recent_messages = conversation_history[-2:]
+            history_context = "\n\n최근 대화 내용:\n"
+            for msg in recent_messages:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                history_context += f"{role}: {content}\n"
+
+            # YAML에서 프롬프트 로드 (전체 YAML 로드 필요 - tech 섹션 접근)
+            prompts = load_all_prompts()
+            tech_config = prompts.get("tech", {})
+            patent_config = tech_config.get("sub_agents", {}).get("patent", {})
+            prompt_template = patent_config.get("search_mode_response_detection_prompt", "")
+
+            if prompt_template:
+                # 프롬프트 치환
+                system_prompt = prompt_template.replace("{history_context}", history_context).replace("{user_query}", query)
+
+                # LLM 직접 호출 (기존 parse_search_mode_with_llm() 방식과 동일)
+                import json
+                from langchain_openai import ChatOpenAI
+
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if api_key:
+                    # OPENAI_MODEL 환경 변수에서 가져오기 (기본값: gpt-4o-mini)
+                    model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+                    llm = ChatOpenAI(
+                        model=model_name,
+                        temperature=0,
+                        api_key=api_key
+                    )
+
+                    response = llm.invoke(system_prompt)
+                    content = response.content.strip()
+
+                    # JSON 파싱 (parse_search_mode_with_llm()과 동일한 방식)
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group())
+                            is_search_mode_response = result.get("is_search_mode_response", False)
+                            confidence = result.get("confidence", 0.0)
+
+                            if is_search_mode_response and confidence >= 0.7:
+                                search_mode = result.get("search_mode")
+                                print(f"✅ Tech 도메인 LLM 기반 감지: '{query}' → tech 도메인 (검색 모드: {search_mode}, 신뢰도: {confidence:.2f})")
+                                return {
+                                    "domain": "tech",
+                                    "conversation_history": [user_message]
+                                }
+                        except json.JSONDecodeError:
+                            print(f"⚠️ 특허 검색 모드 응답 JSON 파싱 실패: {content}")
+            else:
+                print("⚠️ 특허 검색 모드 응답 감지 프롬프트가 YAML에 없습니다.")
+        except Exception as e:
+            print(f"⚠️ 특허 검색 모드 LLM 판단 실패: {e}")
+            # Fallback: 키워드 기반 (기존 로직 유지)
+            recent_messages = conversation_history[-2:]
+            has_patent_query = False
+            has_search_mode_question = False
+
+            for msg in recent_messages:
+                content = msg.get("content", "").lower()
+
+                # 특허 관련 키워드 확인
+                patent_keywords = ["특허", "patent", "특허를", "특허 찾아", "특허 검색"]
+                if any(kw in content for kw in patent_keywords):
+                    has_patent_query = True
+
+                # 검색 방식 선택 질문 확인
+                if "검색 방식을 선택" in content or "서버 기반 검색" in content or "웹 검색" in content:
+                    has_search_mode_question = True
+
+            # 특허 검색 질문이 있고 검색 방식 선택 질문이 있었으면, 현재 입력이 검색 모드 선택 응답일 가능성
+            if has_patent_query and has_search_mode_question:
+                # 검색 모드 선택 관련 키워드 확인
+                if any(k in query for k in tech_continuation_keywords) or query.isdigit() or any(k in query for k in server_data_keywords):
+                    print(f"✅ Tech 도메인 대화 히스토리 기반 감지 (Fallback): '{query}' → tech 도메인 (특허 검색 모드 선택 응답)")
+                    return {
+                        "domain": "tech",
+                        "conversation_history": [user_message]
+                    }
+
     return None
 
 
-def get_domain_classification_prompt(context: str = "") -> str:
+def get_domain_classification_prompt(context: str = "", last_domain: Optional[str] = None) -> str:
     """도메인 분류를 위한 프롬프트를 반환합니다.
     
     Args:
         context: 이전 대화 내용 컨텍스트
+        last_domain: 이전 대화의 도메인 (선택적)
         
     Returns:
         시스템 프롬프트 문자열
@@ -263,6 +398,31 @@ def get_domain_classification_prompt(context: str = "") -> str:
     
     if not domain_prompt:
         raise ValueError("orchestrator.prompts.domain_classification.system_prompt가 없습니다.")
+    
+    # 이전 도메인 정보 구성
+    if last_domain:
+        domain_names = {
+            "schedule": "일정 관리",
+            "document": "문서 작성",
+            "qa": "질문/문의",
+            "email": "이메일",
+            "tech": "기술 검색",
+            "recruitment": "채용"
+        }
+        domain_name = domain_names.get(last_domain, last_domain)
+        previous_domain_info = f"""
+**중요: 이전 대화 도메인 정보**
+이전 대화에서 '{domain_name}' 도메인으로 작업을 수행했습니다.
+
+**이전 도메인 고려 사항:**
+- 사용자의 현재 질의가 이전 도메인과 관련된 후속 질문일 가능성을 고려하세요.
+- 예: "1번", "2번", "더 찾아줘", "자세히", "요약해줘", "1번 자세히 알려줘" 같은 짧은 질의는 이전 도메인의 연속일 가능성이 높습니다.
+- 하지만 명시적으로 다른 도메인을 언급하면 새로운 요청으로 처리하세요.
+- 숫자로 시작하는 질문(예: "1번", "2번")은 이전 검색 결과의 상세 요청일 가능성이 매우 높습니다.
+
+"""
+        # context 앞에 이전 도메인 정보 추가
+        context = previous_domain_info + context
     
     # 플레이스홀더 치환
     placeholder = prompts.get("prompts", {}).get("domain_classification", {}).get("context_placeholder", "{context}")
@@ -300,12 +460,16 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     last_domain = state.get("last_domain")
     conversation_history = state.get("conversation_history", [])
     
-    # 현재 날짜와 시간 정보 설정 (모든 agent가 공통으로 사용)
+    # 현재 날짜와 시간 정보 설정 (모든 agent가 공통으로 사용) - YAML 설정 사용
     config = load_orchestrator_config()
     date_time_config = config.get("date_time", {})
-    weekday_names = date_time_config.get("weekday_names", ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"])
-    date_format = date_time_config.get("date_format", "%Y년 %m월 %d일")
-    time_format = date_time_config.get("time_format", "%H시 %M분")
+    if not date_time_config:
+        raise ValueError("YAML에 date_time 설정이 정의되어 있지 않습니다.")
+    weekday_names = date_time_config.get("weekday_names", [])
+    date_format = date_time_config.get("date_format", "")
+    time_format = date_time_config.get("time_format", "")
+    if not weekday_names or not date_format or not time_format:
+        raise ValueError("YAML에 date_time 설정이 완전하지 않습니다.")
     
     now = datetime.now()
     current_date_info = {
@@ -323,6 +487,36 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     query_preview_length = search_params.get("query_preview_length", 50)
     _routing_logger.info(f"[라우팅 시작] query='{query[:query_preview_length]}...', session_id={session_id}, current_date={current_date_info['current_date']}")
     
+    # "n번" 같은 요청이면 Redis에서 last_domain을 가져와서 사용
+    number_selection_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기)?', re.IGNORECASE)
+    is_number_selection = number_selection_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2)
+    
+    if is_number_selection and session_id:
+        # Redis에서 last_domain 가져오기
+        try:
+            from agents.session_manager import get_session_manager
+            session_manager = await get_session_manager()
+            if session_manager:
+                session_data = await session_manager.load_session_data(session_id)
+                if session_data and session_data.get("last_domain"):
+                    redis_last_domain = session_data.get("last_domain")
+                    if redis_last_domain and redis_last_domain in MASTER_GRAPHS:
+                        print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
+                        _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
+                        # 대화 히스토리에 사용자 메시지 추가
+                        user_message: Message = {
+                            "role": "user",
+                            "content": query,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        return {
+                            "domain": redis_last_domain,
+                            "conversation_history": [user_message],
+                            **current_date_info
+                        }
+        except Exception as e:
+            print(f"⚠️ Redis에서 last_domain 조회 실패: {e}, LLM으로 분류 계속 진행")
+    
     # 대화 히스토리에 사용자 메시지 추가
     user_message: Message = {
         "role": "user",
@@ -338,275 +532,31 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     if tech_result:
         total_elapsed = (time.time() - route_start_time) * 1000
         _routing_logger.info(f"[라우팅 완료] {total_elapsed:.2f}ms (Tech 도메인 상태 확인으로 종료)")
+        # 날짜 정보 포함
+        tech_result.update(current_date_info)
         return tech_result
     
-    # 이전 대화 확인 질문 감지 (비용 최적화: 키워드 기반 패턴 매칭 우선)
-    # LLM 호출을 최소화하기 위해 키워드 패턴 매칭을 먼저 시도
-    step_start = time.time()
-    is_history_check_query = False
-    history_check_result = None
-    
-    # 키워드 패턴 매칭 (YAML에서 로드)
-    config = load_orchestrator_config()
-    keywords_config = config.get("keywords", {})
-    strong_history_keywords = keywords_config.get("strong_history_keywords", [])
-    weak_history_keywords = keywords_config.get("weak_history_keywords", [])
-    
-    # 강력한 키워드가 있으면 LLM 호출 없이 바로 처리
-    has_strong_keyword = any(k in query for k in strong_history_keywords)
-    has_weak_keyword = any(k in query for k in weak_history_keywords)
-    step_elapsed = (time.time() - step_start) * 1000
-    _routing_logger.info(f"[이전 대화 확인 키워드 체크] {step_elapsed:.2f}ms")
-    
+    # 이전 대화 확인 질문 감지 및 처리
     if conversation_history:
-        if has_strong_keyword:
-            # 강력한 키워드가 있으면 LLM 호출 없이 바로 처리
-            is_history_check_query = True
-            print(f"✅ [키워드 기반 이전 대화 확인] 강력한 키워드 감지 - LLM 호출 스킵")
-        elif has_weak_keyword and len(query) <= 20:
-            # 약한 키워드 + 짧은 질문이면 LLM 호출 없이 처리
-            is_history_check_query = True
-            print(f"✅ [키워드 기반 이전 대화 확인] 약한 키워드 + 짧은 질문 - LLM 호출 스킵")
-        else:
-            # 확실하지 않은 경우에만 LLM 호출 (비용 절감)
-            try:
-                llm_start = time.time()
-                # 대화 히스토리 컨텍스트 최소화 (YAML 설정 사용)
-                config = load_orchestrator_config()
-                search_params = config.get("search_params", {})
-                recent_count = search_params.get("history_check_recent_messages", 3)
-                max_length = search_params.get("history_check_message_max_length", 200)
-                
-                history_context = ""
-                if conversation_history:
-                    recent_history = conversation_history[-recent_count:]
-                    history_context = "\n\n이전 대화 내용:\n"
-                    for msg in recent_history:
-                        content = msg.get('content', '')
-                        # 각 메시지 길이 제한
-                        if len(content) > max_length:
-                            content = content[:max_length] + "..."
-                        history_context += f"{msg.get('role', 'unknown')}: {content}\n"
-                
-                # YAML 파일에서 프롬프트 로드
-                prompt_start = time.time()
-                system_prompt = get_history_check_prompt(history_context)
-                prompt_elapsed = (time.time() - prompt_start) * 1000
-                _routing_logger.info(f"[이전 대화 확인 프롬프트 로드] {prompt_elapsed:.2f}ms")
-                
-                llm_call_start = time.time()
-                history_check_result = await extract_structured_output(
-                    query=query,
-                    model_class=HistoryCheckIntent,
-                    system_prompt=system_prompt
-                )
-                llm_elapsed = (time.time() - llm_call_start) * 1000
-                _routing_logger.info(f"[이전 대화 확인 LLM 호출] {llm_elapsed:.2f}ms")
-                
-                is_history_check_query = history_check_result.is_history_check
-                total_llm_elapsed = (time.time() - llm_start) * 1000
-                _routing_logger.info(f"[이전 대화 확인 LLM 전체] {total_llm_elapsed:.2f}ms")
-                print(f"🔍 [LLM 기반 이전 대화 확인] is_history_check={is_history_check_query}, check_type={history_check_result.check_type}, confidence={history_check_result.confidence:.2f}")
-                
-            except Exception as e:
-                print(f"⚠️ 이전 대화 확인 질문 분류 실패: {e}, 키워드 패턴으로 fallback")
-                # Fallback: 키워드 패턴 매칭
-                is_history_check_query = has_strong_keyword or has_weak_keyword
-    
-    if is_history_check_query and conversation_history:
-        step_start = time.time()
-        print(f"✅ 이전 대화 확인 질문 감지: '{query}' - conversation_history 확인 (빠른 응답)")
+        is_history_check_query, history_check_result = await detect_history_check_query(
+            query=query,
+            conversation_history=conversation_history,
+            route_start_time=route_start_time
+        )
         
-        # conversation_history에서 이전 요청 및 검색 결과 확인
-        found_previous_request = False
-        request_details = []
-        email_search_found = False
-        qa_search_found = False  # QA 검색 (식단, 메뉴 등)
-        email_keywords = []
-        qa_keywords = []  # QA 관련 키워드 (식단, 메뉴 등)
-        previous_email_results = []  # 이전 이메일 검색 결과
-        previous_qa_results = None  # 이전 QA 검색 결과 (식단 등)
-        
-        # email_search_context에서 이전 검색 결과 확인 (Redis에서 복원된 state)
-        email_search_context = state.get("email_search_context", {})
-        if email_search_context and email_search_context.get("items"):
-            previous_email_results = email_search_context.get("items", [])
-        
-        # qa_search_context에서 이전 검색 결과 확인 (식단 등)
-        qa_search_context = state.get("qa_search_context", {})
-        if qa_search_context:
-            # 식단 관련 이전 검색 결과 확인
-            cafeteria_context = qa_search_context.get("cafeteria", {})
-            if cafeteria_context and cafeteria_context.get("last_answer"):
-                previous_qa_results = cafeteria_context.get("last_answer", "")
-        
-        # 질문에서 언급된 키워드 추출 (예: "육아휴직", "식단")
-        import re
-        keyword_pattern = r'([가-힣a-zA-Z]+)\s*(?:관련|관해서|에 대해|에 대한|내용)'
-        mentioned_keywords = re.findall(keyword_pattern, query)
-        
-        # conversation_history에서 이전 요청 확인 (YAML 설정 사용)
-        config = load_orchestrator_config()
-        search_params = config.get("search_params", {})
-        max_messages = search_params.get("conversation_history_max_messages", 10)
-        recent_messages = list(reversed(conversation_history[-max_messages:]))
-        for msg in recent_messages:
-            content = msg.get("content", "")
-            role = msg.get("role", "")
-            
-            # 사용자 메시지에서 이전 요청 찾기
-            if role == "user":
-                # 이메일 검색 요청인지 확인 (간단한 키워드 체크)
-                if "이메일" in content or "메일" in content:
-                    if any(k in content for k in ["찾아", "검색", "찾아줘", "검색해줘"]):
-                        email_search_found = True
-                        found_previous_request = True
-                        request_details.append(content)
-                        # 키워드 추출 (예: "육아휴직 관련" -> "육아휴직")
-                        keyword_match = re.search(keyword_pattern, content)
-                        if keyword_match:
-                            email_keywords.append(keyword_match.group(1))
-                        break  # 가장 최근 요청만 확인
-                
-                # QA 검색 요청인지 확인 (식단, 메뉴 등)
-                elif any(k in content for k in ["식단", "메뉴", "구내식당"]):
-                    qa_search_found = True
-                    found_previous_request = True
-                    request_details.append(content)
-                    # 키워드 추출 (예: "식단", "메뉴")
-                    qa_keywords_in_content = [k for k in ["식단", "메뉴", "구내식당"] if k in content]
-                    if qa_keywords_in_content:
-                        qa_keywords.extend(qa_keywords_in_content)
-                    break  # 가장 최근 요청만 확인
-        
-        # assistant 메시지에서 이전 검색 결과 확인 (email_search_context가 없는 경우)
-        # 성능 최적화: 최근 메시지만 확인 (YAML 설정 사용)
-        email_results_max = search_params.get("email_results_max_count", 5)
-        if not previous_email_results:
-            for msg in recent_messages[:email_results_max]:
-                content = msg.get("content", "")
-                role = msg.get("role", "")
-                
-                # assistant 메시지에서 이메일 검색 결과 찾기
-                if role == "assistant" and ("메일" in content or "이메일" in content):
-                    # 문서번호 패턴 찾기 (예: "151652025MAB10121776-27427607")
-                    doc_numbers = re.findall(r'\d{11,}MAB\d+-\d+', content)
-                    if doc_numbers:
-                        # 제목 추출 시도
-                        titles = re.findall(r'\*\*\[([^\]]+)\]\*\*', content)
-                        if titles or doc_numbers:
-                            previous_email_results = [
-                                {"title": titles[i] if i < len(titles) else "이메일", "doc_number": doc_num}
-                                for i, doc_num in enumerate(doc_numbers[:5])  # 최대 5개
-                            ]
-                            break
-        
-        # LLM이 추출한 키워드 활용 (있는 경우)
-        if history_check_result and history_check_result.mentioned_keywords:
-            mentioned_keywords = history_check_result.mentioned_keywords
-        else:
-            # 이메일 또는 QA 키워드 중 하나 선택
-            if email_keywords:
-                mentioned_keywords = email_keywords
-            elif qa_keywords:
-                mentioned_keywords = qa_keywords
-            else:
-                mentioned_keywords = []
-        
-        # 대화식 답변 생성 (이전 검색 결과 포함)
-        if found_previous_request and qa_search_found:
-            # QA 검색 (식단 등) 관련 이전 요청 확인
-            if mentioned_keywords:
-                keywords_str = ", ".join(set(mentioned_keywords))
-                response = f"네, 이전에 '{keywords_str}' 관련 내용을 요청하신 적이 있습니다."
-            elif qa_keywords:
-                keywords_str = ", ".join(set(qa_keywords))
-                response = f"네, 이전에 '{keywords_str}' 관련 내용을 요청하신 적이 있습니다."
-            else:
-                response = "네, 이전에 식단/메뉴 관련 요청을 하신 적이 있습니다."
-            
-            # 이전 QA 검색 결과가 있으면 간단히 언급
-            if previous_qa_results:
-                # 이전 답변의 핵심 내용만 추출 (너무 길면 생략)
-                if len(previous_qa_results) > 200:
-                    response += f"\n\n이전에 조회한 내용이 있습니다."
-                else:
-                    response += f"\n\n이전 조회 내용: {previous_qa_results[:200]}"
-        elif found_previous_request and email_search_found:
-            if mentioned_keywords:
-                keywords_str = ", ".join(set(mentioned_keywords))
-                response = f"네, 이전에 '{keywords_str}' 관련 내용을 이메일에서 찾아달라는 요청을 하신 적이 있습니다."
-            elif email_keywords:
-                keywords_str = ", ".join(set(email_keywords))
-                response = f"네, 이전에 '{keywords_str}' 관련 내용을 이메일에서 찾아달라는 요청을 하신 적이 있습니다."
-            else:
-                response = "네, 이전에 이메일에서 검색/찾기 요청을 하신 적이 있습니다."
-            
-            # 이전 검색 결과가 있으면 포함
-            if previous_email_results:
-                response += "\n\n"
-                for i, result in enumerate(previous_email_results[:5], 1):  # 최대 5개
-                    title = result.get("title", "이메일")
-                    doc_number = result.get("doc_number", result.get("document_number", ""))
-                    if doc_number:
-                        response += f"{i}. **{title}** - 문서번호: {doc_number}\n"
-                    else:
-                        response += f"{i}. **{title}**\n"
-                response += "\n더 많은 메일을 검색하거나 특정 메일의 상세 내용을 원하신다면 말씀해 주세요! 😊"
-            elif request_details:
-                # 검색 결과는 없지만 요청은 있었던 경우
-                last_request = request_details[0]  # 가장 최근 요청
-                response += f"\n\n이전 요청: '{last_request}'"
-        elif found_previous_request:
-            if mentioned_keywords:
-                keywords_str = ", ".join(set(mentioned_keywords))
-                response = f"네, 이전에 '{keywords_str}' 관련 요청을 하신 적이 있습니다."
-            else:
-                response = "네, 이전에 검색/찾기 요청을 하신 적이 있습니다."
-        else:
-            # LLM이 확인 질문으로 분류했지만 이전 요청을 찾지 못한 경우
-            if history_check_result and history_check_result.check_type:
-                check_type_map = {
-                    "email_search": "이메일 검색",
-                    "patent_search": "특허 검색",
-                    "article_search": "논문 검색",
-                    "leave_request": "연차/휴가 신청",
-                    "document_generation": "문서 생성",
-                    "meeting_reservation": "회의실 예약"
-                }
-                request_type = check_type_map.get(history_check_result.check_type, "해당 요청")
-                response = f"아니요, 이전에 {request_type} 요청은 없었습니다."
-            else:
-                response = "아니요, 이전에 이메일에서 검색/찾기 요청은 없었습니다."
-        
-        # orchestrator에서 직접 답변 반환 (QA 마스터 그래프로 라우팅하지 않음)
-        # conversation_history에 assistant 메시지 추가
-        assistant_message: Message = {
-            "role": "assistant",
-            "content": response,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        result = {
-            "domain": None,  # 명시적으로 None으로 설정하여 END로 라우팅
-            "final_response": response,
-            "conversation_history": [user_message, assistant_message],  # 사용자 메시지와 답변 모두 추가
-            "messages": [response]
-        }
-        
-        # Redis 저장 전 state 최적화 (이전 대화 확인 질문은 간단하므로 최소한의 최적화만)
-        # conversation_history만 최적화하고 나머지는 그대로 유지
-        opt_start = time.time()
-        from agents.redis_optimizer import optimize_conversation_history
-        result["conversation_history"] = optimize_conversation_history(result["conversation_history"])
-        opt_elapsed = (time.time() - opt_start) * 1000
-        _routing_logger.info(f"[이전 대화 확인 state 최적화] {opt_elapsed:.2f}ms")
-        
-        step_elapsed = (time.time() - step_start) * 1000
-        total_elapsed = (time.time() - route_start_time) * 1000
-        _routing_logger.info(f"[이전 대화 확인 처리 전체] {step_elapsed:.2f}ms")
-        _routing_logger.info(f"[라우팅 완료] {total_elapsed:.2f}ms (이전 대화 확인으로 종료)")
-        return result
+        if is_history_check_query:
+            # 이전 대화 확인 질문 처리
+            result = await handle_history_check_query(
+                query=query,
+                state=state,
+                conversation_history=conversation_history,
+                user_message=user_message,
+                history_check_result=history_check_result,
+                route_start_time=route_start_time
+            )
+            # 날짜 정보 포함
+            result.update(current_date_info)
+            return result
     
     # 빠른 라우팅: 단순 선택지/숫자 답변만 처리
     # 복잡한 요청은 LLM 기반 분류로 처리하여 문맥을 정확히 이해
@@ -660,7 +610,8 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "domain": None,  # END로 라우팅
                     "final_response": response,
                     "conversation_history": [user_message, assistant_message],
-                    "messages": [response]
+                    "messages": [response],
+                    **current_date_info  # 날짜 정보 포함
                 }
                 
                 # Redis 저장 전 state 최적화 (단순 답변은 최소한의 최적화만)
@@ -676,11 +627,27 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
             # conversation_history는 operator.add를 사용하므로 새 메시지만 추가
             return {
                 "domain": last_domain,
-                "conversation_history": [user_message]  # operator.add로 기존 히스토리에 추가됨
+                "conversation_history": [user_message],  # operator.add로 기존 히스토리에 추가됨
+                **current_date_info  # 날짜 정보 포함
             }
         else:
             print(f"⚠️ 이전 대화 도메인을 찾을 수 없음 (last_domain={last_domain}), LLM으로 분류")
     
+    # 키워드 기반 빠른 라우팅: "메뉴얼" 키워드가 있으면 qa로 강제 라우팅 (LLM 호출 전)
+    step_start = time.time()
+    manual_keywords = ["메뉴얼", "매뉴얼", "manual"]
+    if any(k in query for k in manual_keywords):
+        # "메뉴얼에서"와 "메일에서" 구분
+        if "메뉴얼에서" in query or "매뉴얼에서" in query or "메뉴얼" in query or "매뉴얼" in query:
+            print(f"✅ [키워드 기반 빠른 라우팅] '메뉴얼' 키워드 감지 - qa 도메인으로 강제 라우팅")
+            total_elapsed = (time.time() - route_start_time) * 1000
+            _routing_logger.info(f"[라우팅 완료] {total_elapsed:.2f}ms (메뉴얼 키워드로 qa 도메인으로 종료)")
+            return {
+                "domain": "qa",
+                "conversation_history": [user_message],
+                **current_date_info  # 날짜 정보 포함
+            }
+
     # Structured Output Parser를 사용한 의도 분석 (LLM + YAML 프롬프트)
     # 하드코딩된 키워드 매칭 제거로 인해 LLM 기반 분류만 사용
     step_start = time.time()
@@ -707,9 +674,22 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         
         # YAML 파일에서 프롬프트 로드 (이미 메모리에 캐시되어 있음)
         prompt_start = time.time()
-        system_prompt = get_domain_classification_prompt(context)
+        # Redis에서 last_domain 가져오기 (state의 last_domain이 없을 수 있음)
+        redis_last_domain = last_domain
+        if not redis_last_domain and session_id:
+            try:
+                from agents.session_manager import get_session_manager
+                session_manager = await get_session_manager()
+                if session_manager:
+                    session_data = await session_manager.load_session_data(session_id)
+                    if session_data and session_data.get("last_domain"):
+                        redis_last_domain = session_data.get("last_domain")
+            except Exception as e:
+                print(f"⚠️ Redis에서 last_domain 조회 실패 (프롬프트용): {e}")
+        
+        system_prompt = get_domain_classification_prompt(context, last_domain=redis_last_domain)
         prompt_elapsed = (time.time() - prompt_start) * 1000
-        _routing_logger.info(f"[도메인 분류 프롬프트 로드] {prompt_elapsed:.2f}ms")
+        _routing_logger.info(f"[도메인 분류 프롬프트 로드] {prompt_elapsed:.2f}ms (last_domain={redis_last_domain})")
         
         # Structured Output Parser 호출 (LLM 호출)
         llm_start = time.time()
@@ -747,17 +727,23 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         llm_router_elapsed = (time.time() - llm_router_start) * 1000
         _routing_logger.info(f"[LLM 라우터 호출 완료] {llm_router_elapsed:.2f}ms")
     
-    # 유효성 검사
+    # 유효성 검사 (YAML 설정 사용)
+    config = load_orchestrator_config()
+    search_params = config.get("search_params", {})
+    routing_config = search_params.get("routing", {})
+    fallback_domain = routing_config.get("fallback_domain", "qa")
+
     if domain not in MASTER_GRAPHS:
-        print(f"⚠️ 알 수 없는 도메인: {domain}, qa로 fallback")
-        domain = "qa"
+        print(f"⚠️ 알 수 없는 도메인: {domain}, {fallback_domain}로 fallback")
+        domain = fallback_domain
     
     total_elapsed = (time.time() - route_start_time) * 1000
     print(f"✅ 도메인 결정: {domain}")
     _routing_logger.info(f"[라우팅 완료] {total_elapsed:.2f}ms (도메인: {domain})")
     return {
         "domain": domain,
-        "conversation_history": [user_message]
+        "conversation_history": [user_message],
+        **current_date_info  # 날짜 정보 포함
     }
 
 
@@ -785,36 +771,55 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     
     # 각 도메인별 마스터그래프를 서브그래프로 추가
     # 도메인 노드 공통 로직은 domain_node_handler 모듈에서 처리
+    # 도메인별 완료 메시지 로드 (YAML 설정 사용)
+    config = load_orchestrator_config()
+    search_params = config.get("search_params", {})
+    routing_config = search_params.get("routing", {})
+    completion_messages = routing_config.get("domain_completion_messages", {})
+
     async def schedule_node(state: OrchestratorState) -> Dict[str, Any]:
         """스케줄 마스터그래프 실행."""
         graph = get_schedule_master_graph()
         result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "schedule", "스케줄 작업을 완료했습니다.")
+        default_msg = completion_messages.get("schedule", "스케줄 작업을 완료했습니다.")
+        return process_domain_node_result(state, result, "schedule", default_msg)
     
     async def document_node(state: OrchestratorState) -> Dict[str, Any]:
         """문서 마스터그래프 실행."""
         graph = get_document_master_graph()
         result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "document", "문서 작업을 완료했습니다.")
+        default_msg = completion_messages.get("document", "문서 작업을 완료했습니다.")
+        return process_domain_node_result(state, result, "document", default_msg)
     
     async def qa_node(state: OrchestratorState) -> Dict[str, Any]:
         """QA 마스터그래프 실행."""
         graph = get_qa_master_graph()
         result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "qa", "질문에 답변했습니다.")
+        default_msg = completion_messages.get("qa", "질문에 답변했습니다.")
+        return process_domain_node_result(state, result, "qa", default_msg)
     
     async def email_node(state: OrchestratorState) -> Dict[str, Any]:
         """이메일 마스터그래프 실행."""
         print("--- [Orchestrator] Executing Email Master Graph ---")
         graph = get_email_master_graph()
         result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "email", "이메일 작업을 완료했습니다.")
+        default_msg = completion_messages.get("email", "이메일 작업을 완료했습니다.")
+        return process_domain_node_result(state, result, "email", default_msg)
     
     async def tech_node(state: OrchestratorState) -> Dict[str, Any]:
         """기술 마스터그래프 실행."""
         graph = get_tech_master_graph()
         result = await graph.ainvoke(state)
-        return process_domain_node_result(state, result, "tech", "기술 검색 작업을 완료했습니다.")
+        default_msg = completion_messages.get("tech", "기술 검색 작업을 완료했습니다.")
+        return process_domain_node_result(state, result, "tech", default_msg)
+
+    async def recruitment_node(state: OrchestratorState) -> Dict[str, Any]:
+        """채용 마스터그래프 실행."""
+        print("--- [Orchestrator] Executing Recruitment Master Graph ---")
+        graph = get_recruitment_master_graph()
+        result = await graph.ainvoke(state)
+        default_msg = completion_messages.get("recruitment", "채용 작업을 완료했습니다.")
+        return process_domain_node_result(state, result, "recruitment", default_msg)
     
     # 각 도메인별 노드 등록
     workflow.add_node("schedule", schedule_node)
@@ -822,8 +827,9 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     workflow.add_node("qa", qa_node)
     workflow.add_node("email", email_node)
     workflow.add_node("tech", tech_node)
-    
-    print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech")
+    workflow.add_node("recruitment", recruitment_node)
+
+    print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech, recruitment")
     
     # 엣지 설정
     workflow.set_entry_point("route_to_domain")
@@ -843,15 +849,21 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         print(f"--- [Orchestrator] State domain value: {domain} ---")
         print(f"--- [Orchestrator] State keys: {list(state.keys())} ---")
         
-        # domain이 없거나 None이면 기본값 사용
+        # domain이 없거나 None이면 기본값 사용 (YAML 설정 사용)
+        config = load_orchestrator_config()
+        search_params = config.get("search_params", {})
+        routing_config = search_params.get("routing", {})
+        fallback_domain_on_empty = routing_config.get("fallback_domain_on_empty", "document")
+        fallback_domain = routing_config.get("fallback_domain", "qa")
+
         if not domain:
-            print("⚠️ domain이 state에 없습니다. document로 fallback")
-            domain = "document"
+            print(f"⚠️ domain이 state에 없습니다. {fallback_domain_on_empty}로 fallback")
+            domain = fallback_domain_on_empty
         
         # 유효성 검사
         if domain not in MASTER_GRAPHS:
-            print(f"⚠️ 알 수 없는 도메인: {domain}, document로 fallback")
-            domain = "document"
+            print(f"⚠️ 알 수 없는 도메인: {domain}, {fallback_domain}로 fallback")
+            domain = fallback_domain
         
         print(f"--- [Orchestrator] Routing to {domain} master graph ---")
         return domain

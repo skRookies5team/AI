@@ -215,7 +215,7 @@ class EmailMasterGraph(BaseMasterGraph):
                 "final_response": response,
                 "messages": [response],
             }
-        
+
         else:
             # 대화 히스토리 컨텍스트 구성
             context = ""
@@ -229,11 +229,11 @@ class EmailMasterGraph(BaseMasterGraph):
             try:
                 # 현재 날짜 정보 가져오기 (orchestrator가 제공하거나 직접 계산)
                 KST = timezone(timedelta(hours=9))
-                
+
                 current_date = state.get('current_date', '')
                 current_datetime = state.get('current_datetime', '')
                 current_weekday = state.get('current_weekday', '')
-                
+
                 # 날짜 정보가 없거나 비어있으면 직접 계산 (KST 기준)
                 if not current_date or not current_datetime:
                     now_dt = datetime.now(KST)
@@ -241,14 +241,14 @@ class EmailMasterGraph(BaseMasterGraph):
                     current_date = now_dt.strftime("%Y년 %m월 %d일")
                     current_datetime = now_dt.isoformat()
                     current_weekday = weekday_names[now_dt.weekday()]
-                
+
                 # 현재 날짜를 YYYY-MM-DD 형식으로도 제공 (예시 계산용)
                 now_dt = datetime.now(KST)
                 current_date_iso = now_dt.strftime("%Y-%m-%d")
                 current_year = now_dt.year
                 current_month = now_dt.month
                 current_day = now_dt.day
-                
+
                 system_prompt = f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
 - keywords: 검색할 핵심 키워드 리스트 (불용어 제거)
 - from_address: 특정 발신자 주소 (있는 경우)
@@ -293,8 +293,8 @@ class EmailMasterGraph(BaseMasterGraph):
                 # email_search는 이제 비동기 함수이므로 await 사용
                 # master_graph에서 추출한 정보 전달
                 result = await email_search(
-                    search_query, 
-                    session_id=session_id, 
+                    search_query,
+                    session_id=session_id,
                     state=state,
                     from_address=params.from_address,  # 추출한 발신자 주소 전달
                     date_range=params.date_range  # 추출한 날짜 범위 전달

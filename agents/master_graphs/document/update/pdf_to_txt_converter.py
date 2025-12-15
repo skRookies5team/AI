@@ -275,4 +275,3 @@ def process_pdf_folder(folder_path: str = "data", output_folder: Optional[str] =
     print(f"\n{'='*60}")
     print(f"완료: {success_count}/{len(pdf_files)}개 파일 변환 성공")
     print(f"{'='*60}")
-

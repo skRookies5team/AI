@@ -112,7 +112,9 @@ def extract_template_structure(html_content: str) -> Dict[str, any]:
 
 
 def load_document_prompts() -> Dict[str, Any]:
-    """agent_prompts.yaml에서 문서 도메인 프롬프트를 로드합니다.
+    """문서 도메인 프롬프트를 로드합니다.
+    
+    llm_router의 통합 로더를 사용하여 document 도메인의 prompts.yaml을 로드합니다.
     
     Returns:
         문서 도메인 프롬프트 딕셔너리
@@ -122,17 +124,9 @@ def load_document_prompts() -> Dict[str, Any]:
         return {}
     
     try:
-        # 프로젝트 루트 디렉토리 찾기
-        current_dir = Path(__file__).parent
-        project_root = current_dir.parent.parent.parent
-        yaml_path = project_root / "agents" / "agent_prompts.yaml"
-        
-        if not yaml_path.exists():
-            print(f"⚠️ agent_prompts.yaml 파일을 찾을 수 없습니다: {yaml_path}")
-            return {}
-        
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            all_prompts = yaml.safe_load(f)
+        # llm_router의 통합 로더 사용
+        from agents.llm_router import load_agent_prompts
+        all_prompts = load_agent_prompts()
         
         document_prompts = all_prompts.get("document", {})
         return document_prompts
@@ -155,9 +149,8 @@ def get_update_document_prompt() -> str:
     if not structured_prompt:
         # 기본 프롬프트 (fallback)
         return """사용자의 쿼리에서 문서 업데이트에 필요한 정보를 추출하세요.
-업데이트 가능한 문서 타입: 복리후생, 식단, 메뉴얼
-문서 제목은 반드시 포함되어야 하며, 파일 경로가 있으면 함께 추출하세요."""
+업데이트 가능한 문서 타입: 복리후생, 식단, 메뉴얼, 이력서
+문서 제목은 사용자가 명시적으로 입력한 제목을 정확히 반영해야 하며, 파일 경로가 있으면 함께 추출하세요."""
     
     return structured_prompt.strip()
-
 

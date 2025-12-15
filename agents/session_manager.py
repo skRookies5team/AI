@@ -162,7 +162,8 @@ class SessionManager:
                         "qa_search_context": {},
                         "tech_search_context": {},
                         "schedule_context": {},
-                        "document_context": {}
+                        "document_context": {},
+                        "recruitment_context": {}
                     }
                 
                 data = json.loads(value)
@@ -173,7 +174,9 @@ class SessionManager:
                     "qa_search_context": data.get("qa_search_context") or {},
                     "tech_search_context": data.get("tech_search_context") or {},
                     "schedule_context": data.get("schedule_context") or {},
-                    "document_context": data.get("document_context") or {}
+                    "document_context": data.get("document_context") or {},
+                    "recruitment_context": data.get("recruitment_context") or {},
+                    "last_domain": data.get("last_domain")
                 }
             except asyncio.TimeoutError:
                 print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
@@ -184,7 +187,9 @@ class SessionManager:
                     "qa_search_context": {},
                     "tech_search_context": {},
                     "schedule_context": {},
-                    "document_context": {}
+                    "document_context": {},
+                    "recruitment_context": {},
+                    "last_domain": None
                 }
             except Exception as e:
                 print(f"[WARNING] 세션 데이터 로드 실패 (session_id={session_id}): {e}")
@@ -415,7 +420,21 @@ class SessionManager:
                     existing_data = {}
                 
                 # conversation_history 처리
-                conversation_history = state.get("conversation_history", existing_data.get("conversation_history", []))
+                # state의 conversation_history와 기존 데이터의 conversation_history를 병합
+                existing_history = existing_data.get("conversation_history", [])
+                new_history = state.get("conversation_history", [])
+                
+                # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+                conversation_history = existing_history.copy()
+                
+                # 새 히스토리에서 기존에 없는 메시지만 추가
+                existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+                for msg in new_history:
+                    msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                    if msg_key not in existing_content_set:
+                        conversation_history.append(msg)
+                        existing_content_set.add(msg_key)
+                
                 MAX_HISTORY = 20
                 if len(conversation_history) > MAX_HISTORY:
                     conversation_history = conversation_history[-MAX_HISTORY:]
@@ -429,6 +448,8 @@ class SessionManager:
                     "tech_search_context": state.get("tech_search_context", existing_data.get("tech_search_context", {})),
                     "schedule_context": state.get("schedule_context", existing_data.get("schedule_context", {})),
                     "document_context": state.get("document_context", existing_data.get("document_context", {})),
+                    "recruitment_context": state.get("recruitment_context", existing_data.get("recruitment_context", {})),
+                    "last_domain": state.get("last_domain", existing_data.get("last_domain")),  # last_domain 저장
                     "last_updated": datetime.now().isoformat()
                 }
                 
@@ -441,6 +462,49 @@ class SessionManager:
                 print(f"[WARNING] 세션 state 저장 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
             except Exception as e:
                 print(f"[WARNING] 세션 state 저장 실패 (session_id={session_id}): {e}")
+
+    async def get_google_tokens(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """사용자별 Google OAuth 토큰 조회.
+        
+        Args:
+            user_id: 토큰을 조회할 사용자 ID
+        
+        Returns:
+            저장된 토큰 딕셔너리. 토큰이 없거나 오류가 발생하면 None.
+        """
+        if not user_id:
+            return None
+        
+        try:
+            key = f"google_tokens:{user_id}"
+            value = await self.redis.get(key)
+            if value is None:
+                return None
+            return json.loads(value)
+        except Exception as exc:  # pragma: no cover - Redis 오류 로그
+            print(f"[WARNING] Google 토큰 조회 실패 (user_id={user_id}): {exc}")
+            return None
+
+    async def save_google_tokens(self, user_id: str, tokens: Dict[str, Any], *, ttl: Optional[int] = None) -> None:
+        """사용자별 Google OAuth 토큰 저장.
+        
+        Args:
+            user_id: 토큰을 저장할 사용자 ID
+            tokens: access_token, refresh_token 등을 포함한 토큰 정보
+            ttl: 토큰 만료 시간(초). 지정하지 않으면 세션 기본 TTL 사용.
+        """
+        if not user_id or not tokens:
+            return
+        
+        try:
+            key = f"google_tokens:{user_id}"
+            existing = await self.get_google_tokens(user_id) or {}
+            merged_tokens = {**existing, **tokens}
+            payload = json.dumps(merged_tokens, ensure_ascii=False, default=str)
+            expiry = ttl if ttl is not None else self.ttl
+            await self.redis.setex(key, expiry, payload)
+        except Exception as exc:  # pragma: no cover - Redis 오류 로그
+            print(f"[WARNING] Google 토큰 저장 실패 (user_id={user_id}): {exc}")
 
 
 # 전역 세션 관리자 인스턴스

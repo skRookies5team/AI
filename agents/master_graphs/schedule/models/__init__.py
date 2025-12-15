@@ -6,11 +6,7 @@ from agents.master_graphs.schedule.models.leave_models import (
     LeaveType,
     LeaveStatus,
 )
-from agents.master_graphs.schedule.models.schedule_models import (
-    ScheduleEvent,
-    ScheduleFilter,
-    EventType,
-)
+from agents.master_graphs.schedule.models.schedule_models import ScheduleEvent
 from agents.master_graphs.schedule.models.meeting_room_models import (
     MeetingRoom,
     MeetingRoomReservation,
@@ -25,8 +21,6 @@ __all__ = [
     "LeaveStatus",
     # Schedule
     "ScheduleEvent",
-    "ScheduleFilter",
-    "EventType",
     # Meeting Room
     "MeetingRoom",
     "MeetingRoomReservation",

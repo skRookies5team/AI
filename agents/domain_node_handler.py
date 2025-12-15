@@ -74,7 +74,8 @@ def process_domain_node_result(
     2. 도메인 전환 시 이전 도메인 정보 정리
     3. conversation_history 보장
     4. 추천 메시지 추가
-    5. Redis state 최적화 (성능 최적화: 필요한 경우에만)
+    5. 불필요한 다른 도메인 컨텍스트 제거 (메모리 최적화)
+    6. Redis state 최적화 (성능 최적화: 필요한 경우에만)
     
     Args:
         state: 오케스트레이터 상태
@@ -92,7 +93,40 @@ def process_domain_node_result(
     # 2. 도메인 전환 시 이전 도메인 정보 정리 (빠른 작업)
     cleanup_previous_domain_info(state, result, domain_name)
     
-    # 3. conversation_history 보장 (빠른 작업)
+    # 3. 불필요한 다른 도메인 컨텍스트 제거 (메모리 최적화)
+    # 현재 도메인과 관련 없는 컨텍스트는 제거하여 메모리 사용량 감소
+    domain_contexts = {
+        "schedule": "schedule_context",
+        "document": "document_context",
+        "qa": "qa_search_context",
+        "email": ["email_search_context", "email_compose_context"],
+        "tech": "tech_search_context",
+        "recruitment": "recruitment_context"
+    }
+    
+    # 현재 도메인의 컨텍스트는 유지하고, 다른 도메인의 컨텍스트는 제거
+    current_context_keys = domain_contexts.get(domain_name, [])
+    if not isinstance(current_context_keys, list):
+        current_context_keys = [current_context_keys]
+    
+    all_context_keys = []
+    for ctx_key in domain_contexts.values():
+        if isinstance(ctx_key, list):
+            all_context_keys.extend(ctx_key)
+        else:
+            all_context_keys.append(ctx_key)
+    
+    # result에 명시적으로 다른 도메인 컨텍스트를 None으로 설정하여 제거
+    # LangGraph는 result에 None이 설정된 키를 state에서도 제거합니다
+    for ctx_key in all_context_keys:
+        if ctx_key not in current_context_keys:
+            # 현재 도메인이 아닌 컨텍스트는 None으로 설정하여 제거
+            # state에 값이 있더라도 result에 None을 설정하면 제거됨
+            if ctx_key in state and state.get(ctx_key) is not None:
+                result[ctx_key] = None
+                # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
+    
+    # 4. conversation_history 보장 (빠른 작업)
     ensure_conversation_history(result, default_message)
     
     # 4. Redis 저장 전 state 최적화 (성능 최적화: 필요한 경우에만)
