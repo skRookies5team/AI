@@ -6,7 +6,7 @@ from typing import Any, Dict
 import asyncio
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from langgraph.graph import StateGraph, END
@@ -74,23 +74,23 @@ class EmailMasterGraph(BaseMasterGraph):
     - AI-026: 답장 초안 생성
     - AI-027: 자동 발송
     """
-
+    
     def get_domain_name(self) -> str:
         return "email"
-
+    
     def get_graph(self) -> StateGraph:
         """이메일 마스터그래프 생성."""
         workflow = StateGraph(OrchestratorState)
-
+        
         # 노드 추가
         workflow.add_node("route_intent", self.route_intent)
         workflow.add_node("search_email", self.search_email)
         workflow.add_node("generate_reply", self.generate_reply)
         workflow.add_node("detect_reception", self.detect_reception)
-
+        
         # 엣지 설정
         workflow.set_entry_point("route_intent")
-
+        
         # 조건부 라우팅
         workflow.add_conditional_edges(
             "route_intent",
@@ -102,20 +102,19 @@ class EmailMasterGraph(BaseMasterGraph):
                 "detect": "detect_reception",
             }
         )
-
         
         workflow.add_edge("search_email", END)
         workflow.add_edge("generate_reply", END)  # compose_and_send_email 내부에서 HITL 처리
         workflow.add_edge("detect_reception", END)
-
+        
         return workflow.compile()
-
+    
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """이메일 도메인 내부 의도 분류."""
         print("--- [Email Master] Routing Intent ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-
+        
         # llm_router를 사용한 LLM 기반 분류
         intent = await asyncio.to_thread(
             classify_intent_with_llm,
@@ -124,7 +123,7 @@ class EmailMasterGraph(BaseMasterGraph):
             fallback_route="search",
             session_id=session_id
         )
-
+        
         # llm_router는 "search" 또는 "auto_reply"를 반환하지만,
         # 우리 그래프는 "search", "reply", "compose", "detect"를 사용
         if intent == "auto_reply":
@@ -141,10 +140,10 @@ class EmailMasterGraph(BaseMasterGraph):
                 intent = "detect"
             else:
                 intent = "search"  # 기본값
-
+        
         print(f"✅ Email 의도 결정: {intent}")
         return {"intent": intent}
-
+    
     def route_to_subagent(self, state: OrchestratorState) -> str:
         """route_intent 결과에 따라 하위 에이전트로 라우팅."""
         intent = state.get("intent", "search")
@@ -152,7 +151,7 @@ class EmailMasterGraph(BaseMasterGraph):
         if intent == "compose":
             return "reply"
         return intent
-
+    
     async def search_email(self, state: OrchestratorState) -> Dict[str, Any]:
         """이메일 검색 (AI-022).
         
@@ -164,7 +163,7 @@ class EmailMasterGraph(BaseMasterGraph):
         session_id = state.get("session_id")
         conversation_history = state.get("conversation_history", [])
         email_search_context = state.get("email_search_context", {})
-
+        
         # 이전 요청 확인 질문인지 감지 ("요청한적있어?", "요청한 적 있어?", "요청했어?" 등)
         is_history_check = any(k in query for k in [
             "요청한적", "요청한 적", "요청했어", "요청했었어", "요청한적있어", "요청한 적 있어",
@@ -172,25 +171,25 @@ class EmailMasterGraph(BaseMasterGraph):
             "찾아달라고 요청", "검색 요청한적", "검색한적", "검색한 적", "검색했어",
             "찾아달라는 요청", "요청했던", "요청했었던"
         ])
-
+        
         if is_history_check:
             print(f"✅ 이전 요청 확인 질문 감지: '{query}' - 대화 히스토리 확인")
-
+            
             # 대화 히스토리에서 이전 이메일 검색 요청 확인
             found_previous_request = False
             search_keywords = []
-
+            
             # 1. email_search_context에서 이전 검색 키워드 확인
             if email_search_context and email_search_context.get("last_keyword"):
                 found_previous_request = True
                 search_keywords.append(email_search_context.get("last_keyword"))
-
+            
             # 2. conversation_history에서 이전 검색 요청 확인
             if conversation_history:
                 for msg in conversation_history:
                     content = msg.get("content", "")
                     role = msg.get("role", "")
-
+                    
                     # 사용자 메시지에서 이메일 검색 요청 찾기
                     if role == "user" and any(k in content for k in ["이메일", "메일", "메일함", "이메일에서", "메일에서"]):
                         if any(k in content for k in ["찾아", "검색", "찾아줘", "검색해줘", "찾아달라", "검색해달라"]):
@@ -201,7 +200,7 @@ class EmailMasterGraph(BaseMasterGraph):
                             keyword_match = regex_module.search(r'([가-힣a-zA-Z]+)\s*(?:관련|관해서|에 대해|에 대한)', content)
                             if keyword_match:
                                 search_keywords.append(keyword_match.group(1))
-
+            
             # 대화식 답변 생성
             if found_previous_request:
                 if search_keywords:
@@ -211,40 +210,12 @@ class EmailMasterGraph(BaseMasterGraph):
                     response = "네, 이전에 이메일 검색을 요청해주신 적이 있습니다."
             else:
                 response = "아니요, 이전에 이메일 검색 요청은 없었습니다. 검색을 원하시면 말씀해주세요."
-
+            
             return {
                 "final_response": response,
                 "messages": [response],
             }
 
-        # "더 찾아줘", "계속 검색" 등의 연속 검색 요청인지 먼저 확인
-        is_continue_search = any(k in query.lower() for k in ["더", "계속", "추가", "더 찾", "계속 검색", "더 검색", "더 찾아줘", "계속 찾아줘", "더 찾아", "계속 찾아"])
-
-        # 상세 조회 요청인지 확인 (숫자로 시작하거나 "번"이 포함된 경우)
-        # 예: "572. ... 알려줘", "355번 상세", "355번 메일"
-        is_detail_request = re.match(r"^\d+\.?\s*", query.strip()) or re.search(r"\d+\s*번", query)
-
-        # 연속 검색 요청이거나 상세 조회 요청인 경우 Structured Output을 건너뛰고 email_search에 원본 쿼리 전달
-        # email_search 함수 내부에서 이전 검색 정보를 사용하여 처리함
-        if is_continue_search or is_detail_request:
-            if is_continue_search:
-                print(f"✅ 연속 검색 요청 감지: '{query}' - 이전 검색 정보 사용")
-            else:
-                print(f"✅ 상세 조회 요청 감지: '{query}' - 원본 쿼리 사용")
-
-            # email_search 함수에 원본 쿼리를 그대로 전달
-            # email_search 내부에서 "더 찾아줘" 등을 감지하고 이전 키워드와 batch_offset 사용
-            # 또는 번호/상세 요청을 감지하여 상세 내용 반환
-            result = await email_search(query, session_id=session_id, state=state)
-
-            # 연속 검색/상세 조회 요청인 경우 (Structured Output 없이 처리)
-            # email_search에서 업데이트된 state를 반영하여 Redis에 저장
-            return {
-                "final_response": result.get("message", "이메일 처리 결과를 찾을 수 없습니다."),
-                "messages": [result.get("message", "")],
-                "search_results": result.get("rows", []),
-                "email_search_context": state.get("email_search_context"),
-            }
         else:
             # 대화 히스토리 컨텍스트 구성
             context = ""
@@ -253,35 +224,82 @@ class EmailMasterGraph(BaseMasterGraph):
                 context = "\n\n이전 대화 내용:\n"
                 for msg in recent_history:
                     context += f"{msg.get('role', 'unknown')}: {msg.get('content', '')}\n"
-
+            
             # Structured Output Parser를 사용하여 검색 파라미터 추출
             try:
+                # 현재 날짜 정보 가져오기 (orchestrator가 제공하거나 직접 계산)
+                KST = timezone(timedelta(hours=9))
+
+                current_date = state.get('current_date', '')
+                current_datetime = state.get('current_datetime', '')
+                current_weekday = state.get('current_weekday', '')
+
+                # 날짜 정보가 없거나 비어있으면 직접 계산 (KST 기준)
+                if not current_date or not current_datetime:
+                    now_dt = datetime.now(KST)
+                    weekday_names = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+                    current_date = now_dt.strftime("%Y년 %m월 %d일")
+                    current_datetime = now_dt.isoformat()
+                    current_weekday = weekday_names[now_dt.weekday()]
+
+                # 현재 날짜를 YYYY-MM-DD 형식으로도 제공 (예시 계산용)
+                now_dt = datetime.now(KST)
+                current_date_iso = now_dt.strftime("%Y-%m-%d")
+                current_year = now_dt.year
+                current_month = now_dt.month
+                current_day = now_dt.day
+
                 system_prompt = f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
 - keywords: 검색할 핵심 키워드 리스트 (불용어 제거)
 - from_address: 특정 발신자 주소 (있는 경우)
 - date_range: 날짜 범위 (시작일, 종료일이 있는 경우)
 
-{context}"""
+**중요: 현재 날짜 정보를 반드시 참조하세요!**
+- 현재 날짜: {current_date} ({current_date_iso})
+- 현재 요일: {current_weekday}
+- 현재 날짜/시간 (ISO): {current_datetime}
+- 현재 연도: {current_year}년
+- 현재 월: {current_month}월
+- 현재 일: {current_day}일
 
+"오늘", "어제", "저번주", "지난주" 같은 상대적 날짜 표현은 반드시 위의 현재 날짜 정보를 기준으로 계산하세요.
+예시 (현재 날짜가 {current_date_iso}인 경우):
+- "오늘 온 메일" → date_range: {{"start": "{current_date_iso}", "end": "{current_date_iso}"}}
+- "어제 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}"}}
+- "저번주에 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=now_dt.weekday() + 7)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=now_dt.weekday() + 1)).strftime('%Y-%m-%d')}"}}
+
+날짜 범위 형식: {{"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
+날짜 정보가 없으면 date_range는 null로 반환하세요.
+절대로 2023년이나 과거의 잘못된 날짜를 사용하지 마세요. 반드시 현재 날짜({current_date_iso})를 기준으로 계산하세요.
+
+{context}"""
+                
                 params = await extract_structured_output(
                     query=query,
                     model_class=EmailSearchParams,
                     system_prompt=system_prompt
                 )
-
+                
                 print(f"✅ 구조화된 검색 파라미터 추출 완료:")
                 print(f"   - 키워드: {params.keywords}")
                 print(f"   - 발신자: {params.from_address}")
                 print(f"   - 날짜 범위: {params.date_range}")
-
+                
                 # 추출된 파라미터로 검색
                 # 키워드가 있으면 첫 번째 키워드를 검색 쿼리로 사용
                 search_query = " ".join(params.keywords) if params.keywords else query
-
+                
                 # 기존 email_search_agent 사용 (Redis 숏텀 메모리 state 전달)
                 # email_search는 이제 비동기 함수이므로 await 사용
-                result = await email_search(search_query, session_id=session_id, state=state)
-
+                # master_graph에서 추출한 정보 전달
+                result = await email_search(
+                    search_query,
+                    session_id=session_id,
+                    state=state,
+                    from_address=params.from_address,  # 추출한 발신자 주소 전달
+                    date_range=params.date_range  # 추출한 날짜 범위 전달
+                )
+                
                 # Structured Output을 사용한 응답 생성
                 response = AgentResponse(
                     success=True,
@@ -294,7 +312,7 @@ class EmailMasterGraph(BaseMasterGraph):
                     },
                     next_action="더 자세한 정보가 필요하신가요?"
                 )
-
+                
                 # email_search에서 업데이트된 state를 반영하여 Redis에 저장
                 # email_search 내부에서 state.update()를 통해 email_search_context가 업데이트됨
                 # 업데이트된 state를 반환하여 Redis에 저장되도록 함
@@ -305,12 +323,14 @@ class EmailMasterGraph(BaseMasterGraph):
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨
                     "email_search_context": state.get("email_search_context"),
+                    "email_ids": result.get("email_ids", []),  # ID 리스트 추가
+                    "last_search_keyword": result.get("last_search_keyword")  # 마지막 검색 키워드 추가
                 }
             except Exception as e:
                 print(f"⚠️ Structured Output 파싱 실패: {e}, 기본 로직 사용")
                 # Fallback: 기존 로직 사용 (Redis 숏텀 메모리 state 전달)
                 result = await email_search(query, session_id=session_id, state=state)
-
+                
                 return {
                     "final_response": result.get("message", "이메일 검색 결과를 찾을 수 없습니다."),
                     "messages": [result.get("message", "")],
@@ -318,20 +338,23 @@ class EmailMasterGraph(BaseMasterGraph):
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨
                     "email_search_context": state.get("email_search_context"),
+                    "email_ids": result.get("email_ids", []),  # ID 리스트 추가
+                    "last_search_keyword": result.get("last_search_keyword")  # 마지막 검색 키워드 추가
                 }
-
+    
     async def generate_reply(self, state: OrchestratorState) -> Dict[str, Any]:
         """답장/새 메일 초안 생성 및 발송 워크플로우 (AI-026, AI-027)."""
         print("--- [Email Master] Generating Reply/Compose Email ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-
+        
         # 사용자 쿼리에서 이메일 주소, 메시지 추출 시도 (LLM 사용)
         # 예: "user@example.com에게 내일 회의 시간 변경 요청 메일 보내줘"
         #     "답장해줘: 내일 가능해요"
-
+        
         # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
-        email_compose_context = state.get("email_compose_context", {})
+        # NOTE: Redis/세션에서 null(None)로 들어오는 경우가 있어 .get() 사용 전에 정규화 필요
+        email_compose_context = state.get("email_compose_context") or {}
         
         # LLM을 사용하여 수신자 정보 추출
         recipient_info = await _extract_recipient_info_with_llm(query)
@@ -535,11 +558,11 @@ class EmailMasterGraph(BaseMasterGraph):
                 "final_response": f"이메일 처리 중 오류가 발생했습니다: {str(e)}",
                 "messages": [f"오류: {str(e)}"],
         }
-
+    
     async def detect_reception(self, state: OrchestratorState) -> Dict[str, Any]:
         """수신 감지 (AI-025)."""
         print("--- [Email Master] Detecting Reception ---")
-
+        
         # 수신 감지 로직 (실제 구현 필요)
         # 여기서는 메시지만 반환
         return {
@@ -552,3 +575,4 @@ def get_email_master_graph() -> StateGraph:
     """이메일 마스터그래프 인스턴스 반환."""
     master = EmailMasterGraph()
     return master.get_graph()
+
