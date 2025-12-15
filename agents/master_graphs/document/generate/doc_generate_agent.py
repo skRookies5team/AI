@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # 분리된 모듈 import
-from .. import utils
+from .. import document_utils
 from . import html_filler
 from . import llm_generator
 from . import db_query_generator
@@ -249,7 +249,7 @@ def doc_generate(
     
     # 1단계: 템플릿 로드
     print("📋 [1/3] 템플릿 로드 중...")
-    template_html = utils.load_template(template_name)
+    template_html = document_utils.load_template(template_name)
     if not template_html:
         return {
             "ok": False,
@@ -258,7 +258,7 @@ def doc_generate(
         }
     
     # 템플릿 구조 추출
-    template_structure = utils.extract_template_structure(template_html)
+    template_structure = document_utils.extract_template_structure(template_html)
     
     # 2단계: DB 데이터 매핑 (Data Binding)
     print("🔗 [2/4] DB 데이터 매핑 중...")

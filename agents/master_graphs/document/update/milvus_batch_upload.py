@@ -189,4 +189,3 @@ def batch_upload_folder_to_milvus(
         "success_count": success_count,
         "results": results,
     }
-

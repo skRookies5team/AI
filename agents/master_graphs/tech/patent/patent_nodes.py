@@ -56,6 +56,7 @@ from .patent_milvus_db import (
     get_collection_name,
 )
 from .patent_utils import _extract_keyword
+from .patent_keyword import generate_patent_search_phrase
 
 LOGGER = logging.getLogger(__name__)
 
@@ -111,20 +112,19 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
 
     # 결과가 있고 유효한 경우에만 처리
     if results and len(results) > 0:
-        best_score = results[0]["score"]
-        query_lower = query.lower()
-        # 검색 쿼리에서 불필요한 단어 제거
-        query_clean = re.sub(r'\s*(관련|찾아|찾아줘|검색|검색해줘|검색해|찾아서|특허|patent)\s*', ' ', query_lower).strip()
-        query_words = re.findall(r'[\w가-힣]+', query_clean)
+        # 구문 기반 필터링: 검색 구문 추출
+        search_phrase = generate_patent_search_phrase(query)
+        phrase_lower = search_phrase.lower()
+        phrase_words = re.findall(r'[\w가-힣]+', phrase_lower)
         
-        # 핵심 키워드 추출 (불필요한 단어 제거)
-        # 예: "전기차 베터리 특허 찾아줘" → ["전기차"]만 추출
+        # 핵심 단어 추출 (불필요한 일반 설명 단어만 제거, 기술 용어는 유지)
         stop_words = {
-            "베터리", "배터리", "특허", "찾아", "검색", "관련", "정보", "자료", 
-            "요청", "알려", "줘", "주세요", "patent", "찾아서", "검색해", "검색해줘"
+            "특허", "찾아", "검색", "관련", "정보", "자료", 
+            "요청", "알려", "줘", "주세요", "patent", "찾아서", "검색해", "검색해줘",
+            "기술", "현황", "동향"  # 일반적인 설명 단어만 제거
         }
         main_keywords = [
-            word for word in query_words 
+            word for word in phrase_words 
             if len(word) > 1 and word not in stop_words
         ]
 
@@ -133,65 +133,53 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
             title = patent.get('title', '').lower()
             abstract = patent.get('abstract', '').lower()
             content = patent.get('content', '').lower()
+            full_text = title + " " + abstract + " " + content
             
-            # 핵심 키워드가 있으면, 반드시 제목/초록/내용에 포함되어야 함
-            # 예: "전기차" 검색 시 → "전기차"가 포함된 특허만 반환
+            # 구문 전체 매칭 확인 (가장 중요)
+            phrase_match = phrase_lower in full_text
+            
+            # 핵심 단어 매칭 확인
             if main_keywords:
-                has_main_keyword = any(
-                    keyword in title or keyword in abstract or keyword in content
-                    for keyword in main_keywords
+                # 핵심 단어가 모두 포함된 경우 (구문 의미 보존)
+                keyword_count = sum(
+                    1 for keyword in main_keywords
+                    if keyword in full_text
                 )
-                if not has_main_keyword:
-                    continue  # 핵심 키워드가 없으면 제외
+                # 구문 전체 매칭이 있거나, 핵심 단어가 모두 포함된 경우만 통과
+                if not phrase_match and keyword_count < len(main_keywords):
+                    continue  # 관련성 낮음
             
             # 기존 키워드 매칭 로직 (하위 호환성 유지)
-            full_match = query_clean in title or query_clean in abstract or query_clean in content
-            word_match = any(word in title or word in abstract or word in content for word in query_words if len(word) > 1)
+            word_match = any(word in full_text for word in phrase_words if len(word) > 1)
             
-            if full_match or word_match:
+            if phrase_match or word_match:
                 relevant_results.append(patent)
         
-        # 조건: best_score가 합리적인 범위 내에 있고, 관련 결과가 있거나 거리가 충분히 가까운 경우만 사용
-        # max_distance가 1.5이므로 best_score가 1.5 이하인 경우만 유효한 결과로 간주
-        if best_score <= 1.5 and (relevant_results or best_score <= 1.0):
-            # 관련 결과가 있으면 우선 사용, 없으면 거리 기준으로 사용
-            state["vector_db_results"] = relevant_results[:5] if relevant_results else results[:5]
+        # 조건: relevant_results가 있을 때만 사용 (관련성 없는 결과 제외)
+        # relevant_results가 비어있으면 웹 검색 질문으로 이동
+        if relevant_results:
+            # 관련 결과만 사용
+            vector_results = relevant_results[:5]
+            state["vector_db_results"] = vector_results
+            # search_results는 설정하지 않음 (rag_answer_node에서 처리)
+            if "search_results" in state:
+                del state["search_results"]
             state["progress_status"] = "✅ 벡터DB에서 관련 특허를 찾았습니다. 답변을 생성 중입니다..."
-            LOGGER.info(state["progress_status"])
+            LOGGER.info("check_db_node: 서버 검색 결과 있음 - vector_db_results=%d개, next_action=rag_answer", len(vector_results))
             _notify_progress(state["progress_status"])
             state["next_action"] = "rag_answer"
         else:
-            # 거리가 너무 멀거나 관련 결과가 없으면 웹 검색 질문으로 이동
-            if state.get("use_server_first") and current_search_mode == "server":
-                # 서버 모드에서 결과가 없으면 사용자에게 물어보기
-                state["next_action"] = "ask_web_search"
-                return state
-            elif state.get("use_server_first") and current_search_mode != "web":
-                # use_server_first가 True이지만 모드가 명시되지 않은 경우도 질문
-                state["next_action"] = "ask_web_search"
-                return state
-            else:
-                # 웹 모드이거나 use_server_first가 False면 바로 웹 검색
-                state["progress_status"] = "🔍 웹에서 특허를 검색 중입니다..."
-                LOGGER.info(state["progress_status"])
-                _notify_progress(state["progress_status"])
-                state["next_action"] = "search_kipris"
+            # 거리가 너무 멀거나 관련 결과가 없으면 항상 웹 검색 질문으로 이동
+            # 사용자가 명시적으로 "web" 모드를 선택한 경우만 바로 검색 (위에서 처리됨)
+            LOGGER.info("check_db_node: 서버 검색 결과 없음 - 웹 검색 질문으로 라우팅")
+            state["next_action"] = "ask_web_search"
+            return state
     else:
-        # 서버 기반 검색이 실패했고, 웹 검색 모드가 아니면 웹 검색 질문으로 이동
-        if state.get("use_server_first") and current_search_mode == "server":
-            # 서버 모드에서 결과가 없으면 사용자에게 물어보기
-            state["next_action"] = "ask_web_search"
-            return state
-        elif state.get("use_server_first") and current_search_mode != "web":
-            # use_server_first가 True이지만 모드가 명시되지 않은 경우도 질문
-            state["next_action"] = "ask_web_search"
-            return state
-        else:
-            # 웹 모드이거나 use_server_first가 False면 바로 웹 검색
-            state["progress_status"] = "🔍 웹에서 특허를 검색 중입니다..."
-            LOGGER.info(state["progress_status"])
-            _notify_progress(state["progress_status"])
-            state["next_action"] = "search_kipris"
+        # 서버 기반 검색이 실패했고, 웹 검색 모드가 아니면 항상 웹 검색 질문으로 이동
+        # 사용자가 명시적으로 "web" 모드를 선택한 경우만 바로 검색 (위에서 처리됨)
+        LOGGER.info("check_db_node: 벡터DB 검색 실패 - 웹 검색 질문으로 라우팅")
+        state["next_action"] = "ask_web_search"
+        return state
     
     return state
 
@@ -227,14 +215,18 @@ def ask_web_search_node(state: PatentSearchState) -> PatentSearchState:
         set_original_search_keyword(session_id, keyword, orchestrator_state)
         set_waiting_for_web_search(session_id, True, orchestrator_state)
     
-    # LLM으로 자연스러운 질문 생성
+    # 키워드를 구문으로 변환 (분리된 키워드 방지: "전기차, 배터리" → "전기차 배터리 기술")
+    from .patent_keyword import generate_patent_search_phrase
+    search_phrase = generate_patent_search_phrase(keyword)
+    
+    # LLM으로 자연스러운 질문 생성 (구문 사용)
     try:
-        question = generate_web_search_question(keyword)
+        question = generate_web_search_question(search_phrase)
         state["progress_status"] = question + "\n\n'네' 또는 '예'로 답변하시면 웹에서 검색하고, '아니오'로 답변하시면 종료됩니다."
     except Exception as e:
         LOGGER.warning("웹 검색 질문 생성 실패: %s", e)
-        # Fallback: 기본 질문 사용
-        state["progress_status"] = f"서버에 '{keyword}' 관련 특허 자료가 저장되어 있지 않습니다. 웹에서 찾아드릴까요?\n\n'네' 또는 '예'로 답변하시면 웹에서 검색하고, '아니오'로 답변하시면 종료됩니다."
+        # Fallback: 기본 질문 사용 (구문 사용)
+        state["progress_status"] = f"서버에 '{search_phrase}' 관련 특허 자료가 저장되어 있지 않습니다. 웹에서 찾아드릴까요?\n\n'네' 또는 '예'로 답변하시면 웹에서 검색하고, '아니오'로 답변하시면 종료됩니다."
     
     state["next_action"] = "end"
     return state
@@ -635,10 +627,15 @@ def rag_answer_node(state: PatentSearchState) -> PatentSearchState:
         answer += f"\n\n🔗 PDF 링크: {state['pdf_link']}"
 
     # 서버 기반 검색 결과가 있고, 아직 웹 검색을 하지 않은 경우 웹 검색 여부 질문을 답변에 직접 추가
-    if state.get("search_mode") == "server" and state.get("vector_db_results"):
+    search_mode = state.get("search_mode")
+    vector_db_results = state.get("vector_db_results")
+    LOGGER.info("rag_answer_node: search_mode=%s, vector_db_results=%s (개수: %d)", 
+                search_mode, bool(vector_db_results), len(vector_db_results) if vector_db_results else 0)
+    
+    if search_mode == "server" and vector_db_results:
         session_id = state.get("session_id")
         # orchestrator_state는 전역 변수에서 가져오기
-        orchestrator_state = _current_orchestrator_state_for_node
+        orchestrator_state = patent_config_module._current_orchestrator_state_for_node
         if session_id:
             # 원래 검색어 저장 (웹 검색 시 사용, Redis 우선)
             original_query = state.get("user_query", "") or state.get("keyword", "")
@@ -648,12 +645,16 @@ def rag_answer_node(state: PatentSearchState) -> PatentSearchState:
         # 답변에 웹 검색 질문 직접 추가
         answer += "\n\n❓ 웹에서 추가로 검색해드릴까요?\n\n'네' 또는 '예'로 답변하시면 웹에서 추가 정보를 검색하고, '아니오'로 답변하시면 종료됩니다."
         state["next_action"] = "ask_web_search"
+        LOGGER.info("rag_answer_node: 웹 검색 질문 추가됨 (search_mode=server, vector_db_results 있음)")
     else:
         state["next_action"] = "end"
+        LOGGER.info("rag_answer_node: 웹 검색 질문 추가 안 함 (search_mode=%s, vector_db_results=%s)", 
+                    search_mode, bool(vector_db_results))
     
     state["answer"] = answer
     state["progress_status"] = "✅ 답변 생성 완료"
-    LOGGER.info(state["progress_status"])
+    LOGGER.info("rag_answer_node: 답변 생성 완료 - answer 길이=%d, next_action=%s", len(answer), state.get("next_action"))
+    LOGGER.info("rag_answer_node: answer 내용 (처음 200자): %s", answer[:200] if answer else "(비어있음)")
     _notify_progress(state["progress_status"])
 
     return state
@@ -693,6 +694,7 @@ def get_workflow():
                 "rag_answer": "rag_answer",
                 "search_kipris": "search_kipris",
                 "ask_search_mode": "ask_search_mode",
+                "ask_web_search": "ask_web_search",  # 서버 검색 결과 없을 때 웹 검색 질문
             }
         )
         

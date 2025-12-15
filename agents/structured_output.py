@@ -101,16 +101,29 @@ class HistoryCheckIntent(BaseModel):
     """이전 대화 확인 질문 의도 분석 결과.
     
     사용자가 이전에 요청한 작업이나 대화 내용을 확인하는 질문인지 판단합니다.
-    예: "내가 이메일에서 육아휴직 관련 내용 찾아달라는 요청을 한적이 있어?"
+    
+    예 (확인 질문): "내가 이메일에서 육아휴직 관련 내용 찾아달라는 요청을 한적이 있어?"
+    예 (새로운 요청): "이메일에서 육아휴직 정보 찾아줘"
     """
     
     is_history_check: bool = Field(
         ..., 
-        description="이전 대화 확인 질문인지 여부. 사용자가 과거에 요청한 작업이나 대화 내용을 확인하는 질문이면 True"
+        description=(
+            "이전 대화 확인 질문인지 여부. "
+            "사용자가 과거에 요청한 작업이나 대화 내용을 확인하는 질문이면 True. "
+            "과거형 확인 문구('한적이 있어?', '요청한 적 있어?' 등)가 포함되어야 True. "
+            "'찾아줘', '알려줘', '검색해줘' 같은 직접 요청 동사만 있고 확인 문구가 없으면 False."
+        )
     )
     check_type: Optional[str] = Field(
         default=None,
-        description="확인하려는 작업 유형 (email_search, patent_search, article_search, leave_request, document_generation 등). is_history_check가 True일 때만 의미가 있음"
+        description=(
+            "확인하려는 작업 유형 (email_search, patent_search, article_search, leave_request, "
+            "document_generation, meeting_reservation, recruitment_search 등). "
+            "is_history_check가 True일 때만 의미가 있음. "
+            "질문 내용과 일치하는 작업 유형을 선택해야 함. "
+            "예: '이메일에서 찾아줘' → email_search (article_search 아님)"
+        )
     )
     mentioned_keywords: list[str] = Field(
         default_factory=list,
@@ -118,7 +131,11 @@ class HistoryCheckIntent(BaseModel):
     )
     confidence: float = Field(
         ..., 
-        description="분류 신뢰도 (0.0 ~ 1.0)", 
+        description=(
+            "분류 신뢰도 (0.0 ~ 1.0). "
+            "확실하지 않으면 낮은 신뢰도(0.7 이하)를 설정하세요. "
+            "check_type이 질문 내용과 일치하지 않으면 신뢰도를 낮게 설정하세요."
+        ), 
         ge=0.0, 
         le=1.0
     )
@@ -168,9 +185,9 @@ class TechSearchParams(BaseModel):
 class DocumentUpdateParams(BaseModel):
     """문서 업데이트 파라미터."""
     
-    document_title: str = Field(..., description="업데이트할 문서 제목 (예: 복리후생, 식단, 메뉴얼)")
+    document_title: str = Field(..., description="업데이트할 문서 제목. 사용자가 명시적으로 입력한 제목을 정확히 반영하세요 (예: 복리후생, 식단, 메뉴얼, 이력서)")
     file_path: Optional[str] = Field(default=None, description="업데이트할 파일 경로 (선택적, 없으면 사용자에게 요청)")
-    document_type: str = Field(..., description="문서 타입 (반드시 '복리후생', '식단', '메뉴얼' 중 하나로 판단)")
+    document_type: str = Field(..., description="문서 타입 (반드시 '복리후생', '식단', '메뉴얼', '이력서' 중 하나로 판단)")
 
 
 class AgentResponse(BaseModel):

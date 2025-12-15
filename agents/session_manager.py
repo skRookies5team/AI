@@ -139,6 +139,7 @@ class SessionManager:
             return {
                 "conversation_history": [],
                 "email_search_context": {},
+                "email_compose_context": {},
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
@@ -157,36 +158,45 @@ class SessionManager:
                     return {
                         "conversation_history": [],
                         "email_search_context": {},
+                        "email_compose_context": {},
                         "qa_search_context": {},
                         "tech_search_context": {},
                         "schedule_context": {},
-                        "document_context": {}
+                        "document_context": {},
+                        "recruitment_context": {}
                     }
                 
                 data = json.loads(value)
                 return {
                     "conversation_history": data.get("conversation_history", []),
                     "email_search_context": data.get("email_search_context") or {},
+                    "email_compose_context": data.get("email_compose_context", {}),
                     "qa_search_context": data.get("qa_search_context") or {},
                     "tech_search_context": data.get("tech_search_context") or {},
                     "schedule_context": data.get("schedule_context") or {},
-                    "document_context": data.get("document_context") or {}
+                    "document_context": data.get("document_context") or {},
+                    "recruitment_context": data.get("recruitment_context") or {},
+                    "last_domain": data.get("last_domain")
                 }
             except asyncio.TimeoutError:
                 print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
                 return {
                     "conversation_history": [],
                     "email_search_context": {},
+                    "email_compose_context": {},
                     "qa_search_context": {},
                     "tech_search_context": {},
                     "schedule_context": {},
-                    "document_context": {}
+                    "document_context": {},
+                    "recruitment_context": {},
+                    "last_domain": None
                 }
             except Exception as e:
                 print(f"[WARNING] 세션 데이터 로드 실패 (session_id={session_id}): {e}")
                 return {
                     "conversation_history": [],
                     "email_search_context": {},
+                    "email_compose_context": {},
                     "qa_search_context": {},
                     "tech_search_context": {},
                     "schedule_context": {},
@@ -403,14 +413,28 @@ class SessionManager:
                 except asyncio.TimeoutError:
                     print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음, 새 데이터로 저장 시도")
                     value = None
-                
+
                 if value:
                     existing_data = json.loads(value)
                 else:
                     existing_data = {}
                 
                 # conversation_history 처리
-                conversation_history = state.get("conversation_history", existing_data.get("conversation_history", []))
+                # state의 conversation_history와 기존 데이터의 conversation_history를 병합
+                existing_history = existing_data.get("conversation_history", [])
+                new_history = state.get("conversation_history", [])
+                
+                # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+                conversation_history = existing_history.copy()
+                
+                # 새 히스토리에서 기존에 없는 메시지만 추가
+                existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+                for msg in new_history:
+                    msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                    if msg_key not in existing_content_set:
+                        conversation_history.append(msg)
+                        existing_content_set.add(msg_key)
+                
                 MAX_HISTORY = 20
                 if len(conversation_history) > MAX_HISTORY:
                     conversation_history = conversation_history[-MAX_HISTORY:]
@@ -419,10 +443,13 @@ class SessionManager:
                 data = {
                     "conversation_history": conversation_history,
                     "email_search_context": state.get("email_search_context", existing_data.get("email_search_context", {})),
+                    "email_compose_context": state.get("email_compose_context", existing_data.get("email_compose_context", {})),
                     "qa_search_context": state.get("qa_search_context", existing_data.get("qa_search_context", {})),
                     "tech_search_context": state.get("tech_search_context", existing_data.get("tech_search_context", {})),
                     "schedule_context": state.get("schedule_context", existing_data.get("schedule_context", {})),
                     "document_context": state.get("document_context", existing_data.get("document_context", {})),
+                    "recruitment_context": state.get("recruitment_context", existing_data.get("recruitment_context", {})),
+                    "last_domain": state.get("last_domain", existing_data.get("last_domain")),  # last_domain 저장
                     "last_updated": datetime.now().isoformat()
                 }
                 
@@ -507,7 +534,7 @@ async def get_session_manager() -> Optional[SessionManager]:
             # 포트 번호 필수 체크
             if not redis_port_str:
                 raise ValueError("REDIS_PORT 환경 변수가 설정되지 않았습니다. .env 파일에 REDIS_PORT를 설정해주세요.")
-            
+
             try:
                 redis_port = int(redis_port_str.strip())
             except (ValueError, AttributeError) as e:
@@ -524,7 +551,7 @@ async def get_session_manager() -> Optional[SessionManager]:
             
             # 디버깅: 연결 정보 로그 (패스워드 제외)
             print(f"[INFO] Redis 연결 설정: host={redis_host}, port={redis_port}, db={redis_db}, password={'설정됨' if redis_password else 'None'}")
-            
+
             if redis_password:
                 redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/{redis_db}"
             else:
@@ -544,7 +571,7 @@ async def get_session_manager() -> Optional[SessionManager]:
                 redis_timeout = int(redis_timeout_str.strip()) if redis_timeout_str else 10
             except (ValueError, AttributeError):
                 redis_timeout = 10  # 기본값: 10초
-            
+
             # Redis 연결 풀 설정으로 타임아웃 및 재시도 설정
             redis_client = AsyncRedis.from_url(
                 redis_url,
