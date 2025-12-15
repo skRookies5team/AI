@@ -274,7 +274,7 @@ uv run main_agents.py --mode cli
 ### 입력 예시 1 (RDB 기반 - employee 테이블에서 자동 조회)
 ```
 양식: hr_summary_report 제목: 2024년 1분기 인사정보 요약 리포트 요구사항:
-- 부서: 개발팀, 마케팅팀
+- 부서: 마케팅팀
 - 직급: 과장, 차장
 ```
 
@@ -356,7 +356,7 @@ uv run main_agents.py --mode cli
 
 ### 입력 예시 1 (RDB 기반 - company_sales 테이블에서 자동 조회)
 ```
-양식: monthly_profit_analysis_report 제목: 2024년 1월 수익 분석 리포트 요구사항:
+양식: monthly_profit_analysis_report 제목: 2019년 5월 수익 분석 리포트 요구사항:
 - 분석 기간: 2019년 5월
 - 지역: 중국, 미국, 일본
 - 제품 카테고리: 휴대폰

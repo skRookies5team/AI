@@ -24,7 +24,7 @@ class OrchestratorState(TypedDict):
     current_weekday: Optional[str]  # 현재 요일 (예: "월요일")
     
     # Workflow Context
-    domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech'
+    domain: Optional[str]  # 'schedule', 'document', 'qa', 'email', 'tech', 'recruitment'
     last_domain: Optional[str]  # 이전 대화의 도메인 (단순 답변 시 라우팅용)
     intent: Optional[str]  # 'business_trip', 'research', 'meeting', etc.
     template_name: Optional[str]  # 문서 템플릿 이름 (예: 'work_performance_review', 'hr_summary_report')
@@ -56,6 +56,22 @@ class OrchestratorState(TypedDict):
     #   "batch_offset": int,  # 현재 배치 오프셋
     #   "last_keyword": str,  # 마지막 검색 키워드
     #   "keyword_offsets": Dict[str, int]  # 키워드별 마지막 검색 위치
+    # }
+    
+    # Email Compose Context (Redis 숏텀 메모리로 관리)
+    email_compose_context: Optional[Dict[str, Any]]  # 이메일 작성 관련 컨텍스트
+    # 구조: {
+    #   "to_email": str,  # 수신자 이메일
+    #   "user_message": str,  # 사용자 메시지
+    #   "email_draft_subject": str,  # 초안 제목
+    #   "email_draft_body": str,  # 초안 본문
+    #   "original_subject": Optional[str],  # 답장인 경우 원본 제목
+    #   "original_sender": Optional[str],  # 답장인 경우 원본 발신자
+    #   "original_body": Optional[str],  # 답장인 경우 원본 본문
+    #   "approval_status": str,  # 'pending', 'approved', 'rejected'
+    #   "user_feedback": Optional[str],  # 사용자 피드백
+    #   "cc": Optional[str],  # 참조
+    #   "bcc": Optional[str],  # 숨은 참조
     # }
     
     # Tech Search Context (Redis 숏텀 메모리로 관리)
@@ -120,6 +136,20 @@ class OrchestratorState(TypedDict):
     #   "last_template_type": str,  # 마지막 생성한 문서 템플릿 타입
     #   "last_variables": Dict,  # 마지막 사용한 변수들
     #   "pending_document": Optional[Dict],  # 생성 대기 중인 문서 정보
+    # }
+    
+    # Recruitment Context (Redis 숏텀 메모리로 관리)
+    recruitment_context: Optional[Dict[str, Any]]  # 채용(인재 추천/이력서) 관련 컨텍스트
+    # 구조: {
+    #   "resume_search": {
+    #     "last_query": str,  # 마지막 검색 쿼리
+    #     "last_results": List[Dict],  # 마지막 검색 결과 (번호, resume_id, name, position, content 포함)
+    #     "displayed_count": int,  # 표시된 결과 개수
+    #   },
+    #   "resume_summarize": {
+    #     "last_resume_id": str,  # 마지막 요약한 이력서 ID
+    #     "last_summary": Dict,  # 마지막 요약 결과
+    #   }
     # }
     
     # Final Output
