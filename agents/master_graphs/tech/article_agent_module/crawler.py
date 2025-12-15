@@ -570,89 +570,124 @@ async def _search_scienceon_papers_impl(
     results: List[PaperResult] = []
     should_download = enable_downloads or download_dir is not None
 
-    try:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            context = await browser.new_context(
-                accept_downloads=should_download,
-                user_agent=USER_AGENT,
-            )
-            try:
-                page = await context.new_page()
-
-                # wait_until을 domcontentloaded로 변경하여 빠른 로딩
-                await page.goto(SEARCH_URL, timeout=90_000, wait_until="domcontentloaded")
-                await page.wait_for_selector("#totSearchKeyword", timeout=20_000)
-                await page.fill("#totSearchKeyword", query)
-                await page.keyboard.press("Enter")
-
-                await asyncio.sleep(wait_after_enter)
-                await page.wait_for_load_state("networkidle", timeout=30_000)
-                await asyncio.sleep(wait_after_network_idle)
-
-                html = await page.content()
-                soup = BeautifulSoup(html, "html.parser")
-
-                results = _parse_items(
-                    soup=soup,
-                    selectors=selectors,
-                    limit=limit,
-                    query=query,
+    # 재시도 설정
+    max_retries = 2
+    retry_delay = 3  # 재시도 전 대기 시간 (초)
+    
+    for attempt in range(max_retries + 1):
+        try:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    accept_downloads=should_download,
+                    user_agent=USER_AGENT,
                 )
+                try:
+                    page = await context.new_page()
 
-                if should_download:
-                    target_dir = (
-                        Path(download_dir).expanduser().resolve()
-                        if download_dir
-                        else PDF_DOWNLOAD_DIR
-                    )
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    for index, result in enumerate(results, start=1):
-                        if not result.pdf_link or result.pdf_link == "원문보기 링크 없음":
-                            LOGGER.warning(
-                                "PDF 링크가 없어 다운로드를 건너뜁니다: %s",
-                                result.title,
-                            )
-                            continue
-                        pdf_path = await _download_pdf(
-                            context=context,
-                            url=result.pdf_link,
-                            download_dir=target_dir,
-                            index=index,
-                            title=result.title,
+                    # wait_until을 domcontentloaded로 변경하여 빠른 로딩
+                    # 타임아웃 증가: 90초 -> 120초
+                    await page.goto(SEARCH_URL, timeout=120_000, wait_until="domcontentloaded")
+                    
+                    # 타임아웃 증가: 20초 -> 40초, 재시도 시 더 긴 타임아웃
+                    selector_timeout = 40_000 + (attempt * 10_000)  # 첫 시도: 40초, 재시도: 50초, 60초
+                    try:
+                        await page.wait_for_selector("#totSearchKeyword", timeout=selector_timeout)
+                    except PlaywrightTimeoutError:
+                        # 셀렉터가 없을 경우 페이지 상태 확인
+                        current_url = page.url
+                        page_title = await page.title()
+                        LOGGER.warning(
+                            f"셀렉터 대기 타임아웃 (시도 {attempt + 1}/{max_retries + 1}): "
+                            f"URL={current_url}, Title={page_title}"
                         )
-                        if pdf_path:
-                            result.pdf_path = pdf_path
-            finally:
-                await context.close()
-                await browser.close()
-    except NotImplementedError as e:
-        import traceback
-        traceback.print_exc()
-        LOGGER.error(f"Playwright 초기화 실패 (Windows 환경 문제): {e}")
-        return []
-    except PlaywrightTimeoutError as exc:
-        LOGGER.exception("ScienceON 페이지 로딩 중 타임아웃이 발생했습니다.")
-        return []
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        LOGGER.exception("ScienceON 크롤링 중 오류가 발생했습니다.")
-        return []
+                        if attempt < max_retries:
+                            await context.close()
+                            await browser.close()
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        raise
+                    
+                    await page.fill("#totSearchKeyword", query)
+                    await page.keyboard.press("Enter")
 
-    LOGGER.info("ScienceON 검색 완료: 결과 %d건", len(results))
-    payloads: List[Dict[str, str]] = []
-    for result in results:
-        result_dict: Dict[str, str] = {
-            "title": result.title,
-            "pdf_link": result.pdf_link,
-        }
-        if result.pdf_path:
-            result_dict["pdf_path"] = result.pdf_path
-        if result.identifier:
-            result_dict["identifier"] = result.identifier
-        payloads.append(result_dict)
-    return payloads
+                    await asyncio.sleep(wait_after_enter)
+                    # networkidle 타임아웃도 증가: 30초 -> 45초
+                    await page.wait_for_load_state("networkidle", timeout=45_000)
+                    await asyncio.sleep(wait_after_network_idle)
+
+                    html = await page.content()
+                    soup = BeautifulSoup(html, "html.parser")
+
+                    results = _parse_items(
+                        soup=soup,
+                        selectors=selectors,
+                        limit=limit,
+                        query=query,
+                    )
+
+                    if should_download:
+                        target_dir = (
+                            Path(download_dir).expanduser().resolve()
+                            if download_dir
+                            else PDF_DOWNLOAD_DIR
+                        )
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        for index, result in enumerate(results, start=1):
+                            if not result.pdf_link or result.pdf_link == "원문보기 링크 없음":
+                                LOGGER.warning(
+                                    "PDF 링크가 없어 다운로드를 건너뜁니다: %s",
+                                    result.title,
+                                )
+                                continue
+                            pdf_path = await _download_pdf(
+                                context=context,
+                                url=result.pdf_link,
+                                download_dir=target_dir,
+                                index=index,
+                                title=result.title,
+                            )
+                            if pdf_path:
+                                result.pdf_path = pdf_path
+                    
+                    # 성공 시 결과 반환 (PaperResult를 딕셔너리로 변환)
+                    return [
+                        {
+                            "title": result.title,
+                            "pdf_link": result.pdf_link,
+                            "detail_link": None,
+                            "pdf_path": result.pdf_path,
+                            "identifier": result.identifier,
+                        }
+                        for result in results
+                    ]
+                finally:
+                    await context.close()
+                    await browser.close()
+        except PlaywrightTimeoutError as exc:
+            if attempt < max_retries:
+                LOGGER.warning(
+                    f"ScienceON 페이지 로딩 타임아웃 (시도 {attempt + 1}/{max_retries + 1}), "
+                    f"{retry_delay}초 후 재시도합니다: {exc}"
+                )
+                await asyncio.sleep(retry_delay)
+                continue
+            else:
+                LOGGER.exception(f"ScienceON 페이지 로딩 중 타임아웃이 발생했습니다 (최대 재시도 횟수 초과).")
+                raise
+        except Exception as exc:
+            if attempt < max_retries and "Executable doesn't exist" not in str(exc):
+                LOGGER.warning(
+                    f"ScienceON 크롤링 중 오류 발생 (시도 {attempt + 1}/{max_retries + 1}), "
+                    f"{retry_delay}초 후 재시도합니다: {exc}"
+                )
+                await asyncio.sleep(retry_delay)
+                continue
+            else:
+                raise
+    
+    # 모든 재시도 실패 시 빈 리스트 반환
+    return []
 
 
 async def download_pdfs_from_results(

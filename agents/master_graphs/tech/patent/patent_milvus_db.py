@@ -2,8 +2,12 @@
 
 import re
 import hashlib
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+
+# 로거 설정
+LOGGER = logging.getLogger(__name__)
 
 try:
     from pymilvus import connections, Collection, utility, FieldSchema, CollectionSchema, DataType
@@ -181,6 +185,10 @@ def _sanitize_collection_name(keyword: str) -> str:
         "터치": "touch",
         "입력": "input",
         "출력": "output",
+        "바이러스": "virus",
+        "전기차": "electric_vehicle",
+        "전기": "electric",
+        "차": "car",
     }
     
     # 키워드 맵에서 직접 매핑 확인
@@ -484,14 +492,24 @@ def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Pa
         with open(text_path, "r", encoding="utf-8") as f:
             text = f.read().strip()
         
-        combined_text = f"{title} {abstract}"
-        keyword = extract_keyword_from_text(combined_text)
-
-        # 특허_키워드 형식 생성
-        if patent_keyword is None:
+        # patent_keyword가 있으면 그것을 사용, 없으면 제목/초록에서 추출
+        if patent_keyword:
+            # "특허_" 접두사 제거하여 키워드 추출
+            if patent_keyword.startswith("특허_"):
+                keyword = patent_keyword[3:]  # "특허_" 제거
+            else:
+                keyword = patent_keyword
+            LOGGER.info(f"[embed_and_store_patent] patent_keyword에서 키워드 추출: '{keyword}'")
+        else:
+            # patent_keyword가 없으면 제목/초록에서 추출
+            combined_text = f"{title} {abstract}"
+            keyword = extract_keyword_from_text(combined_text)
             patent_keyword = f"특허_{keyword}"
+            LOGGER.info(f"[embed_and_store_patent] 제목/초록에서 키워드 추출: '{keyword}'")
 
+        # 키워드가 한글이면 영어로 변환하여 컬렉션 이름 생성
         collection_name = get_collection_name(keyword)
+        LOGGER.info(f"[embed_and_store_patent] 최종 컬렉션 이름: '{collection_name}' (원본 키워드: '{keyword}')")
         
         target_collection = get_or_create_collection(collection_name)
         

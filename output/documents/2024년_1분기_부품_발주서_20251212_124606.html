@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>2024년 1분기 부품 발주서</title>
+<style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .order-number-section {
+            margin-bottom: 25px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .order-number-section label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 16px;
+            margin-right: 15px;
+        }
+
+        .order-number-section input {
+            padding: 10px 20px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+            min-width: 300px;
+        }
+
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .info-table td {
+            padding: 15px;
+            border: 1px solid #dee2e6;
+        }
+
+        .info-table .label-cell {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 600;
+            width: 150px;
+            text-align: center;
+        }
+
+        .info-table .input-cell {
+            background: white;
+        }
+
+        .info-table input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .info-table input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .items-section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            white-space: nowrap;
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .no-cell {
+            font-weight: 600;
+            color: #667eea;
+            background: #f0f4ff;
+            width: 60px;
+        }
+
+        .total-row {
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            font-weight: 700;
+        }
+
+        .total-row td {
+            font-size: 16px;
+            color: #2c3e50;
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+            font-family: inherit;
+            text-align: center;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input[type="number"] {
+            text-align: right;
+        }
+
+        .amount-display {
+            font-weight: 600;
+            color: #28a745;
+            font-size: 15px;
+        }
+
+        .bottom-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .remarks-section {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .remarks-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .remarks-textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: all 0.3s;
+        }
+
+        .remarks-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .signature-section {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .order-text {
+            font-size: 16px;
+            color: #495057;
+            line-height: 1.8;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .date-section {
+            margin-bottom: 20px;
+        }
+
+        .date-section input {
+            padding: 10px 15px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #667eea;
+            width: 100%;
+            text-align: center;
+        }
+
+        .signature-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .signature-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 16px;
+            min-width: 80px;
+        }
+
+        .signature-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+
+        .company-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2c3e50;
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .company-name input {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            font-size: 18px;
+            font-weight: 700;
+            color: #2c3e50;
+            text-align: center;
+        }
+
+        .actions {
+            margin-top: 40px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .bottom-section {
+                grid-template-columns: 1fr;
+            }
+
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>2024년 1분기 부품 발주서</h1>
+<div class="order-number-section">
+<label>발주번호:</label>
+<input id="orderNumber" type="text" value="PO-2024-001"/>
+</div>
+</div>
+<table class="info-table">
+<tr>
+<td class="label-cell">수주처</td>
+<td class="input-cell"><input id="supplierName" type="text" value="삼성전자 부품사업부"/></td>
+<td class="label-cell">발주처</td>
+<td class="input-cell"><input id="buyerName" type="text" value="(주)깐부전자"/></td>
+</tr>
+<tr>
+<td class="label-cell">담당자</td>
+<td class="input-cell"><input id="supplierContact" placeholder="수주처 담당자명" type="text"/></td>
+<td class="label-cell">담당자</td>
+<td class="input-cell"><input id="buyerContact" placeholder="발주처 담당자명" type="text"/></td>
+</tr>
+<tr>
+<td class="label-cell">연락처</td>
+<td class="input-cell"><input id="supplierPhone" placeholder="수주처 연락처" type="text"/></td>
+<td class="label-cell">연락처</td>
+<td class="input-cell"><input id="buyerPhone" placeholder="발주처 연락처" type="text"/></td>
+</tr>
+</table>
+<div class="items-section">
+<h2 class="section-title">품목 내역</h2>
+<div class="table-container">
+<table id="itemsTable">
+<thead>
+<tr>
+<th>NO</th>
+<th>품명</th>
+<th>규격</th>
+<th>수량</th>
+<th>단가</th>
+<th>공급가액</th>
+</tr>
+</thead>
+<tbody id="itemsBody"><tr><td class_="no-cell">1</td><td><input class_="item-name" type="text" value="디스플레이 패널"/></td><td><input class_="specification" type="text" value=""/></td><td><input class_="quantity" min="0" step="1" type="number" value="10000"/></td><td><input class_="unit-price" min="0" step="100" type="number" value="50000"/></td><td><span class_="amount-display item-amount">₩500,000,000</span></td></tr><tr><td class_="no-cell">2</td><td><input class_="item-name" type="text" value="배터리"/></td><td><input class_="specification" type="text" value=""/></td><td><input class_="quantity" min="0" step="1" type="number" value="15000"/></td><td><input class_="unit-price" min="0" step="100" type="number" value="50000"/></td><td><span class_="amount-display item-amount">₩750,000,000</span></td></tr></tbody>
+<tfoot>
+<tr class="total-row">
+<td colspan="4">합계(VAT 제외)</td>
+<td class="amount-display" id="totalUnitPrice">₩0</td>
+<td class="amount-display" id="totalAmount">₩0</td>
+</tr>
+</tfoot>
+</table>
+</div>
+<div style="margin-top: 15px; display: flex; gap: 10px;">
+<button class="btn btn-secondary" onclick="addRow()">행 추가</button>
+<button class="btn btn-secondary" onclick="removeRow()">행 삭제</button>
+</div>
+</div>
+<div class="bottom-section">
+<div class="remarks-section">
+<label class="remarks-label">참고사항</label>
+<textarea class="remarks-textarea" id="remarks">납기일: 2024년 3월 31일, 납품 장소: 서울 공장, 결제 조건: 계약금 30%, 납품시 70%</textarea>
+</div>
+<div class="signature-section">
+<div class="order-text">
+                    상기와 같이 발주하오니 납품하여 주시기 바랍니다.
+                </div>
+<div class="date-section">
+<input id="orderDate" placeholder="0000년 00월 00일" readonly="" type="text" value="2025년 12월 12일"/>
+</div>
+<div class="signature-row">
+<span class="signature-label">대표자:</span>
+<input class="signature-input" id="representative" type="text" value="홍길동"/>
+<span>(인)</span>
+</div>
+<div class="company-name">
+<input id="companyName" type="text" value="(주)깐부전자"/>
+</div>
+</div>
+</div>
+<div class="actions">
+<button class="btn btn-success" onclick="calculateTotal()">합계 계산</button>
+<button class="btn btn-primary" onclick="printOrder()">인쇄</button>
+<button class="btn btn-primary" onclick="exportData()">내보내기</button>
+</div>
+</div>
+<script>
+        let rowCounter = 0;
+        const DEFAULT_ROWS = 10;
+
+        // 날짜 자동 설정
+        function setDefaultDate() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            document.getElementById('orderDate').value = `${year}년 ${month}월 ${day}일`;
+        }
+
+        // 초기 행 생성
+        function initializeTable() {
+            for (let i = 0; i < DEFAULT_ROWS; i++) {
+                addRow();
+            }
+        }
+
+        // 행 추가
+        function addRow() {
+            rowCounter++;
+            const tbody = document.getElementById('itemsBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="no-cell">${rowCounter}</td>
+                <td><input type="text" class="item-name" placeholder="품명"></td>
+                <td><input type="text" class="specification" placeholder="규격"></td>
+                <td><input type="number" class="quantity" placeholder="0" min="0" step="1"></td>
+                <td><input type="number" class="unit-price" placeholder="0" min="0" step="100"></td>
+                <td><span class="amount-display item-amount">₩0</span></td>
+            `;
+            tbody.appendChild(row);
+            
+            // 계산 리스너 추가
+            const quantityInput = row.querySelector('.quantity');
+            const unitPriceInput = row.querySelector('.unit-price');
+            
+            quantityInput.addEventListener('input', () => calculateRow(row));
+            unitPriceInput.addEventListener('input', () => calculateRow(row));
+        }
+
+        // 행 삭제
+        function removeRow() {
+            const tbody = document.getElementById('itemsBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastElementChild);
+                rowCounter = Math.max(0, rowCounter - 1);
+                calculateTotal();
+            } else {
+                alert('삭제할 행이 없습니다.');
+            }
+        }
+
+        // 행별 계산
+        function calculateRow(row) {
+            const quantity = parseFloat(row.querySelector('.quantity')?.value || 0);
+            const unitPrice = parseFloat(row.querySelector('.unit-price')?.value || 0);
+            const amount = quantity * unitPrice;
+            
+            row.querySelector('.item-amount').textContent = `₩${amount.toLocaleString()}`;
+            calculateTotal();
+        }
+
+        // 전체 합계 계산
+        function calculateTotal() {
+            const rows = document.querySelectorAll('#itemsBody tr');
+            let totalUnitPrice = 0;
+            let totalAmount = 0;
+
+            rows.forEach(row => {
+                const unitPrice = parseFloat(row.querySelector('.unit-price')?.value || 0);
+                const quantity = parseFloat(row.querySelector('.quantity')?.value || 0);
+                const amount = unitPrice * quantity;
+                
+                totalUnitPrice += unitPrice;
+                totalAmount += amount;
+            });
+
+            document.getElementById('totalUnitPrice').textContent = `₩${totalUnitPrice.toLocaleString()}`;
+            document.getElementById('totalAmount').textContent = `₩${totalAmount.toLocaleString()}`;
+        }
+
+        // 인쇄
+        function printOrder() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const rows = document.querySelectorAll('#itemsBody tr');
+            let csv = '발주서\n\n';
+            
+            csv += `발주번호,${document.getElementById('orderNumber').value}\n`;
+            csv += `수주처,${document.getElementById('supplierName').value}\n`;
+            csv += `발주처,${document.getElementById('buyerName').value}\n\n`;
+            
+            csv += 'NO,품명,규격,수량,단가,공급가액\n';
+            rows.forEach(row => {
+                const no = row.querySelector('.no-cell')?.textContent || '';
+                const itemName = row.querySelector('.item-name')?.value || '';
+                const spec = row.querySelector('.specification')?.value || '';
+                const quantity = row.querySelector('.quantity')?.value || '';
+                const unitPrice = row.querySelector('.unit-price')?.value || '';
+                const amount = row.querySelector('.item-amount')?.textContent || '';
+                
+                csv += `"${no}","${itemName}","${spec}","${quantity}","${unitPrice}","${amount}"\n`;
+            });
+
+            csv += `\n합계(VAT 제외),,,,"${document.getElementById('totalUnitPrice').textContent}","${document.getElementById('totalAmount').textContent}"\n`;
+            csv += `\n참고사항,${document.getElementById('remarks').value}\n`;
+            csv += `발주일자,${document.getElementById('orderDate').value}\n`;
+            csv += `대표자,${document.getElementById('representative').value}\n`;
+            csv += `회사명,${document.getElementById('companyName').value}\n`;
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const orderNum = document.getElementById('orderNumber').value || '발주서';
+            link.setAttribute('download', `${orderNum}_발주서.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setDefaultDate();
+            initializeTable();
+            calculateTotal();
+        });
+    </script>
+</body>
+</html>

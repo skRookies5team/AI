@@ -112,7 +112,9 @@ def extract_template_structure(html_content: str) -> Dict[str, any]:
 
 
 def load_document_prompts() -> Dict[str, Any]:
-    """agent_prompts.yaml에서 문서 도메인 프롬프트를 로드합니다.
+    """문서 도메인 프롬프트를 로드합니다.
+    
+    llm_router의 통합 로더를 사용하여 document 도메인의 prompts.yaml을 로드합니다.
     
     Returns:
         문서 도메인 프롬프트 딕셔너리
@@ -122,17 +124,9 @@ def load_document_prompts() -> Dict[str, Any]:
         return {}
     
     try:
-        # 프로젝트 루트 디렉토리 찾기
-        current_dir = Path(__file__).parent
-        project_root = current_dir.parent.parent.parent
-        yaml_path = project_root / "agents" / "agent_prompts.yaml"
-        
-        if not yaml_path.exists():
-            print(f"⚠️ agent_prompts.yaml 파일을 찾을 수 없습니다: {yaml_path}")
-            return {}
-        
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            all_prompts = yaml.safe_load(f)
+        # llm_router의 통합 로더 사용
+        from agents.llm_router import load_agent_prompts
+        all_prompts = load_agent_prompts()
         
         document_prompts = all_prompts.get("document", {})
         return document_prompts

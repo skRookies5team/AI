@@ -143,3 +143,22 @@ def get_template_title(template_name: str) -> Optional[str]:
         print(f"⚠️ [Template Examples] 제목 로드 실패: {e}")
     
     return None
+
+
+def get_available_templates() -> Dict[str, str]:
+    """작성 가능한 모든 문서 템플릿 목록을 반환합니다.
+    
+    Returns:
+        템플릿 딕셔너리 {template_name: title} 형식
+        예: {"product_development_plan": "제품개발 계획서", ...}
+    """
+    try:
+        templates = _load_template_examples()
+        result = {}
+        for template_name, template_info in templates.items():
+            title = template_info.get("title", template_name)
+            result[template_name] = title
+        return result
+    except Exception as e:
+        print(f"⚠️ [Template Examples] 템플릿 목록 로드 실패: {e}")
+        return {}

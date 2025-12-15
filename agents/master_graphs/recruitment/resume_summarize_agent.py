@@ -66,21 +66,9 @@ def _load_summary_prompt() -> str:
         return _get_default_summary_prompt()
     
     try:
-        # agent_prompts.yaml 파일 경로 찾기
-        current_file = Path(__file__).resolve()
-        agents_dir = current_file.parent.parent.parent.parent
-        yaml_path = agents_dir / "agent_prompts.yaml"
-        
-        if not yaml_path.exists():
-            # 다른 경로 시도
-            cwd = Path.cwd()
-            yaml_path = cwd / "agents" / "agent_prompts.yaml"
-            if not yaml_path.exists():
-                logger.warning(f"agent_prompts.yaml 파일을 찾을 수 없습니다. 기본 프롬프트를 사용합니다.")
-                return _get_default_summary_prompt()
-        
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            all_prompts = yaml.safe_load(f)
+        # llm_router의 통합 로더 사용
+        from agents.llm_router import load_agent_prompts
+        all_prompts = load_agent_prompts()
         
         recruitment_prompts = all_prompts.get("recruitment", {})
         if not recruitment_prompts:

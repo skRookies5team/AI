@@ -1498,45 +1498,9 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
     is_new_search = (
         not previous_keyword or 
         keyword != previous_keyword or
-        (displayed_count == 0 and not results)
+        not results
     )
     
-    # 페이지네이션: 이미 검색 결과가 있고 displayed_count > 0이고 같은 검색어면 다음 결과 가져오기
-    if not is_new_search and displayed_count > 0 and results:
-        # 저장된 결과에서 다음 3개 가져오기
-        next_results = results[displayed_count:displayed_count + 3]
-
-        if not next_results:
-            return {
-                "error": "더 이상 검색 결과가 없습니다.",
-                "results": results,
-                "summary": "모든 검색 결과를 확인하셨습니다.",
-                "displayed_count": displayed_count,
-            }
-
-        # 다음 결과에 대한 summary 생성
-        search_source = state.get("search_source", "웹")
-        search_source_label = "웹" if search_source == "web" else "사내 서버" if search_source == "internal" else "웹"
-        summary = await generate_summary(
-            user_query=state.get("query", ""),
-            keyword=keyword,  # 이미 추출한 keyword 사용
-            results=next_results,
-            search_source=search_source_label
-        )
-
-        new_displayed_count = displayed_count + len(next_results)
-        LOGGER.info("추가 검색 결과 표시: %d~%d번째 논문 (%d건)",
-                    displayed_count + 1, new_displayed_count, len(next_results))
-
-        return {
-            "query": state.get("query", ""),
-            "keyword": keyword,  # keyword도 함께 반환
-            "results": results,
-            "summary": summary,
-            "error": None,
-            "displayed_count": new_displayed_count,
-        }
-
     query = state.get("query", "").strip()
     if not query:
         return {
@@ -1550,15 +1514,13 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
         if not keyword:  # keyword가 없으면 한 번 더 시도
             keyword = await generate_search_keyword(query)
 
-        # 새로운 검색이므로 displayed_count 리셋
-        if is_new_search:
-            displayed_count = 0
-
         # check_db_node에서 이미 벡터DB 확인을 완료했고,
         # search_papers에 도달했다는 것은 웹 검색으로 전환된 상태이므로 바로 웹 검색을 수행합니다.
         # 처음 검색 시 더 많은 결과를 가져오기 (기본값 limit=10)
         keywords = keyword.split(',') if keyword else []
         all_results = []
+        errors = []  # 에러 수집
+        
         for kw in keywords:
             kw = kw.strip()
             if kw:
@@ -1566,15 +1528,71 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
                     results = await search_scienceon_papers(kw, enable_downloads=False)
                     all_results.extend(results)
                 except RuntimeError as e:
+                    error_msg = str(e)
+                    errors.append(f"{kw}: {error_msg}")
                     LOGGER.warning(f"검색 실패 (키워드: {kw}): {e}")
+                    # Playwright 브라우저 미설치 에러는 즉시 반환
+                    if "playwright install" in error_msg.lower() or "Executable doesn't exist" in error_msg:
+                        # 모든 검색이 실패했고 Playwright 에러가 있으면 사용자에게 전달
+                        error_message = (
+                            "웹 검색을 수행하는 데 필요한 Playwright 브라우저가 설치되지 않았습니다.\n\n"
+                            "다음 명령을 실행하여 브라우저를 설치해 주세요:\n"
+                            "```\n"
+                            "playwright install\n"
+                            "```\n\n"
+                            "또는 가상환경이 활성화된 상태에서:\n"
+                            "```\n"
+                            "uv run playwright install\n"
+                            "```\n\n"
+                            "설치 후 다시 검색을 시도해 주세요."
+                        )
+                        return {
+                            "query": query,
+                            "keyword": keyword,
+                            "results": [],
+                            "error": error_message,
+                            "summary": error_message,
+                            "displayed_count": 0,
+                        }
                     # 에러 발생해도 다른 키워드 검색 계속 진행
                     continue
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
+                    error_msg = str(e)
+                    errors.append(f"{kw}: {error_msg}")
                     LOGGER.warning(f"검색 중 예상치 못한 오류 발생 (키워드: {kw}): {e}")
                     # 에러 발생해도 다른 키워드 검색 계속 진행
                     continue
+        
+        # 모든 검색이 실패했고 에러가 있으면 사용자에게 전달
+        if not all_results and errors:
+            # Playwright 브라우저 미설치 에러가 있는지 확인
+            playwright_error = any("playwright install" in err.lower() or "Executable doesn't exist" in err for err in errors)
+            if playwright_error:
+                error_message = (
+                    "웹 검색을 수행하는 데 필요한 Playwright 브라우저가 설치되지 않았습니다.\n\n"
+                    "다음 명령을 실행하여 브라우저를 설치해 주세요:\n"
+                    "```\n"
+                    "playwright install\n"
+                    "```\n\n"
+                    "또는 가상환경이 활성화된 상태에서:\n"
+                    "```\n"
+                    "uv run playwright install\n"
+                    "```\n\n"
+                    "설치 후 다시 검색을 시도해 주세요."
+                )
+            else:
+                error_message = f"웹 검색 중 오류가 발생했습니다: {errors[0]}"
+            
+            return {
+                "query": query,
+                "keyword": keyword,
+                "results": [],
+                "error": error_message,
+                "summary": error_message,
+                "displayed_count": 0,
+            }
 
         seen_identifiers = set()
         deduped_results = []
@@ -1652,7 +1670,8 @@ async def generate_response(state: ScienceONAgentState) -> ScienceONAgentState:
         if pre_message:
             response = f"{pre_message}\n\n{summary}" if summary else pre_message
         else:
-            response = f"검색이 완료되었습니다. 전체 {total_results}건 중 {displayed_count}건을 표시했습니다."
+            # 페이지네이션 제거: 전체 결과 표시 메시지로 변경
+            response = f"검색이 완료되었습니다. 총 {total_results}건의 논문을 찾았습니다."
             if summary:
                 response += f"\n\n{summary}"
     elif intent == "detail":

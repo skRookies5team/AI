@@ -711,8 +711,9 @@ _document_type_keywords_cache: Optional[Dict[str, List[str]]] = None
 
 
 def load_document_type_keywords() -> Dict[str, List[str]]:
-    """agent_prompts.yaml에서 문서 타입 판별용 키워드를 로드합니다.
+    """문서 타입 판별용 키워드를 로드합니다.
     
+    llm_router의 load_agent_prompts를 사용하여 document 도메인의 prompts.yaml을 로드합니다.
     캐시를 사용하여 첫 호출 시에만 YAML 파일을 읽고, 이후에는 캐시된 값을 반환합니다.
     YAML 파일 로드 실패 시 예외를 발생시킵니다.
     
@@ -721,7 +722,7 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
     
     Raises:
         ImportError: yaml 모듈이 설치되지 않은 경우
-        FileNotFoundError: agent_prompts.yaml 파일을 찾을 수 없는 경우
+        FileNotFoundError: prompts.yaml 파일을 찾을 수 없는 경우
         ValueError: YAML 파일에 필요한 키가 없는 경우
         Exception: YAML 파일 파싱 실패 시
     """
@@ -731,82 +732,39 @@ def load_document_type_keywords() -> Dict[str, List[str]]:
     if _document_type_keywords_cache is not None:
         return _document_type_keywords_cache
 
-    # yaml 모듈 확인
-    if not YAML_AVAILABLE:
-        raise ImportError(
-            "yaml 모듈이 설치되지 않았습니다. "
-            "pip install pyyaml을 실행하여 설치해주세요."
-        )
-
-    # 여러 경로에서 YAML 파일 찾기
-    yaml_path = None
-    search_paths = []
-
-    # 1. 현재 파일 기준 상대 경로
-    current_file = Path(__file__).resolve()
-    agents_dir = current_file.parent.parent.parent.parent
-    search_paths.append(agents_dir / "agent_prompts.yaml")
-
-    # 2. 현재 작업 디렉토리 기준
-    cwd = Path.cwd()
-    search_paths.append(cwd / "agents" / "agent_prompts.yaml")
-
-    # 3. 프로젝트 루트에서 찾기 (상위 디렉토리 탐색)
-    for parent in [cwd] + list(cwd.parents):
-        potential_path = parent / "agents" / "agent_prompts.yaml"
-        if potential_path.exists():
-            search_paths.append(potential_path)
-            break
-
-    # 파일 찾기
-    for path in search_paths:
-        if path.exists():
-            yaml_path = path
-            print(f"✅ YAML 파일 발견: {yaml_path}")
-            break
-
-    if yaml_path is None:
-        error_msg = (
-            f"agent_prompts.yaml 파일을 찾을 수 없습니다.\n"
-            f"시도한 경로:\n"
-        )
-        for path in search_paths:
-            error_msg += f"  - {path}\n"
-        raise FileNotFoundError(error_msg)
-
-    # YAML 파일 읽기
+    # llm_router의 통합 로더 사용
     try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            all_prompts = yaml.safe_load(f)
+        from agents.llm_router import load_agent_prompts
+        all_prompts = load_agent_prompts()
     except Exception as e:
-        raise ValueError(
-            f"YAML 파일 파싱 실패 ({yaml_path}): {str(e)}\n"
-            "파일 형식이 올바른지 확인해주세요."
+        raise FileNotFoundError(
+            f"프롬프트 파일 로드 실패: {str(e)}\n"
+            "document 도메인의 prompts.yaml 파일을 확인해주세요."
         ) from e
 
     if not all_prompts:
-        raise ValueError(f"YAML 파일이 비어있습니다: {yaml_path}")
+        raise ValueError("프롬프트 파일이 비어있습니다.")
 
     # document.update_document.document_type_detection_keywords 경로로 접근
     document_prompts = all_prompts.get("document")
     if not document_prompts:
         raise ValueError(
-            f"YAML 파일에 'document' 섹션이 없습니다: {yaml_path}\n"
-            "agent_prompts.yaml 파일의 구조를 확인해주세요."
+            "프롬프트에 'document' 섹션이 없습니다.\n"
+            "document 도메인의 prompts.yaml 파일을 확인해주세요."
         )
 
     update_document = document_prompts.get("sub_agents", {}).get("update_document")
     if not update_document:
         raise ValueError(
-            f"YAML 파일에 'document.sub_agents.update_document' 섹션이 없습니다: {yaml_path}\n"
-            "agent_prompts.yaml 파일의 구조를 확인해주세요."
+            "프롬프트에 'document.sub_agents.update_document' 섹션이 없습니다.\n"
+            "document 도메인의 prompts.yaml 파일을 확인해주세요."
         )
 
     keywords = update_document.get("document_type_detection_keywords")
     if not keywords:
         raise ValueError(
-            f"YAML 파일에 'document_type_detection_keywords' 섹션이 없습니다: {yaml_path}\n"
-            "agent_prompts.yaml 파일에 document_type_detection_keywords를 추가해주세요."
+            "프롬프트에 'document_type_detection_keywords' 섹션이 없습니다.\n"
+            "document 도메인의 prompts.yaml 파일에 document_type_detection_keywords를 추가해주세요."
         )
 
     # 키워드 추출 및 검증
@@ -977,9 +935,12 @@ def process_update_file(
         tmp_path = Path(tmp_file.name)
 
     try:
-        # document_type이 없으면 파일 내용에서 추론
+        # document_type이 이미 있으면 그대로 사용 (Structured Output 또는 사용자 지정)
         extracted_text = None
-        if not document_type:
+        if document_type:
+            print(f"✅ [Document Update] Structured Output 또는 사용자 지정 타입 사용: {document_type}")
+        else:
+            # document_type이 없으면 파일 내용에서 추론
             # 먼저 파일명과 제목으로 타입 추론 시도
             updatable_docs = get_updatable_documents()
             for doc_type in updatable_docs:

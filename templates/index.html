@@ -2144,9 +2144,28 @@
                                     const requiresInput = data.requires_input || false;
                                     const lastDomain = data.last_domain;
                                     const rows = data.rows || [];
+                                    const shouldShowDocumentUpdateUI = data.show_document_update_ui || false;
                                     
+                                    // 디버깅: 응답 데이터 확인
+                                    console.log('📊 응답 데이터:', {
+                                        show_document_update_ui: data.show_document_update_ui,
+                                        shouldShowDocumentUpdateUI: shouldShowDocumentUpdateUI,
+                                        lastDomain: lastDomain,
+                                        botMessage: botMessage?.substring(0, 50)
+                                    });
+                                    
+                                    // 문서 업데이트 UI 표시 요청 (최우선 처리)
+                                    // 도메인이 document이고 메시지에 "업데이트"가 포함되어 있으면 UI 표시
+                                    if (shouldShowDocumentUpdateUI || 
+                                        (lastDomain === 'document' && botMessage && 
+                                         (botMessage.includes('업데이트') || botMessage.includes('📤') || 
+                                          botMessage.includes('파일을 선택')))) {
+                                        console.log('✅ 문서 업데이트 UI 표시');
+                                        showDocumentUpdateUI();  // 함수 호출
+                                        addBotMessage(botMessage, []);
+                                    }
                                     // Recruitment 도메인이고 rows가 있는 경우 카드 형식으로 표시
-                                    if (lastDomain === 'recruitment' && rows && rows.length > 0) {
+                                    else if (lastDomain === 'recruitment' && rows && rows.length > 0) {
                                         console.log('✅ Recruitment 검색 결과 카드 형식으로 표시');
                                         addRecruitmentCards(botMessage, rows);
                                     }
@@ -2715,19 +2734,39 @@
 
         // 문서 업데이트 UI 표시
         function showDocumentUpdateUI() {
+            console.log('🔧 showDocumentUpdateUI() 함수 호출됨');
             const fileAttachButton = document.getElementById('fileAttachButton');
             const documentTitleWrapper = document.getElementById('documentTitleInputWrapper');
             const chatInput = document.getElementById('chatInput');
             
+            console.log('🔍 UI 요소 확인:', {
+                fileAttachButton: !!fileAttachButton,
+                documentTitleWrapper: !!documentTitleWrapper,
+                chatInput: !!chatInput
+            });
+            
             if (fileAttachButton) {
                 fileAttachButton.classList.add('active');
+                console.log('✅ fileAttachButton에 active 클래스 추가');
             }
             if (documentTitleWrapper) {
                 documentTitleWrapper.classList.add('active');
+                console.log('✅ documentTitleWrapper에 active 클래스 추가');
             }
             if (chatInput) {
                 chatInput.placeholder = '문서 업데이트 모드입니다. 파일을 선택하고 제목을 입력해주세요.';
+                console.log('✅ chatInput placeholder 변경');
             }
+            
+            // 강제로 표시 확인
+            setTimeout(() => {
+                const wrapper = document.getElementById('documentTitleInputWrapper');
+                if (wrapper && wrapper.classList.contains('active')) {
+                    console.log('✅ UI 표시 확인됨');
+                } else {
+                    console.error('❌ UI 표시 실패 - active 클래스가 없음');
+                }
+            }, 100);
         }
 
         // 문서 업데이트 UI 숨기기
