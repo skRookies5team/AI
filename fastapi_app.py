@@ -73,7 +73,12 @@ def _create_google_oauth_flow() -> Flow:
                 "redirect_uris": [redirect_uri],
             }
         },
-        scopes=["https://www.googleapis.com/auth/calendar"],
+        scopes=[
+            "https://www.googleapis.com/auth/calendar",
+            "openid",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+        ],
     )
     flow.redirect_uri = redirect_uri
     return flow
@@ -1058,14 +1063,14 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
     if not db_success:
         raise HTTPException(status_code=500, detail="토큰 DB 저장에 실패했습니다.")
     
-    # ✅ 2. Redis에 access_token 캐시 (1시간)
+    # ✅ 2. Redis에 access_token 캐시 (1시간) - refresh_token은 DB에만 저장
     session_manager = await get_session_manager()
     if session_manager:
         await session_manager.save_google_tokens(
             user_id,
             {
                 "access_token": credentials.token,
-                "refresh_token": credentials.refresh_token,  # Redis에도 백업
+                # refresh_token은 DB에만 저장 (보안)
                 "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
             },
             ttl=3600,  # 1시간

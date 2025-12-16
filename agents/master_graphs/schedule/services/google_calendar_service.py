@@ -70,10 +70,10 @@ class GoogleCalendarService:
         if session_manager:
             cached_tokens = await session_manager.get_google_tokens(user_id)
             if cached_tokens and cached_tokens.get("access_token"):
-                # Redis에 캐시된 access_token 사용
+                # Redis에 캐시된 access_token 사용 (refresh_token은 DB에서만 관리)
                 return Credentials(
                     token=cached_tokens["access_token"],
-                    refresh_token=cached_tokens.get("refresh_token"),
+                    refresh_token=None,  # Redis에는 저장하지 않음 (DB에서만 관리)
                     token_uri="https://oauth2.googleapis.com/token",
                     client_id=client_id,
                     client_secret=client_secret,
@@ -108,13 +108,13 @@ class GoogleCalendarService:
                     # 토큰 갱신 실패 시 재인증 필요
                     raise GoogleAuthRequired(user_id, self._build_auth_url(user_id))
                 
-                # 4️⃣ 갱신된 access_token을 Redis에 캐시 (1시간)
+                # 4️⃣ 갱신된 access_token을 Redis에 캐시 (1시간) - refresh_token은 DB에만 저장
                 if session_manager and credentials.token:
                     await session_manager.save_google_tokens(
                         user_id,
                         {
                             "access_token": credentials.token,
-                            "refresh_token": refresh_token,
+                            # refresh_token은 DB에만 저장 (보안)
                             "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
                         },
                         ttl=3600,  # 1시간

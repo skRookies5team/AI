@@ -1061,11 +1061,24 @@ async def _resolve_room_selection(
 
     if parsed.room_code or parsed.room_name:
         rooms = await scheduler.db.get_meeting_rooms()
+        
+        # 1단계: 정확한 매칭 우선 (완전 일치)
         for room in rooms:
-            if parsed.room_code and room.get("room_code") and parsed.room_code.lower() in room["room_code"].lower():
-                return room
-            if parsed.room_name and room.get("name") and parsed.room_name.lower() in room["name"].lower():
-                return room
+            if parsed.room_code and room.get("room_code"):
+                if parsed.room_code.lower() == room["room_code"].lower():
+                    return room
+            if parsed.room_name and room.get("name"):
+                if parsed.room_name.lower() == room["name"].lower():
+                    return room
+        
+        # 2단계: 부분 매칭 (정확한 매칭 실패 시)
+        for room in rooms:
+            if parsed.room_code and room.get("room_code"):
+                if parsed.room_code.lower() in room["room_code"].lower():
+                    return room
+            if parsed.room_name and room.get("name"):
+                if parsed.room_name.lower() in room["name"].lower():
+                    return room
 
     if default_room_id:
         rooms = await scheduler.db.get_meeting_rooms()
