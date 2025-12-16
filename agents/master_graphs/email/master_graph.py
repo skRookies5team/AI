@@ -286,8 +286,9 @@ class EmailMasterGraph(BaseMasterGraph):
                 print(f"   - 날짜 범위: {params.date_range}")
                 
                 # 추출된 파라미터로 검색
-                # 키워드가 있으면 첫 번째 키워드를 검색 쿼리로 사용
-                search_query = " ".join(params.keywords) if params.keywords else query
+                # - email_search는 마스터가 준 파라미터(from/date/keywords)만 사용해 검색합니다.
+                # - keywords가 비어있으면 user_text는 빈 문자열로 전달(원문 query를 SEARCH에 섞지 않음: 한글 ASCII 인코딩 오류 방지)
+                search_query = " ".join(params.keywords) if params.keywords else ""
                 
                 # 기존 email_search_agent 사용 (Redis 숏텀 메모리 state 전달)
                 # email_search는 이제 비동기 함수이므로 await 사용
@@ -297,7 +298,8 @@ class EmailMasterGraph(BaseMasterGraph):
                     session_id=session_id,
                     state=state,
                     from_address=params.from_address,  # 추출한 발신자 주소 전달
-                    date_range=params.date_range  # 추출한 날짜 범위 전달
+                    date_range=params.date_range,  # 추출한 날짜 범위 전달
+                    keywords=params.keywords,  # 추출한 키워드 리스트 전달 (마스터 값만 사용)
                 )
                 
                 # Structured Output을 사용한 응답 생성
