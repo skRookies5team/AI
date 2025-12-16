@@ -94,9 +94,69 @@ class SessionManager:
                 self._locks[session_id] = asyncio.Lock()
             return self._locks[session_id]
     
-    def _get_key(self, session_id: str) -> str:
-        """세션별 Redis 키."""
-        return f"{self.key_prefix}:{session_id}"
+    def _get_key(self, session_id: str, employee_id: Optional[int] = None) -> str:
+        """세션별 Redis 키 생성.
+        
+        Args:
+            session_id: 세션 ID (형식: session_{uuid} 또는 session_{employee_id}_{uuid})
+            employee_id: 사원 번호 (None이면 session_id에서 추출 시도 또는 기본값 4000 사용)
+            
+        Returns:
+            Redis 키 (형식: session_{employee_id}:session_{session_id_part})
+        """
+        # session_id_part 초기화 (항상 초기화되어야 함)
+        session_id_part = session_id
+        
+        # employee_id가 없으면 session_id에서 추출 시도 (하위 호환성)
+        if employee_id is None:
+            # session_id 형식: session_{employee_id}_{uuid} (기존 형식) 또는 session_{uuid} (새 형식)
+            if session_id.startswith("session_"):
+                parts = session_id.split("_")
+                if len(parts) >= 3:
+                    # session_4000_xxx 형식 (기존 형식, 하위 호환성)
+                    try:
+                        employee_id = int(parts[1])
+                        # 실제 세션 ID는 마지막 부분만 사용
+                        session_id_part = "_".join(parts[2:])
+                    except (ValueError, IndexError):
+                        # 파싱 실패 시 전체를 세션 ID로 사용
+                        employee_id = None
+                        session_id_part = session_id.replace("session_", "", 1)
+                else:
+                    # session_xxx 형식 (새 형식)
+                    employee_id = None
+                    session_id_part = parts[1] if len(parts) == 2 else session_id.replace("session_", "", 1)
+            else:
+                # session_ 접두사가 없음
+                employee_id = None
+                session_id_part = session_id
+        else:
+            # employee_id가 명시적으로 전달된 경우, session_id에서 세션 ID 부분만 추출
+            if session_id.startswith("session_"):
+                parts = session_id.split("_")
+                if len(parts) >= 3:
+                    # session_4000_xxx 형식인 경우, employee_id 부분 제외
+                    session_id_part = "_".join(parts[2:])
+                elif len(parts) == 2:
+                    # session_xxx 형식
+                    session_id_part = parts[1]
+                else:
+                    # session_ 만 있는 경우
+                    session_id_part = session_id.replace("session_", "", 1)
+            else:
+                # session_ 접두사가 없음
+                session_id_part = session_id
+        
+        # employee_id가 여전히 None이면 기본값 사용 (4000)
+        if employee_id is None:
+            employee_id = 4000  # 기본값
+        
+        # 세션 ID에서 'session_' 접두사 제거 (중복 방지)
+        if session_id_part.startswith("session_"):
+            session_id_part = session_id_part.replace("session_", "", 1)
+        
+        # 키 생성: session_{employee_id}:session_{session_id_part}
+        return f"session_{employee_id}:session_{session_id_part}"
     
     async def load_history(self, session_id: str) -> List[Message]:
         """세션의 대화 히스토리 로드.
@@ -404,7 +464,9 @@ class SessionManager:
         lock = await self._get_lock(session_id)
         
         async with lock:
-            key = self._get_key(session_id)
+            # employee_id 추출 (state에서 먼저 시도)
+            employee_id = state.get("employee_id")
+            key = self._get_key(session_id, employee_id)
             
             try:
                 # 기존 데이터 로드 (타임아웃 설정)
@@ -418,6 +480,19 @@ class SessionManager:
                     existing_data = json.loads(value)
                 else:
                     existing_data = {}
+                
+                # employee_id 추출 (state 또는 existing_data에서, 없으면 session_id에서)
+                if not employee_id:
+                    employee_id = existing_data.get("employee_id")
+                if not employee_id:
+                    # session_id에서 추출 시도 (session_4000_xxx 형식, 하위 호환성)
+                    if session_id.startswith("session_"):
+                        parts = session_id.split("_")
+                        if len(parts) >= 3:
+                            try:
+                                employee_id = int(parts[1])
+                            except (ValueError, IndexError):
+                                pass
                 
                 # conversation_history 처리
                 # state의 conversation_history와 기존 데이터의 conversation_history를 병합
@@ -439,7 +514,17 @@ class SessionManager:
                 if len(conversation_history) > MAX_HISTORY:
                     conversation_history = conversation_history[-MAX_HISTORY:]
                 
-                # 세션 데이터 구성
+                # 세션 제목 생성 (첫 번째 사용자 메시지 기반)
+                title = existing_data.get("title", "새 대화")
+                if conversation_history:
+                    for msg in conversation_history:
+                        if msg.get("role") == "user":
+                            content = msg.get("content", "").strip()
+                            if content:
+                                title = content[:30]  # 첫 30자만 제목으로 사용
+                                break
+                # 세션 데이터 구성 (메타데이터 포함)
+                now = datetime.now().isoformat()
                 data = {
                     "conversation_history": conversation_history,
                     "email_search_context": state.get("email_search_context", existing_data.get("email_search_context", {})),
@@ -450,14 +535,36 @@ class SessionManager:
                     "document_context": state.get("document_context", existing_data.get("document_context", {})),
                     "recruitment_context": state.get("recruitment_context", existing_data.get("recruitment_context", {})),
                     "last_domain": state.get("last_domain", existing_data.get("last_domain")),  # last_domain 저장
-                    "last_updated": datetime.now().isoformat()
+                    "title": title,
+                    "updated_at": now,
+                    "last_updated": now  # 호환성을 위해 유지
                 }
+                
+                # created_at은 기존 값 유지, 없으면 현재 시간
+                if "created_at" in existing_data:
+                    data["created_at"] = existing_data["created_at"]
+                else:
+                    data["created_at"] = now
+                
+                # employee_id 저장
+                if employee_id:
+                    data["employee_id"] = employee_id
                 
                 # 저장 시도 (타임아웃 설정)
                 await asyncio.wait_for(
                     self.redis.setex(key, self.ttl, json.dumps(data, ensure_ascii=False, default=str)),
                     timeout=5.0
                 )
+                
+                # 사원 세션 목록에 추가/업데이트 (최신순 정렬을 위해 score 업데이트)
+                # employee_id가 없으면 state에서 추출
+                if not employee_id:
+                    employee_id = state.get("employee_id")
+                if employee_id:
+                    sessions_key = self._get_employee_sessions_key(employee_id)
+                    timestamp = datetime.now().timestamp()
+                    await self.redis.zadd(sessions_key, {session_id: timestamp})
+                    await self.redis.expire(sessions_key, self.ttl)
             except asyncio.TimeoutError:
                 print(f"[WARNING] 세션 state 저장 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
             except Exception as e:
@@ -505,6 +612,229 @@ class SessionManager:
             await self.redis.setex(key, expiry, payload)
         except Exception as exc:  # pragma: no cover - Redis 오류 로그
             print(f"[WARNING] Google 토큰 저장 실패 (user_id={user_id}): {exc}")
+    
+    def _get_employee_sessions_key(self, employee_id: int) -> str:
+        """사원별 세션 목록 Redis 키."""
+        return f"employee:{employee_id}:sessions"
+    
+    async def list_employee_sessions(self, employee_id: int) -> List[Dict[str, Any]]:
+        """사원별 세션 목록 조회 (최신순).
+        
+        Args:
+            employee_id: 사원 번호
+            
+        Returns:
+            세션 메타데이터 리스트 (최신순 정렬)
+        """
+        if not employee_id:
+            return []
+        
+        try:
+            sessions_key = self._get_employee_sessions_key(employee_id)
+            # Sorted Set에서 세션 ID 목록 조회 (최신순, updated_at 기준 내림차순)
+            session_ids = await self.redis.zrevrange(sessions_key, 0, -1)
+            
+            if not session_ids:
+                return []
+            
+            sessions = []
+            for session_id_bytes in session_ids:
+                session_id = session_id_bytes.decode('utf-8') if isinstance(session_id_bytes, bytes) else session_id_bytes
+                
+                # 세션 데이터 로드
+                session_data = await self.load_session_data(session_id)
+                if not session_data:
+                    continue
+                
+                # 메타데이터 추출
+                session_key = self._get_key(session_id, employee_id)
+                ttl = await self.redis.ttl(session_key)
+                
+                # 세션 제목 생성 (첫 번째 사용자 메시지 또는 기본값)
+                title = "새 대화"
+                conversation_history = session_data.get("conversation_history", [])
+                if conversation_history:
+                    for msg in conversation_history:
+                        if msg.get("role") == "user":
+                            content = msg.get("content", "").strip()
+                            # 첫 30자만 제목으로 사용
+                            title = content[:30] if content else "새 대화"
+                            break
+                
+                # 세션 메타데이터 구성
+                metadata = {
+                    "session_id": session_id,
+                    "title": session_data.get("title", title),
+                    "employee_id": employee_id,
+                    "message_count": len(conversation_history),
+                    "created_at": session_data.get("created_at", datetime.now().isoformat()),
+                    "updated_at": session_data.get("updated_at", session_data.get("last_updated", datetime.now().isoformat())),
+                    "last_domain": session_data.get("last_domain"),
+                    "ttl": ttl
+                }
+                sessions.append(metadata)
+            
+            return sessions
+        except Exception as e:
+            print(f"[WARNING] 사원 세션 목록 조회 실패 (employee_id={employee_id}): {e}")
+            return []
+    
+    async def create_session(self, employee_id: int, session_id: Optional[str] = None, title: Optional[str] = None) -> str:
+        """새 세션 생성 및 사원 세션 목록에 추가.
+        
+        Args:
+            employee_id: 사원 번호
+            session_id: 세션 ID (None이면 자동 생성)
+            title: 세션 제목 (None이면 "새 대화")
+            
+        Returns:
+            생성된 세션 ID
+        """
+        import uuid
+        
+        if not employee_id:
+            raise ValueError("employee_id는 필수입니다.")
+        
+        # 세션 ID 자동 생성 (employee_id 제외)
+        if not session_id:
+            session_id = f"session_{uuid.uuid4().hex[:8]}"
+        
+        try:
+            now = datetime.now().isoformat()
+            
+            # 세션 데이터 초기화 (메타데이터 포함)
+            session_data = {
+                "conversation_history": [],
+                "email_search_context": {},
+                "email_compose_context": {},
+                "qa_search_context": {},
+                "tech_search_context": {},
+                "schedule_context": {},
+                "document_context": {},
+                "recruitment_context": {},
+                "title": title or "새 대화",
+                "employee_id": employee_id,
+                "created_at": now,
+                "updated_at": now
+            }
+            
+            # 세션 저장 (employee_id 포함하여 키 생성)
+            key = self._get_key(session_id, employee_id)
+            await self.redis.setex(
+                key,
+                self.ttl,
+                json.dumps(session_data, ensure_ascii=False, default=str)
+            )
+            
+            # 사원 세션 목록에 추가 (Sorted Set, score는 현재 timestamp)
+            sessions_key = self._get_employee_sessions_key(employee_id)
+            timestamp = datetime.now().timestamp()
+            await self.redis.zadd(sessions_key, {session_id: timestamp})
+            # 사원 세션 목록도 TTL 설정 (세션 TTL과 동일)
+            await self.redis.expire(sessions_key, self.ttl)
+            
+            return session_id
+        except Exception as e:
+            print(f"[ERROR] 세션 생성 실패 (employee_id={employee_id}, session_id={session_id}): {e}")
+            raise
+    
+    async def delete_session(self, session_id: str, employee_id: Optional[int] = None) -> bool:
+        """세션 삭제.
+        
+        Args:
+            session_id: 삭제할 세션 ID
+            employee_id: 사원 번호 (None이면 세션 데이터에서 추출 시도)
+            
+        Returns:
+            삭제 성공 여부
+        """
+        if not session_id:
+            return False
+        
+        try:
+            # employee_id가 없으면 세션 데이터에서 추출 시도
+            if not employee_id:
+                session_data = await self.load_session_data(session_id)
+                employee_id = session_data.get("employee_id")
+            
+            # 세션 데이터 삭제
+            key = self._get_key(session_id, employee_id)
+            await self.redis.delete(key)
+            
+            # 사원 세션 목록에서 제거
+            if employee_id:
+                sessions_key = self._get_employee_sessions_key(employee_id)
+                await self.redis.zrem(sessions_key, session_id)
+            
+            return True
+        except Exception as e:
+            print(f"[WARNING] 세션 삭제 실패 (session_id={session_id}): {e}")
+            return False
+    
+    async def update_session_metadata(self, session_id: str, title: Optional[str] = None) -> bool:
+        """세션 메타데이터 업데이트 (제목 변경 등).
+        
+        Args:
+            session_id: 세션 ID
+            title: 새로운 제목 (None이면 업데이트 안 함)
+            
+        Returns:
+            업데이트 성공 여부
+        """
+        if not session_id:
+            return False
+        
+        lock = await self._get_lock(session_id)
+        
+        async with lock:
+            # 먼저 기존 키로 employee_id 추출 시도
+            key = self._get_key(session_id)
+            value = await self.redis.get(key)
+            employee_id_from_data = None
+            if value:
+                try:
+                    data_temp = json.loads(value)
+                    employee_id_from_data = data_temp.get("employee_id")
+                except:
+                    pass
+            
+            # employee_id를 포함한 정확한 키 사용
+            key = self._get_key(session_id, employee_id_from_data)
+            try:
+                value = await self.redis.get(key)
+                if not value:
+                    return False
+                
+                data = json.loads(value)
+                
+                # 제목 업데이트
+                if title is not None:
+                    data["title"] = title
+                
+                # updated_at 업데이트
+                data["updated_at"] = datetime.now().isoformat()
+                
+                # employee_id 확인
+                employee_id = data.get("employee_id") or employee_id_from_data
+                
+                # 저장
+                ttl = await self.redis.ttl(key)
+                if ttl > 0:
+                    await self.redis.setex(key, ttl, json.dumps(data, ensure_ascii=False, default=str))
+                else:
+                    await self.redis.setex(key, self.ttl, json.dumps(data, ensure_ascii=False, default=str))
+                
+                # 사원 세션 목록의 score 업데이트 (최신순 정렬을 위해)
+                if employee_id:
+                    sessions_key = self._get_employee_sessions_key(employee_id)
+                    timestamp = datetime.now().timestamp()
+                    await self.redis.zadd(sessions_key, {session_id: timestamp})
+                    await self.redis.expire(sessions_key, self.ttl)
+                
+                return True
+            except Exception as e:
+                print(f"[WARNING] 세션 메타데이터 업데이트 실패 (session_id={session_id}): {e}")
+                return False
 
 
 # 전역 세션 관리자 인스턴스
