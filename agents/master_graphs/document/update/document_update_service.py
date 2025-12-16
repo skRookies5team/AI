@@ -73,10 +73,25 @@ except ImportError:
     extract_tables_from_pdf = None
     format_table_as_text = None
 
-# Milvus 연결 설정 (환경 변수 또는 기본값)
-# HOST 환경 변수 사용 (SCHEDULE_DB_HOST와 MILVUS_HOST를 통합)
+# Milvus 연결 설정 (환경 변수 필수 - 보안상 하드코딩 금지)
 MILVUS_HOST = os.getenv("HOST")
-MILVUS_PORT = os.getenv("MILVUS_PORT")
+MILVUS_PORT_STR = os.getenv("MILVUS_PORT")
+
+if not MILVUS_HOST:
+    raise ValueError(
+        "환경 변수 'HOST'가 설정되지 않았습니다. .env 파일에 HOST를 설정해주세요."
+    )
+if not MILVUS_PORT_STR:
+    raise ValueError(
+        "환경 변수 'MILVUS_PORT'가 설정되지 않았습니다. .env 파일에 MILVUS_PORT를 설정해주세요."
+    )
+
+try:
+    MILVUS_PORT = int(MILVUS_PORT_STR.strip())
+except ValueError:
+    raise ValueError(
+        f"환경 변수 'MILVUS_PORT'가 유효한 숫자가 아닙니다: {MILVUS_PORT_STR}"
+    )
 
 # 문서 종류별 컬렉션 이름 (환경 변수에서 읽기)
 BENEFIT_COLLECTION = os.getenv("BENEFIT_COLLECTION")
