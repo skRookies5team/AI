@@ -73,7 +73,12 @@ def _create_google_oauth_flow() -> Flow:
                 "redirect_uris": [redirect_uri],
             }
         },
-        scopes=["https://www.googleapis.com/auth/calendar"],
+        scopes=[
+            "https://www.googleapis.com/auth/calendar",
+            "openid",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+        ],
     )
     flow.redirect_uri = redirect_uri
     return flow
@@ -983,7 +988,14 @@ async def google_oauth_start(user_id: str = Query(..., description="Google 캘�
 
 @app.get("/auth/google/callback")
 async def google_oauth_callback(code: str = Query(...), state: str = Query(...)) -> Response:
-    """Google OAuth 인증 후 토큰을 저장."""
+    """Google OAuth 인증 후 토큰을 DB + Redis에 저장.
+    
+    플로우:
+    1. OAuth 코드로 토큰 교환
+    2. Google 계정 정보 추출 (email, sub)
+    3. refresh_token을 DB에 저장 (암호화)
+    4. access_token을 Redis에 캐시 (1시간)
+    """
     _cleanup_expired_oauth_states()
 
     state_entry = _oauth_state_store.pop(state, None)
@@ -991,6 +1003,12 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
         raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다. 다시 시도해주세요.")
 
     user_id, _ = state_entry
+    
+    # user_id를 employee_id로 변환
+    try:
+        employee_id = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"user_id는 employee_id(숫자)여야 합니다: {user_id}")
 
     try:
         flow = _create_google_oauth_flow()
@@ -999,41 +1017,167 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Google OAuth 토큰 교환 실패: {exc}") from exc
 
+    # refresh_token 확인
+    if not credentials.refresh_token:
+        raise HTTPException(
+            status_code=500, 
+            detail="refresh_token을 받지 못했습니다. OAuth 플로우에서 access_type=offline, prompt=consent가 설정되어야 합니다."
+        )
+    
+    # Google 계정 정보 추출 (email, sub)
+    google_email = None
+    google_sub = None
+    
+    try:
+        # UserInfo API로 사용자 정보 조회
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {credentials.token}"}
+            )
+            if response.status_code == 200:
+                user_info = response.json()
+                google_email = user_info.get("email")
+                google_sub = user_info.get("id")
+            else:
+                print(f"⚠️ UserInfo API 호출 실패: {response.status_code}")
+    except Exception as e:
+        print(f"⚠️ Google 계정 정보 조회 실패: {e}")
+    
+    if not google_email:
+        raise HTTPException(status_code=500, detail="Google 계정 정보를 가져올 수 없습니다.")
+
+    # ✅ 1. DB에 refresh_token 저장 (암호화)
+    from agents.master_graphs.schedule.services.google_token_service import get_token_service
+    token_service = get_token_service()
+    
+    db_success = await token_service.save_google_credentials(
+        employee_id=employee_id,
+        google_email=google_email,
+        refresh_token=credentials.refresh_token,
+        scope=" ".join(credentials.scopes) if credentials.scopes else "",
+        google_sub=google_sub,
+    )
+    
+    if not db_success:
+        raise HTTPException(status_code=500, detail="토큰 DB 저장에 실패했습니다.")
+    
+    # ✅ 2. Redis에 access_token 캐시 (1시간) - refresh_token은 DB에만 저장
     session_manager = await get_session_manager()
-    if not session_manager:
-        raise HTTPException(status_code=500, detail="세션 관리자가 초기화되지 않았습니다. Redis 설정을 확인하세요.")
-
-    existing_tokens = await session_manager.get_google_tokens(user_id) or {}
-    tokens = {
-        "access_token": credentials.token,
-        "refresh_token": credentials.refresh_token or existing_tokens.get("refresh_token"),
-        "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
-        "scopes": list(credentials.scopes) if credentials.scopes else existing_tokens.get("scopes", []),
-        "token_uri": credentials.token_uri,
-        "client_id": credentials.client_id,
-        "client_secret": credentials.client_secret,
-    }
-
-    ttl_seconds = None
-    if tokens.get("refresh_token"):
-        ttl_seconds = int(os.environ.get("GOOGLE_TOKEN_TTL", 60 * 60 * 24 * 30))
-    elif credentials.expiry:
-        ttl_seconds = max(int(credentials.expiry.timestamp() - time.time()), 60)
-
-    await session_manager.save_google_tokens(user_id, tokens, ttl=ttl_seconds)
+    if session_manager:
+        await session_manager.save_google_tokens(
+            user_id,
+            {
+                "access_token": credentials.token,
+                # refresh_token은 DB에만 저장 (보안)
+                "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
+            },
+            ttl=3600,  # 1시간
+        )
+        print(f"✅ Redis에 access_token 캐시 저장 완료 (user_id={user_id}, ttl=3600초)")
 
     success_html = """
     <html>
         <head>
             <title>Google 인증 완료</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background-color: #f5f5f5;
+                }
+                .container {
+                    background: white;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    text-align: center;
+                }
+                h2 { color: #4CAF50; }
+                p { color: #666; }
+            </style>
         </head>
         <body>
-            <h2>✅ Google 계정 연동이 완료되었습니다.</h2>
-            <p>이 창을 닫고 다시 일정 관련 요청을 진행해주세요.</p>
+            <div class="container">
+                <h2>✅ Google Calendar 연동이 완료되었습니다!</h2>
+                <p>DB에 안전하게 저장되었으며, 서버 재시작 후에도 유지됩니다.</p>
+                <p>이 창을 닫고 다시 일정 관련 요청을 진행해주세요.</p>
+                <script>
+                    setTimeout(() => {
+                        window.close();
+                    }, 3000);
+                </script>
+            </div>
         </body>
     </html>
     """
     return HTMLResponse(content=success_html)
+
+
+@app.post("/auth/google/disconnect")
+async def google_oauth_disconnect(employee_id: int) -> Dict[str, Any]:
+    """Google Calendar 연동 해제.
+    
+    Args:
+        employee_id: 사원 ID
+        
+    Returns:
+        성공 여부 및 메시지
+        
+    Note:
+        - DB에서 토큰 삭제
+        - Redis에서 캐시 삭제
+        - Google에 revoke 요청 (선택)
+    """
+    from agents.master_graphs.schedule.services.google_token_service import get_token_service
+    token_service = get_token_service()
+    
+    # 1. DB에서 토큰 조회 (revoke 요청용)
+    credentials_data = await token_service.get_google_credentials(employee_id)
+    
+    if credentials_data and credentials_data.get("refresh_token"):
+        # Google에 토큰 revoke 요청 (선택)
+        try:
+            import httpx
+            refresh_token = credentials_data["refresh_token"]
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://oauth2.googleapis.com/revoke",
+                    params={"token": refresh_token},
+                )
+                if response.status_code == 200:
+                    print(f"✅ Google 토큰 revoke 완료 (employee_id={employee_id})")
+                else:
+                    print(f"⚠️ Google 토큰 revoke 실패: {response.status_code}")
+        except Exception as e:
+            print(f"⚠️ Google 토큰 revoke 요청 실패 (무시): {e}")
+    
+    # 2. DB에서 토큰 삭제
+    db_success = await token_service.revoke_google_credentials(employee_id)
+    
+    # 3. Redis에서 캐시 삭제
+    session_manager = await get_session_manager()
+    if session_manager:
+        user_id = str(employee_id)
+        key = f"google_tokens:{user_id}"
+        await session_manager.redis.delete(key)
+        print(f"✅ Redis에서 토큰 캐시 삭제 완료 (employee_id={employee_id})")
+    
+    if db_success:
+        return {
+            "ok": True,
+            "message": f"Google Calendar 연동이 해제되었습니다 (employee_id={employee_id})",
+        }
+    else:
+        return {
+            "ok": False,
+            "message": "연동 해제할 토큰이 없습니다.",
+        }
 
 
 @app.post("/api/session/new", response_model=SessionResponse)
