@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form, Query, Response
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, PlainTextResponse
@@ -239,7 +239,7 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., description="사용자 입력 질의 문장")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화 지원)")
-    employee_id: Optional[int] = Field(default=4001, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
 
 
 class ChatResponse(BaseModel):
@@ -258,7 +258,7 @@ class ChatResponse(BaseModel):
 class SessionRequest(BaseModel):
     """세션 변경 요청 모델."""
     session_id: Optional[str] = Field(default=None, description="세션 ID (None이면 새 세션 생성)")
-    employee_id: Optional[int] = Field(default=4001, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
 
 
 class SessionResponse(BaseModel):
@@ -267,6 +267,37 @@ class SessionResponse(BaseModel):
     session_id: str = Field(..., description="세션 ID")
     message_count: int = Field(default=0, description="대화 히스토리 메시지 개수")
     message: Optional[str] = Field(default=None, description="응답 메시지")
+    conversation_history: Optional[List[Dict[str, Any]]] = Field(default=None, description="대화 히스토리 (메시지 리스트)")
+
+
+class SessionMetadata(BaseModel):
+    """세션 메타데이터 모델."""
+    session_id: str = Field(..., description="세션 ID")
+    title: str = Field(..., description="세션 제목")
+    employee_id: int = Field(..., description="사원 번호")
+    message_count: int = Field(default=0, description="대화 메시지 개수")
+    created_at: str = Field(..., description="생성일시 (ISO 형식)")
+    updated_at: str = Field(..., description="최종 수정일시 (ISO 형식)")
+    last_domain: Optional[str] = Field(default=None, description="마지막 도메인")
+    ttl: Optional[int] = Field(default=None, description="TTL (초)")
+
+
+class SessionListResponse(BaseModel):
+    """세션 목록 응답 모델."""
+    ok: bool = Field(..., description="요청 처리 성공 여부")
+    sessions: List[SessionMetadata] = Field(default_factory=list, description="세션 목록")
+    message: Optional[str] = Field(default=None, description="응답 메시지")
+
+
+class SessionCreateRequest(BaseModel):
+    """세션 생성 요청 모델."""
+    employee_id: int = Field(default=4000, description="사원 번호")
+    title: Optional[str] = Field(default=None, description="세션 제목")
+
+
+class SessionUpdateRequest(BaseModel):
+    """세션 업데이트 요청 모델."""
+    title: Optional[str] = Field(default=None, description="새 세션 제목")
 
 
 class DocumentUploadResponse(BaseModel):
@@ -346,7 +377,21 @@ async def chat_stream_endpoint(payload: ChatRequest):
     async def generate():
         try:
             # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
-            session_id = payload.session_id or f"session_{payload.employee_id}"
+            # session_id가 없으면 새 세션 생성 (첫 메시지를 타이틀로 사용)
+            if not payload.session_id:
+                session_manager = await get_session_manager()
+                if session_manager:
+                    # 첫 메시지를 타이틀로 사용하여 새 세션 생성
+                    title = payload.query[:30] if payload.query else "새 대화"  # 첫 30자만 타이틀로 사용
+                    session_id = await session_manager.create_session(
+                        employee_id=payload.employee_id,
+                        title=title
+                    )
+                else:
+                    import uuid
+                    session_id = f"session_{uuid.uuid4().hex[:8]}"
+            else:
+                session_id = payload.session_id
 
             # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
             try:
@@ -622,8 +667,16 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     - 기술 검색 (특허, 논문)
     """
     try:
-        # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
-        session_id = payload.session_id or f"session_{payload.employee_id}"
+        # session_id가 없으면 새 세션 생성
+        if not payload.session_id:
+            session_manager = await get_session_manager()
+            if session_manager:
+                session_id = await session_manager.create_session(employee_id=payload.employee_id)
+            else:
+                import uuid
+                session_id = f"session_{payload.employee_id}_{uuid.uuid4().hex[:8]}"
+        else:
+            session_id = payload.session_id
 
         # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
         try:
@@ -839,7 +892,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 async def upload_document_endpoint(
     file: UploadFile = FastAPIFile(...),
     document_title: str = Form(...),
-    employee_id: int = Form(4001)
+    employee_id: int = Form(4000)
 ) -> DocumentUploadResponse:
     """문서 업로드 엔드포인트 (Milvus Vector DB 저장).
     
@@ -869,7 +922,12 @@ async def upload_document_endpoint(
             
             # 세션 관리자로 이전 세션 데이터 로드
             session_manager = await get_session_manager()
-            session_id = f"session_{employee_id}"
+            # 문서 업데이트용 새 세션 생성
+            if session_manager:
+                session_id = await session_manager.create_session(employee_id=employee_id)
+            else:
+                import uuid
+                session_id = f"session_{uuid.uuid4().hex[:8]}"
             session_data = {
                 "conversation_history": [],
                 "email_search_context": {},
@@ -1118,71 +1176,169 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
     """
     return HTMLResponse(content=success_html)
 
-
-@app.post("/auth/google/disconnect")
-async def google_oauth_disconnect(employee_id: int) -> Dict[str, Any]:
-    """Google Calendar 연동 해제.
+@app.get("/api/sessions", response_model=SessionListResponse)
+async def list_sessions(employee_id: int = Query(4000, description="사원 번호")) -> SessionListResponse:
+    """사원별 세션 목록 조회 (최신순).
     
     Args:
-        employee_id: 사원 ID
+        employee_id: 사원 번호
         
     Returns:
-        성공 여부 및 메시지
-        
-    Note:
-        - DB에서 토큰 삭제
-        - Redis에서 캐시 삭제
-        - Google에 revoke 요청 (선택)
+        세션 목록 (최신순 정렬)
     """
-    from agents.master_graphs.schedule.services.google_token_service import get_token_service
-    token_service = get_token_service()
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            return SessionListResponse(
+                ok=False,
+                sessions=[],
+                message="세션 관리자를 사용할 수 없습니다."
+            )
+        
+        sessions_metadata = await session_manager.list_employee_sessions(employee_id)
+        
+        sessions = [
+            SessionMetadata(
+                session_id=meta["session_id"],
+                title=meta["title"],
+                employee_id=meta["employee_id"],
+                message_count=meta["message_count"],
+                created_at=meta["created_at"],
+                updated_at=meta["updated_at"],
+                last_domain=meta.get("last_domain"),
+                ttl=meta.get("ttl")
+            )
+            for meta in sessions_metadata
+        ]
+        
+        return SessionListResponse(
+            ok=True,
+            sessions=sessions,
+            message=f"세션 {len(sessions)}개 조회 완료"
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return SessionListResponse(
+            ok=False,
+            sessions=[],
+            message=f"세션 목록 조회 실패: {str(exc)}"
+        )
+
+
+@app.post("/api/sessions", response_model=SessionResponse)
+async def create_session(payload: SessionCreateRequest) -> SessionResponse:
+
+    """새 세션 생성.
     
-    # 1. DB에서 토큰 조회 (revoke 요청용)
-    credentials_data = await token_service.get_google_credentials(employee_id)
+    Args:
+        payload: 세션 생성 요청 (employee_id, title)
+        
+    Returns:
+        생성된 세션 정보
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        session_id = await session_manager.create_session(
+            employee_id=payload.employee_id,
+            title=payload.title
+        )
+        
+        return SessionResponse(
+            ok=True,
+            session_id=session_id,
+            message_count=0,
+            message="새 세션이 생성되었습니다."
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 생성 실패: {str(exc)}") from exc
+
+
+@app.delete("/api/sessions/{session_id}", response_model=SessionResponse)
+async def delete_session(session_id: str, employee_id: int = Query(4000, description="사원 번호")) -> SessionResponse:
+    """세션 삭제.
     
-    if credentials_data and credentials_data.get("refresh_token"):
-        # Google에 토큰 revoke 요청 (선택)
-        try:
-            import httpx
-            refresh_token = credentials_data["refresh_token"]
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://oauth2.googleapis.com/revoke",
-                    params={"token": refresh_token},
-                )
-                if response.status_code == 200:
-                    print(f"✅ Google 토큰 revoke 완료 (employee_id={employee_id})")
-                else:
-                    print(f"⚠️ Google 토큰 revoke 실패: {response.status_code}")
-        except Exception as e:
-            print(f"⚠️ Google 토큰 revoke 요청 실패 (무시): {e}")
+    Args:
+        session_id: 삭제할 세션 ID
+        employee_id: 사원 번호
+        
+    Returns:
+        삭제 결과
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        success = await session_manager.delete_session(session_id, employee_id)
+        
+        if success:
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=0,
+                message="세션이 삭제되었습니다."
+            )
+        else:
+            raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 삭제 실패: {str(exc)}") from exc
+
+
+@app.patch("/api/sessions/{session_id}", response_model=SessionResponse)
+async def update_session(session_id: str, payload: SessionUpdateRequest) -> SessionResponse:
+    """세션 메타데이터 업데이트 (제목 변경 등).
     
-    # 2. DB에서 토큰 삭제
-    db_success = await token_service.revoke_google_credentials(employee_id)
-    
-    # 3. Redis에서 캐시 삭제
-    session_manager = await get_session_manager()
-    if session_manager:
-        user_id = str(employee_id)
-        key = f"google_tokens:{user_id}"
-        await session_manager.redis.delete(key)
-        print(f"✅ Redis에서 토큰 캐시 삭제 완료 (employee_id={employee_id})")
-    
-    if db_success:
-        return {
-            "ok": True,
-            "message": f"Google Calendar 연동이 해제되었습니다 (employee_id={employee_id})",
-        }
-    else:
-        return {
-            "ok": False,
-            "message": "연동 해제할 토큰이 없습니다.",
-        }
+    Args:
+        session_id: 업데이트할 세션 ID
+        payload: 업데이트 요청 (title 등)
+        
+    Returns:
+        업데이트된 세션 정보
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        success = await session_manager.update_session_metadata(
+            session_id=session_id,
+            title=payload.title
+        )
+        
+        if success:
+            # 업데이트된 세션 정보 조회
+            session_data = await session_manager.load_session_data(session_id)
+            message_count = len(session_data.get("conversation_history", []))
+            
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=message_count,
+                message="세션이 업데이트되었습니다."
+            )
+        else:
+            raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 업데이트 실패: {str(exc)}") from exc
 
 
 @app.post("/api/session/new", response_model=SessionResponse)
-async def create_new_session(employee_id: int = 4001) -> SessionResponse:
-    """새 세션 생성.
+async def create_new_session(employee_id: int = 4000) -> SessionResponse:
+    """새 세션 생성 (하위 호환성 유지용 - /api/sessions 사용 권장).
     
     Args:
         employee_id: 사원 번호
@@ -1190,14 +1346,23 @@ async def create_new_session(employee_id: int = 4001) -> SessionResponse:
     Returns:
         새로 생성된 세션 ID
     """
-    import uuid
-    session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
-    return SessionResponse(
-        ok=True,
-        session_id=session_id,
-        message_count=0,
-        message="새 세션이 생성되었습니다."
-    )
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        session_id = await session_manager.create_session(employee_id=employee_id)
+        
+        return SessionResponse(
+            ok=True,
+            session_id=session_id,
+            message_count=0,
+            message="새 세션이 생성되었습니다."
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 생성 실패: {str(exc)}") from exc
 
 
 @app.post("/api/session/change", response_model=SessionResponse)
@@ -1210,34 +1375,40 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
     Returns:
         세션 정보
     """
-    import uuid
-    
-    if payload.session_id:
-        # 기존 세션으로 변경
-        session_id = payload.session_id
+    try:
         session_manager = await get_session_manager()
-        message_count = 0
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
         
-        if session_manager:
+        if payload.session_id:
+            # 기존 세션으로 변경
+            session_id = payload.session_id
             session_data = await session_manager.load_session_data(session_id)
             message_count = len(session_data.get("conversation_history", []))
-        
-        return SessionResponse(
-            ok=True,
-            session_id=session_id,
-            message_count=message_count,
-            message=f"세션이 변경되었습니다. (대화 {message_count}개)"
-        )
-    else:
-        # 새 세션 생성
-        employee_id = payload.employee_id or 4001
-        session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
-        return SessionResponse(
-            ok=True,
-            session_id=session_id,
-            message_count=0,
-            message="새 세션이 생성되었습니다."
-        )
+            
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=message_count,
+                message=f"세션이 변경되었습니다. (대화 {message_count}개)"
+            )
+        else:
+            # 새 세션 생성
+            employee_id = payload.employee_id or 4000
+            session_id = await session_manager.create_session(employee_id=employee_id)
+            
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=0,
+                message="새 세션이 생성되었습니다."
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 변경 실패: {str(exc)}") from exc
 
 
 @app.get("/api/session/current/{session_id}", response_model=SessionResponse)
@@ -1252,16 +1423,19 @@ async def get_session_info(session_id: str) -> SessionResponse:
     """
     session_manager = await get_session_manager()
     message_count = 0
+    conversation_history = []
     
     if session_manager:
         session_data = await session_manager.load_session_data(session_id)
-        message_count = len(session_data.get("conversation_history", []))
+        conversation_history = session_data.get("conversation_history", [])
+        message_count = len(conversation_history)
     
     return SessionResponse(
         ok=True,
         session_id=session_id,
         message_count=message_count,
-        message=f"현재 세션: {session_id} (대화 {message_count}개)"
+        message=f"현재 세션: {session_id} (대화 {message_count}개)",
+        conversation_history=conversation_history
     )
 
 
