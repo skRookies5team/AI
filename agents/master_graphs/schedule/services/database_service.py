@@ -541,14 +541,31 @@ class DatabaseService:
             return [dict(row) for row in result.mappings().all()]
 
     async def _ensure_meeting_reservation_table(self) -> None:
-        """회의실 예약 테이블 스키마 보정."""
-        alter_sql = """
-        ALTER TABLE meeting_room_reservation
-        ADD COLUMN IF NOT EXISTS gcal_event_id VARCHAR(128) NULL AFTER schedule_id;
+        """회의실 예약 테이블 스키마 보정 (MariaDB 호환)."""
+        # 1. 먼저 컬럼 존재 여부 확인
+        check_sql = """
+        SELECT COUNT(*) as cnt
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'meeting_room_reservation'
+          AND COLUMN_NAME = 'gcal_event_id';
         """
+        
         try:
-            async with self._session(transactional=True) as session:
-                await session.execute(text(alter_sql))
+            async with self._session() as session:
+                result = await session.execute(text(check_sql))
+                row = result.first()
+                column_exists = row[0] > 0 if row else False
+            
+            # 2. 컬럼이 없으면 추가
+            if not column_exists:
+                alter_sql = """
+                ALTER TABLE meeting_room_reservation
+                ADD COLUMN gcal_event_id VARCHAR(128) NULL AFTER schedule_id;
+                """
+                async with self._session(transactional=True) as session:
+                    await session.execute(text(alter_sql))
+                    print("✅ gcal_event_id 컬럼 추가 완료")
         except SQLAlchemyError as exc:
             if "Duplicate column name" not in str(exc):
                 print(f"⚠️ 회의실 예약 테이블 보정 실패: {exc}")
