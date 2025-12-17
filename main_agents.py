@@ -162,7 +162,7 @@ async def chat_loop_async() -> None:
 	
 	# 세션 ID 생성 (대화 세션별 메모리 관리)
 	session_id = f"cli_session_{uuid.uuid4()}"
-	employee_id = 1001  # 기본 사원 번호
+	employee_id = 4001  # 기본 사원 번호
 	
 	print(f"📌 현재 세션: {session_id}\n")
 	
@@ -258,6 +258,7 @@ async def chat_loop_async() -> None:
 				session_state = {
 					"conversation_history": conversation_history,
 					"email_search_context": final_state.get("email_search_context", {}),
+					"email_compose_context": final_state.get("email_compose_context", {}),
 					"qa_search_context": final_state.get("qa_search_context", {}),
 					"tech_search_context": final_state.get("tech_search_context", {}),
 					"schedule_context": final_state.get("schedule_context", {}),
@@ -363,7 +364,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         input_state = {
             "query": normalized,
             "session_id": session_id,
-            "employee_id": 1001,  # 기본 사원 번호 (요청에서 받을 수도 있음)
+            "employee_id": 4001,  # 기본 사원 번호 (요청에서 받을 수도 있음)
             "messages": [],
             "conversation_history": []  # 멀티턴 대화 히스토리
         }

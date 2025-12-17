@@ -58,10 +58,14 @@ _agent_prompts: Optional[Dict[str, Any]] = None
 
 
 def load_agent_prompts() -> Dict[str, Any]:
-	"""agent_prompts.yaml 파일을 로드합니다.
+	"""모든 agent별 YAML 파일을 로드하고 병합합니다.
+	
+	다음 파일들을 순차적으로 로드하여 병합:
+	1. agents/common_prompts.yaml (supervisor, orchestrator, orchestrator_config)
+	2. agents/master_graphs/{domain}/prompts.yaml (각 도메인별 설정)
 	
 	Returns:
-		YAML 파일의 내용을 딕셔너리로 반환
+		병합된 YAML 파일의 내용을 딕셔너리로 반환
 	"""
 	global _agent_prompts
 	
@@ -73,18 +77,44 @@ def load_agent_prompts() -> Dict[str, Any]:
 		return {}
 	
 	try:
-		# agents 디렉토리 기준으로 YAML 파일 경로 찾기
 		current_dir = Path(__file__).parent
-		yaml_path = current_dir / "agent_prompts.yaml"
+		merged_prompts: Dict[str, Any] = {}
 		
-		if not yaml_path.exists():
-			print(f"⚠️ agent_prompts.yaml 파일을 찾을 수 없습니다: {yaml_path}")
-			return {}
+		# 1. 공통 설정 파일 로드
+		common_path = current_dir / "common_prompts.yaml"
+		if common_path.exists():
+			with open(common_path, "r", encoding="utf-8") as f:
+				common_data = yaml.safe_load(f) or {}
+				merged_prompts.update(common_data)
+				print(f"✅ 공통 프롬프트 로드 완료: {common_path}")
+		else:
+			print(f"⚠️ common_prompts.yaml 파일을 찾을 수 없습니다: {common_path}")
 		
-		with open(yaml_path, "r", encoding="utf-8") as f:
-			_agent_prompts = yaml.safe_load(f)
+		# 2. 각 도메인별 프롬프트 파일 로드
+		domain_names = ["schedule", "document", "qa", "email", "tech", "recruitment"]
+		master_graphs_dir = current_dir / "master_graphs"
 		
-		print(f"✅ Agent 프롬프트 로드 완료: {yaml_path}")
+		for domain in domain_names:
+			domain_path = master_graphs_dir / domain / "prompts.yaml"
+			if domain_path.exists():
+				try:
+					with open(domain_path, "r", encoding="utf-8") as f:
+						domain_data = yaml.safe_load(f) or {}
+						# 도메인 이름을 키로 사용하여 병합
+						merged_prompts[domain] = domain_data
+						print(f"✅ {domain} 도메인 프롬프트 로드 완료: {domain_path}")
+				except Exception as e:
+					print(f"⚠️ {domain} 도메인 프롬프트 로드 실패: {e}")
+			else:
+				print(f"⚠️ {domain} 도메인 프롬프트 파일을 찾을 수 없습니다: {domain_path}")
+		
+		# 3. 하위 호환성: 기존 agent_prompts.yaml 파일이 있으면 경고만 출력
+		legacy_path = current_dir / "agent_prompts.yaml"
+		if legacy_path.exists():
+			print(f"⚠️ 기존 agent_prompts.yaml 파일이 발견되었습니다. 새로운 분리된 구조를 사용합니다.")
+		
+		_agent_prompts = merged_prompts
+		print(f"✅ 총 {len(domain_names)}개 도메인 프롬프트 병합 완료")
 		return _agent_prompts
 		
 	except Exception as e:

@@ -426,6 +426,10 @@ def optimize_state_before_save(state: OrchestratorState) -> OrchestratorState:
             state.get("email_search_context")
         )
     
+    # email_compose_context는 최적화 없이 그대로 저장 (초안 정보는 중요하므로)
+    if "email_compose_context" in state:
+        optimized["email_compose_context"] = state.get("email_compose_context")
+    
     if "qa_search_context" in state:
         optimized["qa_search_context"] = optimize_qa_search_context(
             state.get("qa_search_context")

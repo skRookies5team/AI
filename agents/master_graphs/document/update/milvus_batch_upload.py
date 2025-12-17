@@ -17,9 +17,27 @@ try:
 except ImportError:
     pass
 
-# 환경 변수에서 Milvus 연결 정보 가져오기
+# 환경 변수에서 Milvus 연결 정보 가져오기 (보안상 하드코딩 금지)
 MILVUS_HOST = os.getenv("HOST")
-MILVUS_PORT = os.getenv("MILVUS_PORT")
+MILVUS_PORT_STR = os.getenv("MILVUS_PORT")
+
+if not MILVUS_HOST:
+    raise ValueError(
+        "환경 변수 'HOST'가 설정되지 않았습니다. "
+        ".env 파일에 HOST를 설정해주세요."
+    )
+if not MILVUS_PORT_STR:
+    raise ValueError(
+        "환경 변수 'MILVUS_PORT'가 설정되지 않았습니다. "
+        ".env 파일에 MILVUS_PORT를 설정해주세요."
+    )
+
+try:
+    MILVUS_PORT = int(MILVUS_PORT_STR.strip())
+except ValueError:
+    raise ValueError(
+        f"환경 변수 'MILVUS_PORT'가 유효한 숫자가 아닙니다: {MILVUS_PORT_STR}"
+    )
 
 
 def batch_upload_file_to_milvus(
@@ -189,4 +207,3 @@ def batch_upload_folder_to_milvus(
         "success_count": success_count,
         "results": results,
     }
-

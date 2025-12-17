@@ -4,22 +4,29 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form, Query, Response
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from pydantic import BaseModel, Field
 
 from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.session_manager import get_session_manager
+from agents.notifications import get_notification_queue
 import asyncio
 import threading
 from datetime import datetime, timedelta
+import time
+from typing import Dict, Tuple
+
+from google_auth_oauthlib.flow import Flow
 
 # Orchestrator 그래프 캐시 (앱 시작 시 한 번만 생성)
 _orchestrator_graph = None
+_oauth_state_store: Dict[str, Tuple[str, float]] = {}
+_OAUTH_STATE_TTL_SECONDS = 600
 
 def get_cached_orchestrator_graph():
     """캐시된 오케스트레이터 그래프 반환 (앱 시작 시 한 번만 생성).
@@ -33,6 +40,59 @@ def get_cached_orchestrator_graph():
         _orchestrator_graph = get_orchestrator_graph(checkpointer=None)
         print("✅ Orchestrator 그래프 초기화 완료 (이제 재사용됩니다)")
     return _orchestrator_graph
+
+
+def _get_app_base_url() -> str:
+    """애플리케이션 기본 URL을 반환."""
+    return os.environ.get("APP_BASE_URL", "http://localhost:8000").rstrip("/")
+
+
+def _create_google_oauth_flow() -> Flow:
+    """Google OAuth Flow 인스턴스를 생성."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth 클라이언트 정보가 설정되지 않았습니다. GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET를 확인하세요.",
+        )
+
+    redirect_uri = os.environ.get("GOOGLE_REDIRECT_URI")
+    if not redirect_uri:
+        redirect_uri = f"{_get_app_base_url()}/auth/google/callback"
+
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": client_id,
+                "project_id": os.environ.get("GOOGLE_PROJECT_ID", "gaagoo-local"),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": client_secret,
+                "redirect_uris": [redirect_uri],
+            }
+        },
+        scopes=[
+            "https://www.googleapis.com/auth/calendar",
+            "openid",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+        ],
+    )
+    flow.redirect_uri = redirect_uri
+    return flow
+
+
+def _cleanup_expired_oauth_states() -> None:
+    """만료된 OAuth state를 정리."""
+    now = time.time()
+    expired_keys = [
+        state for state, (_, ts) in _oauth_state_store.items()
+        if now - ts > _OAUTH_STATE_TTL_SECONDS
+    ]
+    for state in expired_keys:
+        _oauth_state_store.pop(state, None)
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -151,6 +211,17 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ 초기화 중 오류 발생 (계속 진행): {e}")
 
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """서버 종료 시 백그라운드 태스크 정리."""
+    try:
+        from agents.master_graphs.email.email_search_agent import stop_all_email_checkers
+        await stop_all_email_checkers()
+        print("🛑 서버 종료: 이메일 체커 태스크 cancel 완료")
+    except Exception as e:
+        print(f"🛑 서버 종료: 이메일 체커 태스크 정리 실패(무시): {e}")
+
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
@@ -168,7 +239,7 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., description="사용자 입력 질의 문장")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화 지원)")
-    employee_id: Optional[int] = Field(default=1001, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
 
 
 class ChatResponse(BaseModel):
@@ -187,7 +258,7 @@ class ChatResponse(BaseModel):
 class SessionRequest(BaseModel):
     """세션 변경 요청 모델."""
     session_id: Optional[str] = Field(default=None, description="세션 ID (None이면 새 세션 생성)")
-    employee_id: Optional[int] = Field(default=1001, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
 
 
 class SessionResponse(BaseModel):
@@ -196,6 +267,37 @@ class SessionResponse(BaseModel):
     session_id: str = Field(..., description="세션 ID")
     message_count: int = Field(default=0, description="대화 히스토리 메시지 개수")
     message: Optional[str] = Field(default=None, description="응답 메시지")
+    conversation_history: Optional[List[Dict[str, Any]]] = Field(default=None, description="대화 히스토리 (메시지 리스트)")
+
+
+class SessionMetadata(BaseModel):
+    """세션 메타데이터 모델."""
+    session_id: str = Field(..., description="세션 ID")
+    title: str = Field(..., description="세션 제목")
+    employee_id: int = Field(..., description="사원 번호")
+    message_count: int = Field(default=0, description="대화 메시지 개수")
+    created_at: str = Field(..., description="생성일시 (ISO 형식)")
+    updated_at: str = Field(..., description="최종 수정일시 (ISO 형식)")
+    last_domain: Optional[str] = Field(default=None, description="마지막 도메인")
+    ttl: Optional[int] = Field(default=None, description="TTL (초)")
+
+
+class SessionListResponse(BaseModel):
+    """세션 목록 응답 모델."""
+    ok: bool = Field(..., description="요청 처리 성공 여부")
+    sessions: List[SessionMetadata] = Field(default_factory=list, description="세션 목록")
+    message: Optional[str] = Field(default=None, description="응답 메시지")
+
+
+class SessionCreateRequest(BaseModel):
+    """세션 생성 요청 모델."""
+    employee_id: int = Field(default=4000, description="사원 번호")
+    title: Optional[str] = Field(default=None, description="세션 제목")
+
+
+class SessionUpdateRequest(BaseModel):
+    """세션 업데이트 요청 모델."""
+    title: Optional[str] = Field(default=None, description="새 세션 제목")
 
 
 class DocumentUploadResponse(BaseModel):
@@ -238,23 +340,81 @@ async def serve_document(filename: str):
     )
 
 
+@app.get("/api/notifications/stream")
+async def notifications_stream(session_id: str):
+    """세션별 알림 스트림(SSE). 새 메일 수신 등 백그라운드 이벤트를 프론트로 푸시합니다."""
+
+    async def event_generator():
+        q = get_notification_queue(session_id)
+        while True:
+            try:
+                # 15초마다 ping으로 연결 유지
+                payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except asyncio.TimeoutError:
+                yield "event: ping\ndata: {}\n\n"
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                err = {"type": "error", "message": str(e)}
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/chat/stream")
 async def chat_stream_endpoint(payload: ChatRequest):
     """스트리밍 챗봇 엔드포인트 - 실시간 작업 상태 표시."""
     async def generate():
         try:
             # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
-            session_id = payload.session_id or f"session_{payload.employee_id}"
+            # session_id가 없으면 새 세션 생성 (첫 메시지를 타이틀로 사용)
+            if not payload.session_id:
+                session_manager = await get_session_manager()
+                if session_manager:
+                    # 첫 메시지를 타이틀로 사용하여 새 세션 생성
+                    title = payload.query[:30] if payload.query else "새 대화"  # 첫 30자만 타이틀로 사용
+                    session_id = await session_manager.create_session(
+                        employee_id=payload.employee_id,
+                        title=title
+                    )
+                else:
+                    import uuid
+                    session_id = f"session_{uuid.uuid4().hex[:8]}"
+            else:
+                session_id = payload.session_id
+
+            # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
+            try:
+                from agents.master_graphs.email.email_search_agent import (
+                    register_email_check_session,
+                    start_email_checker_supervisor,
+                )
+                register_email_check_session(session_id)
+                start_email_checker_supervisor(check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+            except Exception as e:
+                print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
             
             # 세션 관리자로 이전 세션 데이터 전체 로드 (conversation_history + 컨텍스트들)
             session_manager = await get_session_manager()
             session_data = {
                 "conversation_history": [],
                 "email_search_context": {},
+                "email_compose_context": {},
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
-                "document_context": {}
+                "document_context": {},
+                "recruitment_context": {}
             }
             if session_manager:
                 session_data = await session_manager.load_session_data(session_id)
@@ -274,10 +434,13 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "employee_id": payload.employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
+                # Redis/세션에서 null(None)로 들어오는 경우 방어
+                "email_compose_context": session_data.get("email_compose_context") or {},
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
-                "document_context": session_data.get("document_context", {})
+                "document_context": session_data.get("document_context", {}),
+                "recruitment_context": session_data.get("recruitment_context", {})
             }
             
             config = {"configurable": {"thread_id": session_id}}
@@ -346,15 +509,35 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 # domain이 없으면 last_domain을 fallback으로 사용
                 last_domain = final_state.get("domain") or final_state.get("last_domain")
                 
+                # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+                rows = []
+                if last_domain == "recruitment":
+                    search_results = final_state.get("search_results", [])
+                    if search_results:
+                        rows = search_results
+                
+                # 문서 업데이트 UI 표시 플래그 확인
+                show_document_update_ui = final_state.get("show_document_update_ui", False)
+                
+                # 디버깅: 문서 업데이트 UI 플래그 확인
+                print(f"🔍 [FastAPI] 문서 업데이트 UI 플래그: {show_document_update_ui}")
+                print(f"🔍 [FastAPI] final_state keys: {list(final_state.keys())}")
+                if "show_document_update_ui" in final_state:
+                    print(f"🔍 [FastAPI] show_document_update_ui 값: {final_state['show_document_update_ui']}")
+                
                 result = {
                     "type": "complete",
                     "ok": True,
                     "message": final_msg,
+                    "rows": rows,  # Recruitment 검색 결과 또는 빈 배열
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
                     "last_domain": last_domain,  # LLM 라우팅 시 결정된 도메인
+                    "show_document_update_ui": show_document_update_ui,  # 문서 업데이트 UI 표시 플래그
                 }
+                
+                print(f"🔍 [FastAPI] 응답에 포함된 show_document_update_ui: {result.get('show_document_update_ui')}")
                 yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
                 
                 # 노드 실행 후 세션 데이터 저장 (conversation_history + 컨텍스트들)
@@ -367,29 +550,89 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     }
                     
                     # conversation_history 업데이트
-                    conversation_history = list(final_state.get("conversation_history", []))
+                    # 기존 세션 데이터의 conversation_history를 가져와서 병합
+                    existing_history = session_data.get("conversation_history", [])
+                    new_history = list(final_state.get("conversation_history", []))
+                    
+                    # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+                    # final_state의 conversation_history는 operator.add로 추가된 것이므로
+                    # 기존 히스토리 + 새 메시지들로 구성됨
+                    # 하지만 이전 대화 확인 질문의 경우 새로 생성될 수 있으므로 병합 필요
+                    conversation_history = existing_history.copy()
+                    
+                    # 새 히스토리에서 기존에 없는 메시지만 추가
+                    existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+                    for msg in new_history:
+                        msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                        if msg_key not in existing_content_set:
+                            conversation_history.append(msg)
+                            existing_content_set.add(msg_key)
+                    
+                    # 사용자 메시지가 없으면 추가
                     if not conversation_history or conversation_history[-1].get("role") != "user":
                         conversation_history.append(user_message)
                     
                     # Assistant 메시지 추가 (없으면 final_response로 생성)
                     if not conversation_history or conversation_history[-1].get("role") != "assistant":
                         if final_msg:
-                            assistant_message = {
-                                "role": "assistant",
-                                "content": final_msg,
-                                "timestamp": datetime.now().isoformat()
-                            }
+                            # 이메일 검색 결과인 경우 HTML 대신 요약 메시지와 UID 리스트만 저장
+                            # email_ids는 master_graph에서 반환된 result에서 가져옴
+                            email_ids = final_state.get("email_ids", [])
+                            last_keyword = final_state.get("last_search_keyword")
+                            
+                            # HTML이 포함되어 있거나 email_ids가 있으면 이메일 검색 결과로 판단
+                            is_email_search_result = (
+                                email_ids or 
+                                "<div" in final_msg or 
+                                "📧" in final_msg or 
+                                ("메일" in final_msg and ("찾았" in final_msg or "검색" in final_msg))
+                            )
+                            
+                            if is_email_search_result and email_ids:
+                                # 이메일 검색 결과: HTML 대신 요약 메시지와 UID 리스트만 저장
+                                email_count = len(email_ids)
+                                search_keyword = last_keyword or "검색"
+                                conversation_summary = f"📧 '{search_keyword}' 관련 메일 {email_count}개를 찾았습니다."
+                                
+                                assistant_message = {
+                                    "role": "assistant",
+                                    "content": conversation_summary,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "email_ids": email_ids  # UID 리스트만 저장 (HTML 제외)
+                                }
+                            else:
+                                # 일반 메시지 (HTML이 있어도 email_ids가 없으면 그대로 저장)
+                                # 단, HTML이 너무 길면 요약
+                                if len(final_msg) > 10000 and "<div" in final_msg:
+                                    # HTML이 너무 길면 요약 메시지로 저장
+                                    conversation_summary = "📧 이메일 검색 결과를 표시했습니다."
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": conversation_summary,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
+                                else:
+                                    assistant_message = {
+                                        "role": "assistant",
+                                        "content": final_msg,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
                             conversation_history.append(assistant_message)
                     
                     # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
                     session_state = {
                         "conversation_history": conversation_history,
                         "email_search_context": final_state.get("email_search_context", {}),
+                        # Redis/세션에 null로 저장되지 않도록 정규화
+                        "email_compose_context": final_state.get("email_compose_context") or {},
                         "qa_search_context": final_state.get("qa_search_context", {}),
                         "tech_search_context": final_state.get("tech_search_context", {}),
                         "schedule_context": final_state.get("schedule_context", {}),
-                        "document_context": final_state.get("document_context", {})
+                        "document_context": final_state.get("document_context", {}),
+                        "recruitment_context": final_state.get("recruitment_context", {}),
+                        "last_domain": final_state.get("last_domain")  # last_domain 저장
                     }
+                    # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
                     await session_manager.save_session_state(session_id, session_state)
         
         except Exception as exc:
@@ -424,8 +667,27 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     - 기술 검색 (특허, 논문)
     """
     try:
-        # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
-        session_id = payload.session_id or f"session_{payload.employee_id}"
+        # session_id가 없으면 새 세션 생성
+        if not payload.session_id:
+            session_manager = await get_session_manager()
+            if session_manager:
+                session_id = await session_manager.create_session(employee_id=payload.employee_id)
+            else:
+                import uuid
+                session_id = f"session_{payload.employee_id}_{uuid.uuid4().hex[:8]}"
+        else:
+            session_id = payload.session_id
+
+        # ✅ 첫 채팅 요청에서 현재 세션을 알 수 있으므로, 해당 세션을 수신감지 대상에 등록 + supervisor(프로세스당 1개) 시작
+        try:
+            from agents.master_graphs.email.email_search_agent import (
+                register_email_check_session,
+                start_email_checker_supervisor,
+            )
+            register_email_check_session(session_id)
+            start_email_checker_supervisor(check_interval=int(os.environ.get("EMAIL_CHECK_INTERVAL", "30")))
+        except Exception as e:
+            print(f"⚠️ 이메일 체커 시작 실패 (session_id={session_id}): {e}")
         
         # 세션 관리자로 이전 세션 데이터 전체 로드 (conversation_history + 컨텍스트들)
         session_manager = await get_session_manager()
@@ -435,7 +697,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "qa_search_context": {},
             "tech_search_context": {},
             "schedule_context": {},
-            "document_context": {}
+            "document_context": {},
+            "recruitment_context": {}
         }
         if session_manager:
             session_data = await session_manager.load_session_data(session_id)
@@ -451,11 +714,15 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "employee_id": payload.employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
+            # Redis/세션에서 null(None)로 들어오는 경우 방어
+            "email_compose_context": session_data.get("email_compose_context") or {},
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
-            "document_context": session_data.get("document_context", {})
+            "document_context": session_data.get("document_context", {}),
+            "recruitment_context": session_data.get("recruitment_context", {})
         }
+        # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
         
         # LangGraph 체크포인터 없이 실행 (세션 관리자가 대화 히스토리 관리)
         config = {"configurable": {"thread_id": session_id}}
@@ -473,29 +740,87 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             }
             
             # conversation_history 업데이트
-            conversation_history = list(final_state.get("conversation_history", []))
+            # 기존 세션 데이터의 conversation_history를 가져와서 병합
+            existing_history = session_data.get("conversation_history", [])
+            new_history = list(final_state.get("conversation_history", []))
+            
+            # 기존 히스토리와 새 히스토리를 병합 (중복 제거)
+            conversation_history = existing_history.copy()
+            
+            # 새 히스토리에서 기존에 없는 메시지만 추가
+            existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+            for msg in new_history:
+                msg_key = (msg.get("role"), msg.get("content", "")[:100])
+                if msg_key not in existing_content_set:
+                    conversation_history.append(msg)
+                    existing_content_set.add(msg_key)
+            
+            # 사용자 메시지가 없으면 추가
             if not conversation_history or conversation_history[-1].get("role") != "user":
                 conversation_history.append(user_message)
             
             # Assistant 메시지 추가 (없으면 final_response로 생성)
             if not conversation_history or conversation_history[-1].get("role") != "assistant":
-                if final_state.get("final_response"):
-                    assistant_message = {
-                        "role": "assistant",
-                        "content": final_state.get("final_response"),
-                        "timestamp": datetime.now().isoformat()
-                    }
+                final_msg = final_state.get("final_response")
+                if final_msg:
+                    # 이메일 검색 결과인 경우 HTML 대신 요약 메시지와 UID 리스트만 저장
+                    # email_ids는 master_graph에서 반환된 result에서 가져옴
+                    email_ids = final_state.get("email_ids", [])
+                    last_keyword = final_state.get("last_search_keyword")
+                    
+                    # HTML이 포함되어 있거나 email_ids가 있으면 이메일 검색 결과로 판단
+                    is_email_search_result = (
+                        email_ids or 
+                        "<div" in final_msg or 
+                        "📧" in final_msg or 
+                        ("메일" in final_msg and ("찾았" in final_msg or "검색" in final_msg))
+                    )
+                    
+                    if is_email_search_result and email_ids:
+                        # 이메일 검색 결과: HTML 대신 요약 메시지와 UID 리스트만 저장
+                        email_count = len(email_ids)
+                        search_keyword = last_keyword or "검색"
+                        conversation_summary = f"📧 '{search_keyword}' 관련 메일 {email_count}개를 찾았습니다."
+                        
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": conversation_summary,
+                            "timestamp": datetime.now().isoformat(),
+                            "email_ids": email_ids  # UID 리스트만 저장 (HTML 제외)
+                        }
+                    else:
+                        # 일반 메시지 (HTML이 있어도 email_ids가 없으면 그대로 저장)
+                        # 단, HTML이 너무 길면 요약
+                        if len(final_msg) > 10000 and "<div" in final_msg:
+                            # HTML이 너무 길면 요약 메시지로 저장
+                            conversation_summary = "📧 이메일 검색 결과를 표시했습니다."
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": conversation_summary,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        else:
+                            assistant_message = {
+                                "role": "assistant",
+                                "content": final_msg,
+                                "timestamp": datetime.now().isoformat()
+                            }
                     conversation_history.append(assistant_message)
             
             # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
             session_state = {
                 "conversation_history": conversation_history,
                 "email_search_context": final_state.get("email_search_context", {}),
+                # Redis/세션에 null로 저장되지 않도록 정규화
+                "email_compose_context": final_state.get("email_compose_context") or {},
                 "qa_search_context": final_state.get("qa_search_context", {}),
                 "tech_search_context": final_state.get("tech_search_context", {}),
                 "schedule_context": final_state.get("schedule_context", {}),
-                "document_context": final_state.get("document_context", {})
+                "document_context": final_state.get("document_context", {}),
+                "recruitment_context": final_state.get("recruitment_context", {}),
+                "last_domain": final_state.get("last_domain")  # last_domain 저장
             }
+            # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
             await session_manager.save_session_state(session_id, session_state)
         
         # Process Output
@@ -538,11 +863,19 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # 도메인 정보 추출 (LLM 라우팅 시 결정된 도메인)
         # domain이 없으면 last_domain을 fallback으로 사용
         last_domain = final_state.get("domain") or final_state.get("last_domain")
+        
+        # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+        rows = []
+        if last_domain == "recruitment":
+            search_results = final_state.get("search_results", [])
+            if search_results:
+                # 카드 형식으로 변환
+                rows = search_results
 
         return ChatResponse(
             ok=True,
             message=final_msg,
-            rows=[],  # 오케스트레이터는 주로 텍스트 응답을 반환하므로 rows는 비움
+            rows=rows,  # Recruitment 검색 결과 또는 빈 배열
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
@@ -559,7 +892,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 async def upload_document_endpoint(
     file: UploadFile = FastAPIFile(...),
     document_title: str = Form(...),
-    employee_id: int = Form(1001)
+    employee_id: int = Form(4000)
 ) -> DocumentUploadResponse:
     """문서 업로드 엔드포인트 (Milvus Vector DB 저장).
     
@@ -589,7 +922,12 @@ async def upload_document_endpoint(
             
             # 세션 관리자로 이전 세션 데이터 로드
             session_manager = await get_session_manager()
-            session_id = f"session_{employee_id}"
+            # 문서 업데이트용 새 세션 생성
+            if session_manager:
+                session_id = await session_manager.create_session(employee_id=employee_id)
+            else:
+                import uuid
+                session_id = f"session_{uuid.uuid4().hex[:8]}"
             session_data = {
                 "conversation_history": [],
                 "email_search_context": {},
@@ -641,7 +979,8 @@ async def upload_document_endpoint(
                     "qa_search_context": result_state.get("qa_search_context", session_data.get("qa_search_context", {})),
                     "tech_search_context": result_state.get("tech_search_context", session_data.get("tech_search_context", {})),
                     "schedule_context": result_state.get("schedule_context", session_data.get("schedule_context", {})),
-                    "document_context": result_state.get("document_context", session_data.get("document_context", {}))
+                    "document_context": result_state.get("document_context", session_data.get("document_context", {})),
+                    "recruitment_context": result_state.get("recruitment_context", session_data.get("recruitment_context", {}))
                 }
                 await session_manager.save_session_state(session_id, session_state)
                 print(f"✅ [Document Update] Redis에 문서 업데이트 정보 및 대화 내역 저장 완료 (session_id: {session_id})")
@@ -681,9 +1020,325 @@ async def upload_document_endpoint(
         ) from exc
 
 
-@app.post("/api/session/new", response_model=SessionResponse)
-async def create_new_session(employee_id: int = 1001) -> SessionResponse:
+@app.get("/auth/google")
+async def google_oauth_start(user_id: str = Query(..., description="Google 캘린더와 연동할 사용자 ID")) -> RedirectResponse:
+    """Google OAuth 인증 페이지로 리다이렉트."""
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id가 필요합니다.")
+
+    _cleanup_expired_oauth_states()
+
+    try:
+        flow = _create_google_oauth_flow()
+        authorization_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+        )
+
+        _oauth_state_store[state] = (user_id, time.time())
+        return RedirectResponse(authorization_url)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Google OAuth 시작 중 오류가 발생했습니다: {exc}") from exc
+
+
+@app.get("/auth/google/callback")
+async def google_oauth_callback(code: str = Query(...), state: str = Query(...)) -> Response:
+    """Google OAuth 인증 후 토큰을 DB + Redis에 저장.
+    
+    플로우:
+    1. OAuth 코드로 토큰 교환
+    2. Google 계정 정보 추출 (email, sub)
+    3. refresh_token을 DB에 저장 (암호화)
+    4. access_token을 Redis에 캐시 (1시간)
+    """
+    _cleanup_expired_oauth_states()
+
+    state_entry = _oauth_state_store.pop(state, None)
+    if not state_entry:
+        raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다. 다시 시도해주세요.")
+
+    user_id, _ = state_entry
+    
+    # user_id를 employee_id로 변환
+    try:
+        employee_id = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"user_id는 employee_id(숫자)여야 합니다: {user_id}")
+
+    try:
+        flow = _create_google_oauth_flow()
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Google OAuth 토큰 교환 실패: {exc}") from exc
+
+    # refresh_token 확인
+    if not credentials.refresh_token:
+        raise HTTPException(
+            status_code=500, 
+            detail="refresh_token을 받지 못했습니다. OAuth 플로우에서 access_type=offline, prompt=consent가 설정되어야 합니다."
+        )
+    
+    # Google 계정 정보 추출 (email, sub)
+    google_email = None
+    google_sub = None
+    
+    try:
+        # UserInfo API로 사용자 정보 조회
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {credentials.token}"}
+            )
+            if response.status_code == 200:
+                user_info = response.json()
+                google_email = user_info.get("email")
+                google_sub = user_info.get("id")
+            else:
+                print(f"⚠️ UserInfo API 호출 실패: {response.status_code}")
+    except Exception as e:
+        print(f"⚠️ Google 계정 정보 조회 실패: {e}")
+    
+    if not google_email:
+        raise HTTPException(status_code=500, detail="Google 계정 정보를 가져올 수 없습니다.")
+
+    # ✅ 1. DB에 refresh_token 저장 (암호화)
+    from agents.master_graphs.schedule.services.google_token_service import get_token_service
+    token_service = get_token_service()
+    
+    db_success = await token_service.save_google_credentials(
+        employee_id=employee_id,
+        google_email=google_email,
+        refresh_token=credentials.refresh_token,
+        scope=" ".join(credentials.scopes) if credentials.scopes else "",
+        google_sub=google_sub,
+    )
+    
+    if not db_success:
+        raise HTTPException(status_code=500, detail="토큰 DB 저장에 실패했습니다.")
+    
+    # ✅ 2. Redis에 access_token 캐시 (1시간) - refresh_token은 DB에만 저장
+    session_manager = await get_session_manager()
+    if session_manager:
+        await session_manager.save_google_tokens(
+            user_id,
+            {
+                "access_token": credentials.token,
+                # refresh_token은 DB에만 저장 (보안)
+                "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
+            },
+            ttl=3600,  # 1시간
+        )
+        print(f"✅ Redis에 access_token 캐시 저장 완료 (user_id={user_id}, ttl=3600초)")
+
+    success_html = """
+    <html>
+        <head>
+            <title>Google 인증 완료</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background-color: #f5f5f5;
+                }
+                .container {
+                    background: white;
+                    padding: 40px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    text-align: center;
+                }
+                h2 { color: #4CAF50; }
+                p { color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h2>✅ Google Calendar 연동이 완료되었습니다!</h2>
+                <p>DB에 안전하게 저장되었으며, 서버 재시작 후에도 유지됩니다.</p>
+                <p>이 창을 닫고 다시 일정 관련 요청을 진행해주세요.</p>
+                <script>
+                    setTimeout(() => {
+                        window.close();
+                    }, 3000);
+                </script>
+            </div>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=success_html)
+
+@app.get("/api/sessions", response_model=SessionListResponse)
+async def list_sessions(employee_id: int = Query(4000, description="사원 번호")) -> SessionListResponse:
+    """사원별 세션 목록 조회 (최신순).
+    
+    Args:
+        employee_id: 사원 번호
+        
+    Returns:
+        세션 목록 (최신순 정렬)
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            return SessionListResponse(
+                ok=False,
+                sessions=[],
+                message="세션 관리자를 사용할 수 없습니다."
+            )
+        
+        sessions_metadata = await session_manager.list_employee_sessions(employee_id)
+        
+        sessions = [
+            SessionMetadata(
+                session_id=meta["session_id"],
+                title=meta["title"],
+                employee_id=meta["employee_id"],
+                message_count=meta["message_count"],
+                created_at=meta["created_at"],
+                updated_at=meta["updated_at"],
+                last_domain=meta.get("last_domain"),
+                ttl=meta.get("ttl")
+            )
+            for meta in sessions_metadata
+        ]
+        
+        return SessionListResponse(
+            ok=True,
+            sessions=sessions,
+            message=f"세션 {len(sessions)}개 조회 완료"
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return SessionListResponse(
+            ok=False,
+            sessions=[],
+            message=f"세션 목록 조회 실패: {str(exc)}"
+        )
+
+
+@app.post("/api/sessions", response_model=SessionResponse)
+async def create_session(payload: SessionCreateRequest) -> SessionResponse:
+
     """새 세션 생성.
+    
+    Args:
+        payload: 세션 생성 요청 (employee_id, title)
+        
+    Returns:
+        생성된 세션 정보
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        session_id = await session_manager.create_session(
+            employee_id=payload.employee_id,
+            title=payload.title
+        )
+        
+        return SessionResponse(
+            ok=True,
+            session_id=session_id,
+            message_count=0,
+            message="새 세션이 생성되었습니다."
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 생성 실패: {str(exc)}") from exc
+
+
+@app.delete("/api/sessions/{session_id}", response_model=SessionResponse)
+async def delete_session(session_id: str, employee_id: int = Query(4000, description="사원 번호")) -> SessionResponse:
+    """세션 삭제.
+    
+    Args:
+        session_id: 삭제할 세션 ID
+        employee_id: 사원 번호
+        
+    Returns:
+        삭제 결과
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        success = await session_manager.delete_session(session_id, employee_id)
+        
+        if success:
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=0,
+                message="세션이 삭제되었습니다."
+            )
+        else:
+            raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 삭제 실패: {str(exc)}") from exc
+
+
+@app.patch("/api/sessions/{session_id}", response_model=SessionResponse)
+async def update_session(session_id: str, payload: SessionUpdateRequest) -> SessionResponse:
+    """세션 메타데이터 업데이트 (제목 변경 등).
+    
+    Args:
+        session_id: 업데이트할 세션 ID
+        payload: 업데이트 요청 (title 등)
+        
+    Returns:
+        업데이트된 세션 정보
+    """
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        success = await session_manager.update_session_metadata(
+            session_id=session_id,
+            title=payload.title
+        )
+        
+        if success:
+            # 업데이트된 세션 정보 조회
+            session_data = await session_manager.load_session_data(session_id)
+            message_count = len(session_data.get("conversation_history", []))
+            
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=message_count,
+                message="세션이 업데이트되었습니다."
+            )
+        else:
+            raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 업데이트 실패: {str(exc)}") from exc
+
+
+@app.post("/api/session/new", response_model=SessionResponse)
+async def create_new_session(employee_id: int = 4000) -> SessionResponse:
+    """새 세션 생성 (하위 호환성 유지용 - /api/sessions 사용 권장).
     
     Args:
         employee_id: 사원 번호
@@ -691,14 +1346,23 @@ async def create_new_session(employee_id: int = 1001) -> SessionResponse:
     Returns:
         새로 생성된 세션 ID
     """
-    import uuid
-    session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
-    return SessionResponse(
-        ok=True,
-        session_id=session_id,
-        message_count=0,
-        message="새 세션이 생성되었습니다."
-    )
+    try:
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        session_id = await session_manager.create_session(employee_id=employee_id)
+        
+        return SessionResponse(
+            ok=True,
+            session_id=session_id,
+            message_count=0,
+            message="새 세션이 생성되었습니다."
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 생성 실패: {str(exc)}") from exc
 
 
 @app.post("/api/session/change", response_model=SessionResponse)
@@ -711,34 +1375,40 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
     Returns:
         세션 정보
     """
-    import uuid
-    
-    if payload.session_id:
-        # 기존 세션으로 변경
-        session_id = payload.session_id
+    try:
         session_manager = await get_session_manager()
-        message_count = 0
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
         
-        if session_manager:
+        if payload.session_id:
+            # 기존 세션으로 변경
+            session_id = payload.session_id
             session_data = await session_manager.load_session_data(session_id)
             message_count = len(session_data.get("conversation_history", []))
-        
-        return SessionResponse(
-            ok=True,
-            session_id=session_id,
-            message_count=message_count,
-            message=f"세션이 변경되었습니다. (대화 {message_count}개)"
-        )
-    else:
-        # 새 세션 생성
-        employee_id = payload.employee_id or 1001
-        session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
-        return SessionResponse(
-            ok=True,
-            session_id=session_id,
-            message_count=0,
-            message="새 세션이 생성되었습니다."
-        )
+            
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=message_count,
+                message=f"세션이 변경되었습니다. (대화 {message_count}개)"
+            )
+        else:
+            # 새 세션 생성
+            employee_id = payload.employee_id or 4000
+            session_id = await session_manager.create_session(employee_id=employee_id)
+            
+            return SessionResponse(
+                ok=True,
+                session_id=session_id,
+                message_count=0,
+                message="새 세션이 생성되었습니다."
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"세션 변경 실패: {str(exc)}") from exc
 
 
 @app.get("/api/session/current/{session_id}", response_model=SessionResponse)
@@ -753,16 +1423,19 @@ async def get_session_info(session_id: str) -> SessionResponse:
     """
     session_manager = await get_session_manager()
     message_count = 0
+    conversation_history = []
     
     if session_manager:
         session_data = await session_manager.load_session_data(session_id)
-        message_count = len(session_data.get("conversation_history", []))
+        conversation_history = session_data.get("conversation_history", [])
+        message_count = len(conversation_history)
     
     return SessionResponse(
         ok=True,
         session_id=session_id,
         message_count=message_count,
-        message=f"현재 세션: {session_id} (대화 {message_count}개)"
+        message=f"현재 세션: {session_id} (대화 {message_count}개)",
+        conversation_history=conversation_history
     )
 
 
@@ -771,3 +1444,177 @@ async def health_check():
     """헬스 체크 엔드포인트."""
     return {"status": "ok", "service": "깐부 AI Agent 시스템"}
 
+
+# ===== 테스트용 엔드포인트 (연차/반차 & 일정 관리) =====
+
+class LeaveTestRequest(BaseModel):
+    """연차 테스트 요청 모델."""
+    query: str = Field(..., description="연차 관련 질의")
+    employee_id: int = Field(default=12345, description="사원 번호")
+    session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
+
+
+class LeaveTestResponse(BaseModel):
+    """연차 테스트 응답 모델."""
+    ok: bool = Field(..., description="성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    slot_state: Optional[dict] = Field(default=None, description="슬롯 상태")
+    awaiting_slots: Optional[list] = Field(default=None, description="대기 중인 슬롯")
+    action: Optional[str] = Field(default=None, description="실행된 액션")
+
+
+@app.post("/api/test/leave", response_model=LeaveTestResponse)
+async def test_leave_endpoint(payload: LeaveTestRequest) -> LeaveTestResponse:
+    """연차/반차 기능 테스트 엔드포인트.
+    
+    테스트 시나리오:
+    1. 연차 조회: {"query": "내 연차 잔여일수 알려줘"}
+    2. 연차 신청: {"query": "내일 연차 신청"}
+    3. 반차 신청: {"query": "내일 오후 반차"}
+    4. 연차 취소 (멀티턴):
+       - 1단계: {"query": "연차 취소하고 싶어"}
+       - 2단계: {"query": "1번", "session_id": "<1단계에서 받은 session_id>"}
+    5. 연차 수정 (멀티턴):
+       - 1단계: {"query": "연차 수정하고 싶어"}
+       - 2단계: {"query": "1번", "session_id": "<1단계에서 받은 session_id>"}
+       - 3단계: {"query": "12월 20일로 변경", "session_id": "<동일 session_id>"}
+    """
+    try:
+        from agents.master_graphs.schedule.nodes.leave_nodes import process_leave_request
+        from agents.state import OrchestratorState
+        
+        # 세션 ID 설정
+        session_id = payload.session_id or f"test_leave_{payload.employee_id}"
+        
+        # 세션 관리자로 이전 컨텍스트 로드
+        session_manager = await get_session_manager()
+        session_data = {"schedule_context": {}}
+        if session_manager:
+            loaded_data = await session_manager.load_session_data(session_id)
+            session_data = {"schedule_context": loaded_data.get("schedule_context", {})}
+        
+        # State 구성
+        state = OrchestratorState(
+            query=payload.query,
+            employee_id=payload.employee_id,
+            user_id=str(payload.employee_id),
+            messages=[],
+            schedule_context=session_data.get("schedule_context", {}),
+        )
+        
+        # Leave 노드 실행
+        result = await process_leave_request(state)
+        
+        # 세션 저장 (멀티턴 대화 지원)
+        if session_manager:
+            session_state = {
+                "schedule_context": result.get("schedule_context", {})
+            }
+            await session_manager.save_session_state(session_id, session_state)
+        
+        # 응답 구성
+        leave_context = result.get("schedule_context", {}).get("leave", {})
+        
+        return LeaveTestResponse(
+            ok=True,
+            message=result.get("final_response", "처리 완료"),
+            slot_state=leave_context.get("slot_state"),
+            awaiting_slots=leave_context.get("awaiting_slots"),
+            action=leave_context.get("slot_state", {}).get("intent")
+        )
+        
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"연차 테스트 실패: {exc}") from exc
+
+
+class ScheduleTestRequest(BaseModel):
+    """일정 테스트 요청 모델."""
+    query: str = Field(..., description="일정 관련 질의")
+    employee_id: int = Field(default=12345, description="사원 번호")
+    user_id: Optional[str] = Field(default=None, description="사용자 ID (Google Calendar)")
+    session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
+
+
+class ScheduleTestResponse(BaseModel):
+    """일정 테스트 응답 모델."""
+    ok: bool = Field(..., description="성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    slot_state: Optional[dict] = Field(default=None, description="슬롯 상태")
+    awaiting_slots: Optional[list] = Field(default=None, description="대기 중인 슬롯")
+    action: Optional[str] = Field(default=None, description="실행된 액션")
+    auth_required: Optional[bool] = Field(default=False, description="Google 인증 필요 여부")
+
+
+@app.post("/api/test/schedule", response_model=ScheduleTestResponse)
+async def test_schedule_endpoint(payload: ScheduleTestRequest) -> ScheduleTestResponse:
+    """일정 관리 기능 테스트 엔드포인트 (Google Calendar 연동).
+    
+    테스트 시나리오:
+    1. 일정 조회: {"query": "오늘 일정 알려줘"}
+    2. 일정 생성: {"query": "내일 오후 2시 팀 미팅"}
+    3. 일정 삭제 (멀티턴):
+       - 1단계: {"query": "일정 삭제"}
+       - 2단계: {"query": "1번", "session_id": "<1단계에서 받은 session_id>"}
+    4. 일정 수정 (멀티턴):
+       - 1단계: {"query": "일정 수정"}
+       - 2단계: {"query": "1번", "session_id": "<동일 session_id>"}
+       - 3단계: {"query": "내일 3시로 변경", "session_id": "<동일 session_id>"}
+       
+    Note: Google Calendar 연동이 필요한 경우 auth_required=true 반환
+    """
+    try:
+        from agents.master_graphs.schedule.nodes.schedule_nodes import process_schedule_request
+        from agents.state import OrchestratorState
+        
+        # 세션 ID 설정
+        user_id = payload.user_id or str(payload.employee_id)
+        session_id = payload.session_id or f"test_schedule_{user_id}"
+        
+        # 세션 관리자로 이전 컨텍스트 로드
+        session_manager = await get_session_manager()
+        session_data = {"schedule_context": {}}
+        if session_manager:
+            loaded_data = await session_manager.load_session_data(session_id)
+            session_data = {"schedule_context": loaded_data.get("schedule_context", {})}
+        
+        # State 구성
+        state = OrchestratorState(
+            query=payload.query,
+            employee_id=payload.employee_id,
+            user_id=user_id,
+            messages=[],
+            schedule_context=session_data.get("schedule_context", {}),
+        )
+        
+        # Schedule 노드 실행
+        result = await process_schedule_request(state)
+        
+        # 세션 저장 (멀티턴 대화 지원)
+        if session_manager:
+            session_state = {
+                "schedule_context": result.get("schedule_context", {})
+            }
+            await session_manager.save_session_state(session_id, session_state)
+        
+        # 응답 구성
+        schedule_context = result.get("schedule_context", {}).get("schedule", {})
+        message = result.get("final_response", "처리 완료")
+        
+        # Google 인증 필요 여부 확인
+        auth_required = "Google 캘린더 연동이 필요합니다" in message or "인증이 필요합니다" in message
+        
+        return ScheduleTestResponse(
+            ok=True,
+            message=message,
+            slot_state=schedule_context.get("slot_state"),
+            awaiting_slots=schedule_context.get("awaiting_slots"),
+            action=schedule_context.get("slot_state", {}).get("intent"),
+            auth_required=auth_required
+        )
+        
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"일정 테스트 실패: {exc}") from exc

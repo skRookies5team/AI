@@ -142,10 +142,9 @@ class DocumentMasterGraph(BaseMasterGraph):
                         print(f"✅ [route_intent] 키워드 매칭: '{tpl}' (매칭 키워드: {matched_keyword}, 쿼리: {query[:50]})")
                         break
                 
-                # 기본값
+                # 템플릿명이 없으면 None으로 유지 (generate_document에서 문서 목록 표시)
                 if not template_name:
-                    template_name = "product_development_plan"
-                    print(f"⚠️ 템플릿을 찾을 수 없어 기본 템플릿 사용: {template_name}")
+                    print(f"ℹ️ 템플릿을 찾을 수 없음 - 문서 목록 표시 예정")
             
             print(f"📋 [route_intent] 템플릿 매핑 완료: {template_name}")
         
@@ -238,11 +237,68 @@ class DocumentMasterGraph(BaseMasterGraph):
         print(f"📋 템플릿: {template_name}, 제목: {document_title}")
         print(f"💡 요구사항: {requirements[:100] if requirements else None}...")
         
-        # Human-in-the-loop: 제목과 요구사항이 없으면 예시문 반환
+        # Human-in-the-loop: 템플릿명이 없으면 작성 가능한 문서 목록 반환
         if not template_name:
+            from agents.master_graphs.document.generate.template_examples import get_available_templates
+            
+            available_templates = get_available_templates()
+            
+            if not available_templates:
+                return {
+                    "final_response": "❌ 작성 가능한 문서 템플릿을 찾을 수 없습니다.",
+                    "conversation_history": []
+                }
+            
+            # 문서 목록을 HTML 형식으로 생성 (클릭 가능한 버튼 형태)
+            template_list_html = """<div style="font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; line-height: 1.6;">
+    <div style="font-size: 20px; font-weight: bold; color: #2c3e50; margin-bottom: 20px;">
+        📋 <strong>작성 가능한 문서 목록</strong>
+    </div>
+    
+    <div style="color: #495057; margin-bottom: 25px;">
+        아래 문서 중 하나를 선택하여 작성하실 수 있습니다. 원하는 문서를 클릭하거나 문서 이름을 입력해주세요.
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">"""
+            
+            # 각 템플릿을 버튼 형태로 추가
+            for idx, (tpl_name, tpl_title) in enumerate(available_templates.items(), 1):
+                template_list_html += f"""
+        <div style="background: #f8f9fa; border: 2px solid #dee2e6; border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.2s;"
+             onmouseover="this.style.background='#e9ecef'; this.style.borderColor='#667eea';"
+             onmouseout="this.style.background='#f8f9fa'; this.style.borderColor='#dee2e6';">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 18px; font-weight: bold; color: #667eea; min-width: 30px;">{idx}.</span>
+                <div style="flex: 1;">
+                    <div style="font-size: 16px; font-weight: 600; color: #2c3e50; margin-bottom: 4px;">
+                        {tpl_title}
+                    </div>
+                    <div style="font-size: 13px; color: #6c757d;">
+                        "{tpl_title} 작성" 또는 "{tpl_title} 만들어줘"라고 입력하세요
+                    </div>
+                </div>
+            </div>
+        </div>"""
+            
+            template_list_html += """
+    </div>
+    
+    <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 12px; margin-top: 20px; color: #004085;">
+        💡 <strong>사용 방법:</strong> 위 문서 중 하나의 이름을 입력하시면 해당 문서 작성을 시작할 수 있습니다.
+        <br>예: "제품개발 계획서 작성", "발주서 만들어줘", "업무 성과 평가서 작성" 등
+    </div>
+</div>"""
+            
+            from agents.state import Message
+            
             return {
-                "final_response": "❌ 문서 양식을 선택해주세요. 예: '제품개발 계획서 작성', '발주서 작성' 등",
-                "conversation_history": []
+                "final_response": template_list_html,
+                "requires_input": True,  # 사용자 입력 필요 플래그
+                "conversation_history": [{
+                    "role": "assistant",
+                    "content": template_list_html,
+                    "timestamp": dt_now.now().isoformat()
+                }]
             }
         
         # 제목과 요구사항이 모두 없으면 예시문 반환 (모든 템플릿에 적용)
@@ -460,7 +516,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             process_update_file,
             get_updatable_documents,
         )
-        from agents.master_graphs.document.utils import get_update_document_prompt
+        from agents.master_graphs.document.document_utils import get_update_document_prompt
         from pathlib import Path
         
         # 문서 타입 초기화
@@ -499,14 +555,18 @@ class DocumentMasterGraph(BaseMasterGraph):
                         break
         
         if not file_path:
-            # 파일 경로가 없으면 에러
+            # 파일 경로가 없으면 문서 업데이트 UI 표시 요청
             updatable_docs = get_updatable_documents()
-            return {
+            print(f"🔍 [Document Update] 파일 경로 없음 - 문서 업데이트 UI 표시 요청")
+            result = {
                 "ok": False,
-                "final_response": f"업데이트할 파일 경로가 필요합니다. 업데이트 가능한 문서: {', '.join(updatable_docs)}",
+                "final_response": "문서를 업데이트하시려면 아래의 + 버튼을 클릭하여 파일을 선택하고, 문서 제목을 입력한 후 업데이트 버튼을 클릭해주세요! 📤",
                 "messages": ["파일 경로가 필요합니다."],
                 "document_context": orchestrator_state["document_context"],
+                "show_document_update_ui": True,  # 프론트엔드에 UI 표시 요청
             }
+            print(f"🔍 [Document Update] 반환값에 show_document_update_ui 포함: {result.get('show_document_update_ui')}")
+            return result
         
         if not document_title:
             # 문서 제목이 없으면 파일명 사용
@@ -526,12 +586,15 @@ class DocumentMasterGraph(BaseMasterGraph):
             with open(file_path_obj, "rb") as f:
                 file_content = f.read()
             
-            # 문서 업데이트 서비스 호출 (document_type 전달)
+            # 문서 업데이트 서비스 호출
+            # Structured Output으로 추출된 document_type이 있으면 우선 사용
+            # 없거나 신뢰할 수 없으면 파일 내용으로 재확인
+            service_document_type = document_type if document_type else None
             result = process_update_file(
                 file_content=file_content,
                 filename=file_path_obj.name,
                 document_title=document_title,
-                document_type=document_type
+                document_type=service_document_type  # Structured Output 결과 우선 사용
             )
             
             if result.get("ok"):

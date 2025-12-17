@@ -34,35 +34,99 @@ class GoogleCalendarService:
         self.service = None
         
     async def _get_credentials(self, user_id: Optional[str] = None) -> Credentials:
-        """사용자별 OAuth 자격증명 생성."""
-        if user_id:
-            session_manager = await get_session_manager()
-            if session_manager:
-                tokens = await session_manager.get_google_tokens(user_id)
-                if tokens:
-                    client_id = os.getenv("GOOGLE_CLIENT_ID")
-                    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-                    if not client_id or not client_secret:
-                        raise ValueError("Google OAuth 클라이언트 정보가 설정되지 않았습니다.")
-                    return Credentials(
-                        token=tokens.get("access_token"),
-                        refresh_token=tokens.get("refresh_token"),
-                        token_uri="https://oauth2.googleapis.com/token",
-                        client_id=client_id,
-                        client_secret=client_secret,
-                        scopes=self.SCOPES,
+        """사용자별 OAuth 자격증명 생성 (DB + Redis 통합).
+        
+        플로우:
+        1. Redis에서 access_token 캐시 확인 (1시간)
+        2. 없으면 DB에서 refresh_token 조회
+        3. refresh_token으로 access_token 갱신
+        4. 갱신된 access_token을 Redis에 캐시
+        """
+        if not user_id:
+            # user_id가 없으면 service account 사용 (기존 로직)
+            service_account_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+            if service_account_file and os.path.exists(service_account_file):
+                return service_account.Credentials.from_service_account_file(
+                    service_account_file,
+                    scopes=self.SCOPES
+                )
+            raise ValueError("Google Calendar 인증 정보가 없습니다.")
+        
+        # user_id를 employee_id로 변환
+        try:
+            employee_id = int(user_id)
+        except ValueError:
+            # user_id가 숫자가 아니면 그대로 사용 (email 등)
+            print(f"⚠️ user_id가 숫자가 아닙니다. 그대로 사용: {user_id}")
+            employee_id = None
+        
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            raise ValueError("Google OAuth 클라이언트 정보가 설정되지 않았습니다.")
+        
+        # 1️⃣ Redis에서 access_token 캐시 확인
+        session_manager = await get_session_manager()
+        if session_manager:
+            cached_tokens = await session_manager.get_google_tokens(user_id)
+            if cached_tokens and cached_tokens.get("access_token"):
+                # Redis에 캐시된 access_token 사용 (refresh_token은 DB에서만 관리)
+                return Credentials(
+                    token=cached_tokens["access_token"],
+                    refresh_token=None,  # Redis에는 저장하지 않음 (DB에서만 관리)
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=self.SCOPES,
+                )
+        
+        # 2️⃣ DB에서 refresh_token 조회
+        if employee_id is not None:
+            from .google_token_service import get_token_service
+            token_service = get_token_service()
+            credentials_data = await token_service.get_google_credentials(employee_id)
+            
+            if credentials_data and credentials_data.get("refresh_token"):
+                refresh_token = credentials_data["refresh_token"]
+                
+                # 3️⃣ refresh_token으로 access_token 갱신
+                credentials = Credentials(
+                    token=None,  # 만료됨
+                    refresh_token=refresh_token,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=self.SCOPES,
+                )
+                
+                # 토큰 갱신
+                from google.auth.transport.requests import Request
+                try:
+                    credentials.refresh(Request())
+                except Exception as e:
+                    print(f"❌ 토큰 갱신 실패 (employee_id={employee_id}): {e}")
+                    # 토큰 갱신 실패 시 재인증 필요
+                    raise GoogleAuthRequired(user_id, self._build_auth_url(user_id))
+                
+                # 4️⃣ 갱신된 access_token을 Redis에 캐시 (1시간) - refresh_token은 DB에만 저장
+                if session_manager and credentials.token:
+                    await session_manager.save_google_tokens(
+                        user_id,
+                        {
+                            "access_token": credentials.token,
+                            # refresh_token은 DB에만 저장 (보안)
+                            "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
+                        },
+                        ttl=3600,  # 1시간
                     )
-
-        service_account_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-        if service_account_file and os.path.exists(service_account_file):
-            return service_account.Credentials.from_service_account_file(
-                service_account_file,
-                scopes=self.SCOPES
-            )
-
-        if user_id:
-            raise GoogleAuthRequired(user_id, self._build_auth_url(user_id))
-        raise ValueError("Google Calendar 인증 정보가 없습니다. GOOGLE_SERVICE_ACCOUNT_FILE 환경변수를 설정하세요.")
+                
+                # 5️⃣ DB의 last_used_at 업데이트
+                await token_service.update_last_used(employee_id)
+                
+                return credentials
+        
+        # 토큰이 없으면 OAuth 플로우 시작
+        raise GoogleAuthRequired(user_id, self._build_auth_url(user_id))
     
     async def _get_service(self, user_id: Optional[str] = None):
         """Google Calendar API 서비스 객체 반환.
