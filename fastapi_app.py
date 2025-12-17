@@ -47,15 +47,26 @@ def _get_app_base_url() -> str:
     return os.environ.get("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 
 
-def _create_google_oauth_flow() -> Flow:
-    """Google OAuth Flow 인스턴스를 생성."""
-    client_id = os.environ.get("GOOGLE_CLIENT_ID")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
-    if not client_id or not client_secret:
+async def _create_google_oauth_flow() -> Flow:
+    """Google OAuth Flow 인스턴스를 생성.
+    
+    DB에서 client_id/client_secret을 가져오고, 없으면 환경 변수를 사용합니다.
+    """
+    # DB에서 OAuth Client 설정 가져오기
+    from agents.master_graphs.schedule.services.google_token_service import get_token_service
+    token_service = get_token_service()
+    
+    # async 함수이므로 await 사용
+    client_config = await token_service.get_oauth_client_config()
+    
+    if not client_config:
         raise HTTPException(
             status_code=500,
-            detail="Google OAuth 클라이언트 정보가 설정되지 않았습니다. GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET를 확인하세요.",
+            detail="Google OAuth 클라이언트 정보를 DB 또는 환경 변수에서 찾을 수 없습니다. DB에 client_id/client_secret을 저장하거나 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경 변수를 설정하세요.",
         )
+    
+    client_id = client_config["client_id"]
+    client_secret = client_config["client_secret"]
 
     redirect_uri = os.environ.get("GOOGLE_REDIRECT_URI")
     if not redirect_uri:
@@ -971,7 +982,7 @@ async def google_oauth_start(user_id: str = Query(..., description="Google 캘�
     _cleanup_expired_oauth_states()
 
     try:
-        flow = _create_google_oauth_flow()
+        flow = await _create_google_oauth_flow()
         authorization_url, state = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
@@ -1011,7 +1022,7 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
         raise HTTPException(status_code=400, detail=f"user_id는 employee_id(숫자)여야 합니다: {user_id}")
 
     try:
-        flow = _create_google_oauth_flow()
+        flow = await _create_google_oauth_flow()
         flow.fetch_token(code=code)
         credentials = flow.credentials
     except Exception as exc:
