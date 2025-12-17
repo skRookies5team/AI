@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로그인 - 깐부 AI Agent 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 420px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-header h1 {
+            color: #667eea;
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .login-header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s;
+            outline: none;
+        }
+
+        .form-group input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group input::placeholder {
+            color: #999;
+        }
+
+        .login-button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+            position: relative;
+        }
+
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .login-button:active {
+            transform: translateY(0);
+        }
+
+        .login-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            display: none;
+            border-left: 4px solid #c33;
+        }
+
+        .error-message.show {
+            display: block;
+            animation: shake 0.5s;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto;
+        }
+
+        .login-button.loading .loading-spinner {
+            display: block;
+        }
+
+        .login-button.loading .login-button-text {
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .footer-links {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #999;
+        }
+
+        .footer-links a {
+            color: #667eea;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>깐부 AI Agent</h1>
+            <p>사내 도우미 시스템에 로그인하세요</p>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="loginId">로그인 ID</label>
+                <input 
+                    type="text" 
+                    id="loginId" 
+                    name="login_id" 
+                    placeholder="로그인 ID를 입력하세요" 
+                    required
+                    autocomplete="username"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">비밀번호</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    name="password" 
+                    placeholder="비밀번호를 입력하세요" 
+                    required
+                    autocomplete="current-password"
+                >
+            </div>
+
+            <button type="submit" class="login-button" id="loginButton">
+                <span class="login-button-text">로그인</span>
+                <div class="loading-spinner"></div>
+            </button>
+        </form>
+
+        <div class="footer-links">
+            <p>© 2024 깐부 AI Agent 시스템</p>
+        </div>
+    </div>
+
+    <script>
+        // 로그인 폼 처리
+        const loginForm = document.getElementById('loginForm');
+        const loginButton = document.getElementById('loginButton');
+        const loginButtonText = loginButton.querySelector('.login-button-text');
+        const errorMessage = document.getElementById('errorMessage');
+
+        // 이미 로그인되어 있으면 메인 페이지로 리다이렉트
+        async function checkAuth() {
+            const sessionToken = localStorage.getItem('session_token');
+            if (sessionToken) {
+                try {
+                    const response = await fetch('/api/auth/me', {
+                        headers: {
+                            'Authorization': `Bearer ${sessionToken}`
+                        }
+                    });
+                    if (response.ok) {
+                        window.location.href = '/';
+                        return;
+                    }
+                } catch (e) {
+                    // 인증 실패 시 로그인 페이지 유지
+                    localStorage.removeItem('session_token');
+                    localStorage.removeItem('employee_id');
+                    localStorage.removeItem('employee_name');
+                }
+            }
+        }
+
+        // 페이지 로드 시 인증 체크
+        checkAuth();
+
+        // 로그인 폼 제출
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const loginId = document.getElementById('loginId').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!loginId || !password) {
+                showError('로그인 ID와 비밀번호를 모두 입력해주세요.');
+                return;
+            }
+
+            // 로딩 상태
+            setLoading(true);
+            hideError();
+
+            try {
+                const formData = new FormData();
+                formData.append('login_id', loginId);
+                formData.append('password', password);
+
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.ok) {
+                    // 세션 토큰 저장
+                    localStorage.setItem('session_token', data.session_token);
+                    localStorage.setItem('employee_id', data.employee_id);
+                    localStorage.setItem('employee_name', data.name || '');
+
+                    // 메인 페이지로 리다이렉트
+                    window.location.href = '/';
+                } else {
+                    showError(data.detail || '로그인에 실패했습니다. 로그인 ID와 비밀번호를 확인해주세요.');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showError('로그인 중 오류가 발생했습니다. 다시 시도해주세요.');
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        // Enter 키로 로그인
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loginForm.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        function setLoading(loading) {
+            if (loading) {
+                loginButton.classList.add('loading');
+                loginButton.disabled = true;
+            } else {
+                loginButton.classList.remove('loading');
+                loginButton.disabled = false;
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('show');
+        }
+
+        function hideError() {
+            errorMessage.classList.remove('show');
+        }
+    </script>
+</body>
+</html>

@@ -60,10 +60,16 @@ class GoogleCalendarService:
             print(f"⚠️ user_id가 숫자가 아닙니다. 그대로 사용: {user_id}")
             employee_id = None
         
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        if not client_id or not client_secret:
-            raise ValueError("Google OAuth 클라이언트 정보가 설정되지 않았습니다.")
+        # DB에서 OAuth Client 설정 가져오기
+        from .google_token_service import get_token_service
+        token_service = get_token_service()
+        client_config = await token_service.get_oauth_client_config()
+        
+        if not client_config:
+            raise ValueError("Google OAuth 클라이언트 정보를 DB 또는 환경 변수에서 찾을 수 없습니다.")
+        
+        client_id = client_config["client_id"]
+        client_secret = client_config["client_secret"]
         
         # 1️⃣ Redis에서 access_token 캐시 확인
         session_manager = await get_session_manager()
@@ -82,12 +88,15 @@ class GoogleCalendarService:
         
         # 2️⃣ DB에서 refresh_token 조회
         if employee_id is not None:
-            from .google_token_service import get_token_service
-            token_service = get_token_service()
             credentials_data = await token_service.get_google_credentials(employee_id)
             
             if credentials_data and credentials_data.get("refresh_token"):
                 refresh_token = credentials_data["refresh_token"]
+                
+                # 해당 사원의 레코드에 client_id/client_secret이 있으면 우선 사용
+                if credentials_data.get("client_id") and credentials_data.get("client_secret"):
+                    client_id = credentials_data["client_id"]
+                    client_secret = credentials_data["client_secret"]
                 
                 # 3️⃣ refresh_token으로 access_token 갱신
                 credentials = Credentials(
