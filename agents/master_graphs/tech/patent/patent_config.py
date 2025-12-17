@@ -285,8 +285,8 @@ def get_original_search_keyword(session_id: Optional[str] = None, orchestrator_s
     # Redis 숏텀 메모리에서 확인 (우선)
     if orchestrator_state and "tech_search_context" in orchestrator_state:
         tech_context = orchestrator_state.get("tech_search_context") or {}
-        patent_context = tech_context.get("patent", {})
-        if "original_search_keyword" in patent_context:
+        patent_context = tech_context.get("patent")
+        if patent_context and isinstance(patent_context, dict) and "original_search_keyword" in patent_context:
             return patent_context["original_search_keyword"]
     
     # 하위 호환성: 로컬 캐시 확인

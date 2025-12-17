@@ -649,7 +649,9 @@ async def article_master(
             if not isinstance(orchestrator_state.get("tech_search_context"), dict):
                 orchestrator_state["tech_search_context"] = {}
             
-            if "article" not in orchestrator_state["tech_search_context"]:
+            if ("article" not in orchestrator_state["tech_search_context"] or 
+                orchestrator_state["tech_search_context"]["article"] is None or
+                not isinstance(orchestrator_state["tech_search_context"]["article"], dict)):
                 orchestrator_state["tech_search_context"]["article"] = {}
             
             # 논문 검색 결과를 tech_search_context에 저장
@@ -659,13 +661,17 @@ async def article_master(
             intent = st.get("intent", "unknown")
             search_source = st.get("search_source", "unknown")
             
+            if intent == "search" and keyword and keyword.strip():
+                normalized_keyword = keyword.split(',')[0].strip()
+                orchestrator_state["tech_search_context"]["article"]["last_keyword"] = normalized_keyword
+                LOGGER.info(f"article_master: last_keyword 저장 - keyword='{keyword}', last_keyword='{normalized_keyword}', intent='{intent}'")
+            
             if results:
                 orchestrator_state["tech_search_context"]["article"]["results"] = results
-                orchestrator_state["tech_search_context"]["article"]["last_keyword"] = keyword.split(',')[0].strip() if keyword else ""
                 orchestrator_state["tech_search_context"]["article"]["displayed_count"] = displayed_count
             else:
                 # 검색 결과가 없으면 이전 results 유지 (덮어쓰지 않음)
-                # 🆕 단, intent가 "ask_source"이면 intent와 next_action은 업데이트 (상태 유지)
+                # 단, intent가 "ask_source"이면 intent와 next_action은 업데이트 (상태 유지)
                 LOGGER.debug(
                     f"[article_master] 검색 결과가 비어있어 이전 results 유지: "
                     f"intent={intent}, search_source={search_source}, next_action={st.get('next_action', '')}"
@@ -682,7 +688,7 @@ async def article_master(
             
             # vector_db_results도 저장 (ask_search_source_with_db_result에서 사용)
             vector_db_results = st.get("vector_db_results", [])
-            # 🆕 vector_db_results는 항상 저장 (빈 리스트여도, 이전 값 유지 방지)
+            # vector_db_results는 항상 저장 (빈 리스트여도, 이전 값 유지 방지)
             orchestrator_state["tech_search_context"]["article"]["vector_db_results"] = vector_db_results
             
             # last_selected_paper_index도 저장 (순번 없이 이전 선택 논문 사용에 필요)
