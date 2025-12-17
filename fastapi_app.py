@@ -239,7 +239,7 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., description="사용자 입력 질의 문장")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화 지원)")
-    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4003, description="사원 번호")
 
 
 class ChatResponse(BaseModel):
@@ -258,7 +258,7 @@ class ChatResponse(BaseModel):
 class SessionRequest(BaseModel):
     """세션 변경 요청 모델."""
     session_id: Optional[str] = Field(default=None, description="세션 ID (None이면 새 세션 생성)")
-    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
+    employee_id: Optional[int] = Field(default=4003, description="사원 번호")
 
 
 class SessionResponse(BaseModel):
@@ -291,7 +291,7 @@ class SessionListResponse(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     """세션 생성 요청 모델."""
-    employee_id: int = Field(default=4000, description="사원 번호")
+    employee_id: int = Field(default=4003, description="사원 번호")
     title: Optional[str] = Field(default=None, description="세션 제목")
 
 
@@ -892,7 +892,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 async def upload_document_endpoint(
     file: UploadFile = FastAPIFile(...),
     document_title: str = Form(...),
-    employee_id: int = Form(4000)
+    employee_id: int = Form(4003)
 ) -> DocumentUploadResponse:
     """문서 업로드 엔드포인트 (Milvus Vector DB 저장).
     
@@ -1177,7 +1177,7 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
     return HTMLResponse(content=success_html)
 
 @app.get("/api/sessions", response_model=SessionListResponse)
-async def list_sessions(employee_id: int = Query(4000, description="사원 번호")) -> SessionListResponse:
+async def list_sessions(employee_id: int = Query(4003, description="사원 번호")) -> SessionListResponse:
     """사원별 세션 목록 조회 (최신순).
     
     Args:
@@ -1260,7 +1260,7 @@ async def create_session(payload: SessionCreateRequest) -> SessionResponse:
 
 
 @app.delete("/api/sessions/{session_id}", response_model=SessionResponse)
-async def delete_session(session_id: str, employee_id: int = Query(4000, description="사원 번호")) -> SessionResponse:
+async def delete_session(session_id: str, employee_id: int = Query(4003, description="사원 번호")) -> SessionResponse:
     """세션 삭제.
     
     Args:
@@ -1337,7 +1337,7 @@ async def update_session(session_id: str, payload: SessionUpdateRequest) -> Sess
 
 
 @app.post("/api/session/new", response_model=SessionResponse)
-async def create_new_session(employee_id: int = 4000) -> SessionResponse:
+async def create_new_session(employee_id: int = 4003) -> SessionResponse:
     """새 세션 생성 (하위 호환성 유지용 - /api/sessions 사용 권장).
     
     Args:
@@ -1394,7 +1394,7 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
             )
         else:
             # 새 세션 생성
-            employee_id = payload.employee_id or 4000
+            employee_id = payload.employee_id or 4003
             session_id = await session_manager.create_session(employee_id=employee_id)
             
             return SessionResponse(
@@ -1445,12 +1445,151 @@ async def health_check():
     return {"status": "ok", "service": "깐부 AI Agent 시스템"}
 
 
+# ===== 회의실 및 일정 API 엔드포인트 =====
+
+@app.get("/api/my-reservations")
+async def get_my_reservations(employee_id: int = Query(..., description="사원 번호")):
+    """내 예약 목록 조회 (AI 없이 직접 DB 조회).
+    
+    Args:
+        employee_id: 사원 번호
+        
+    Returns:
+        예약 목록 (회의실 정보 포함)
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        
+        db_service = DatabaseService()
+        reservations = await db_service.get_room_reservations_by_user(
+            employee_id=employee_id,
+            include_past=False,
+            limit=50
+        )
+        
+        # 회의실 정보도 함께 조회 (효율적으로 한 번만 조회)
+        room_map = {}
+        if reservations:
+            rooms = await db_service.get_meeting_rooms()
+            room_map = {room.get("id"): room.get("name", f"회의실 {room.get('id')}") for room in rooms}
+        
+        return {
+            "ok": True,
+            "reservations": [
+                {
+                    "id": res.get("id"),
+                    "reservation_id": res.get("id"),
+                    "event_id": res.get("gcal_event_id"),
+                    "meeting_room_id": res.get("meeting_room_id"),
+                    "meeting_room_name": room_map.get(res.get("meeting_room_id"), f"회의실 {res.get('meeting_room_id')}"),
+                    "title": res.get("title", "회의"),
+                    "description": res.get("description"),
+                    "start_time": res.get("start_time").isoformat() if res.get("start_time") else None,
+                    "end_time": res.get("end_time").isoformat() if res.get("end_time") else None,
+                    "participants": res.get("participants"),
+                    "status": res.get("status"),
+                }
+                for res in reservations
+            ],
+            "count": len(reservations)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "reservations": [],
+            "count": 0,
+            "message": f"예약 목록 조회 실패: {str(e)}"
+        }
+
+
+@app.delete("/api/reservations/{reservation_id}")
+async def delete_reservation(reservation_id: int):
+    """예약 취소 (AI 없이 직접 DB 삭제).
+    
+    Args:
+        reservation_id: 예약 ID
+        
+    Returns:
+        삭제 결과
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        
+        db_service = DatabaseService()
+        success = await db_service.delete_room_reservation(reservation_id)
+        
+        if success:
+            return {
+                "ok": True,
+                "message": "예약이 취소되었습니다."
+            }
+        else:
+            return {
+                "ok": False,
+                "message": "예약을 찾을 수 없습니다."
+            }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "message": f"예약 취소 실패: {str(e)}"
+        }
+
+
+@app.get("/api/my-events")
+async def get_my_events(
+    employee_id: int = Query(..., description="사원 번호"),
+    start_date: str = Query(..., description="시작일 (ISO 8601, 예: 2024-12-01T00:00:00Z)"),
+    end_date: str = Query(..., description="종료일 (ISO 8601)")
+):
+    """내 일정 조회 (Google Calendar + DB 메타데이터 병합).
+    
+    Args:
+        employee_id: 사원 번호
+        start_date: 시작일 (ISO 8601)
+        end_date: 종료일 (ISO 8601)
+        
+    Returns:
+        병합된 일정 목록
+    """
+    try:
+        from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
+        
+        scheduler = HybridScheduler()
+        user_id = str(employee_id)
+        
+        # HybridScheduler.get_events 사용 (Google Calendar + DB 병합)
+        events = await scheduler.get_events(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        return {
+            "ok": True,
+            "events": events,
+            "count": len(events)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "events": [],
+            "count": 0,
+            "message": f"일정 조회 실패: {str(e)}"
+        }
+
+
 # ===== 테스트용 엔드포인트 (연차/반차 & 일정 관리) =====
 
 class LeaveTestRequest(BaseModel):
     """연차 테스트 요청 모델."""
     query: str = Field(..., description="연차 관련 질의")
-    employee_id: int = Field(default=12345, description="사원 번호")
+    employee_id: int = Field(default=4003, description="사원 번호")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
 
 
@@ -1532,7 +1671,7 @@ async def test_leave_endpoint(payload: LeaveTestRequest) -> LeaveTestResponse:
 class ScheduleTestRequest(BaseModel):
     """일정 테스트 요청 모델."""
     query: str = Field(..., description="일정 관련 질의")
-    employee_id: int = Field(default=12345, description="사원 번호")
+    employee_id: int = Field(default=4003, description="사원 번호")
     user_id: Optional[str] = Field(default=None, description="사용자 ID (Google Calendar)")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
 

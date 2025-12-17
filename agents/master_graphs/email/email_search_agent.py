@@ -1338,9 +1338,9 @@ def _email_recent100_redis_key(session_id: str) -> str:
 
 	- Redis에는 UID 100개만 저장합니다(본문/메타데이터 저장 X).
 	- 최신이 앞(0번 인덱스)으로 오도록 저장합니다.
-	- employee_id는 4000으로 고정
+	- employee_id는 4003으로 고정
 	"""
-	employee_id = 4000
+	employee_id = 4003
 	return f"employee:{employee_id}:email"
 
 

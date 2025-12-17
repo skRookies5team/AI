@@ -162,7 +162,7 @@ Content-Type: application/json
 ```json
 {
   "ok": true,
-  "message": "강하은(사번: 4001)의 잔여 연차는...",
+  "message": "강하은(사번: 4003)의 잔여 연차는...",
   "rows": [],
   "error": null,
   "session_id": "optional-session-id"

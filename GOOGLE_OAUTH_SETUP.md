@@ -181,7 +181,7 @@ Google 로그인 화면
 #### ③ 연동 해제
 
 ```bash
-curl -X POST "http://localhost:8000/auth/google/disconnect?employee_id=4001"
+curl -X POST "http://localhost:8000/auth/google/disconnect?employee_id=4003"
 ```
 
 ### 2. 직접 테스트 (개발자)
@@ -197,7 +197,7 @@ async def test():
     
     # 토큰 저장
     success = await service.save_google_credentials(
-        employee_id=4001,
+        employee_id=4003,
         google_email="test@example.com",
         refresh_token="1//0g...",
         scope="https://www.googleapis.com/auth/calendar",
@@ -206,7 +206,7 @@ async def test():
     print(f"저장 성공: {success}")
     
     # 토큰 조회
-    creds = await service.get_google_credentials(4001)
+    creds = await service.get_google_credentials(4003)
     if creds:
         print(f"이메일: {creds['google_email']}")
         print(f"마지막 사용: {creds['last_used_at']}")
@@ -218,7 +218,7 @@ asyncio.run(test())
 
 ```bash
 # 1. OAuth 플로우 시작
-curl "http://localhost:8000/auth/google?user_id=4001"
+curl "http://localhost:8000/auth/google?user_id=4003"
 
 # 2. 콜백 (자동으로 처리됨)
 # → DB + Redis에 토큰 저장
@@ -226,10 +226,10 @@ curl "http://localhost:8000/auth/google?user_id=4001"
 # 3. 일정 조회 (토큰 자동 사용)
 curl -X POST "http://localhost:8000/api/chat" \
   -H "Content-Type: application/json" \
-  -d '{"query": "오늘 일정 알려줘", "employee_id": 4001}'
+  -d '{"query": "오늘 일정 알려줘", "employee_id": 4003}'
 
 # 4. 연동 해제
-curl -X POST "http://localhost:8000/auth/google/disconnect?employee_id=4001"
+curl -X POST "http://localhost:8000/auth/google/disconnect?employee_id=4003"
 ```
 
 ---
@@ -250,7 +250,7 @@ curl -X POST "http://localhost:8000/auth/google/disconnect?employee_id=4001"
 **원인**: 암호화 키가 변경됨
 
 **해결**:
-1. 기존 토큰 삭제: `DELETE FROM google_credentials WHERE employee_id=4001;`
+1. 기존 토큰 삭제: `DELETE FROM google_credentials WHERE employee_id=4003;`
 2. 재연동: Google OAuth 플로우 다시 진행
 
 ### ❌ "refresh_token을 받지 못했습니다"
