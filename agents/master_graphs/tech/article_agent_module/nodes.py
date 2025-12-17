@@ -32,7 +32,7 @@ from agents.master_graphs.tech.article_agent_module.vector_db import (
     check_paper_exists,
     download_and_vectorize_paper,
 )
-from agents.master_graphs.tech.article_agent_module.prompts import LLM, INTENT_PROMPT
+from agents.master_graphs.tech.article_agent_module.prompts import LLM, INTENT_PROMPT, get_intent_llm
 
 LOGGER = logging.getLogger(__name__)
 
@@ -116,7 +116,9 @@ async def analyze_input_node(state: ScienceONAgentState) -> ScienceONAgentState:
                 )
                 prompt[0].content += selection_context
             
-            response = await LLM.ainvoke(prompt)
+            # LLM이 None이면 get_intent_llm()으로 지연 초기화
+            llm = LLM if LLM is not None else get_intent_llm()
+            response = await llm.ainvoke(prompt)
             response_text = response.content.strip()
             intent_data = _extract_json_from_text(response_text)
             
@@ -283,7 +285,9 @@ async def analyze_input_node(state: ScienceONAgentState) -> ScienceONAgentState:
                 history=history
             )
             
-            response = await LLM.ainvoke(prompt)
+            # LLM이 None이면 get_intent_llm()으로 지연 초기화
+            llm = LLM if LLM is not None else get_intent_llm()
+            response = await llm.ainvoke(prompt)
             response_text = response.content.strip()
             
             # LLM 원본 응답 로깅 (디버깅용) - 전체 로깅
