@@ -1508,7 +1508,7 @@ async def update_session(
 
 
 @app.post("/api/session/new", response_model=SessionResponse)
-async def create_new_session(employee_id: int = 4000) -> SessionResponse:
+async def create_new_session(employee_id: int = 4003) -> SessionResponse:
     """새 세션 생성 (하위 호환성 유지용 - /api/sessions 사용 권장).
     
     Args:
@@ -1622,6 +1622,145 @@ async def get_session_info(
 async def health_check():
     """헬스 체크 엔드포인트."""
     return {"status": "ok", "service": "깐부 AI Agent 시스템"}
+
+
+# ===== 회의실 및 일정 API 엔드포인트 =====
+
+@app.get("/api/my-reservations")
+async def get_my_reservations(employee_id: int = Query(..., description="사원 번호")):
+    """내 예약 목록 조회 (AI 없이 직접 DB 조회).
+    
+    Args:
+        employee_id: 사원 번호
+        
+    Returns:
+        예약 목록 (회의실 정보 포함)
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        
+        db_service = DatabaseService()
+        reservations = await db_service.get_room_reservations_by_user(
+            employee_id=employee_id,
+            include_past=False,
+            limit=50
+        )
+        
+        # 회의실 정보도 함께 조회 (효율적으로 한 번만 조회)
+        room_map = {}
+        if reservations:
+            rooms = await db_service.get_meeting_rooms()
+            room_map = {room.get("id"): room.get("name", f"회의실 {room.get('id')}") for room in rooms}
+        
+        return {
+            "ok": True,
+            "reservations": [
+                {
+                    "id": res.get("id"),
+                    "reservation_id": res.get("id"),
+                    "event_id": res.get("gcal_event_id"),
+                    "meeting_room_id": res.get("meeting_room_id"),
+                    "meeting_room_name": room_map.get(res.get("meeting_room_id"), f"회의실 {res.get('meeting_room_id')}"),
+                    "title": res.get("title", "회의"),
+                    "description": res.get("description"),
+                    "start_time": res.get("start_time").isoformat() if res.get("start_time") else None,
+                    "end_time": res.get("end_time").isoformat() if res.get("end_time") else None,
+                    "participants": res.get("participants"),
+                    "status": res.get("status"),
+                }
+                for res in reservations
+            ],
+            "count": len(reservations)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "reservations": [],
+            "count": 0,
+            "message": f"예약 목록 조회 실패: {str(e)}"
+        }
+
+
+@app.delete("/api/reservations/{reservation_id}")
+async def delete_reservation(reservation_id: int):
+    """예약 취소 (AI 없이 직접 DB 삭제).
+    
+    Args:
+        reservation_id: 예약 ID
+        
+    Returns:
+        삭제 결과
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        
+        db_service = DatabaseService()
+        success = await db_service.delete_room_reservation(reservation_id)
+        
+        if success:
+            return {
+                "ok": True,
+                "message": "예약이 취소되었습니다."
+            }
+        else:
+            return {
+                "ok": False,
+                "message": "예약을 찾을 수 없습니다."
+            }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "message": f"예약 취소 실패: {str(e)}"
+        }
+
+
+@app.get("/api/my-events")
+async def get_my_events(
+    employee_id: int = Query(..., description="사원 번호"),
+    start_date: str = Query(..., description="시작일 (ISO 8601, 예: 2024-12-01T00:00:00Z)"),
+    end_date: str = Query(..., description="종료일 (ISO 8601)")
+):
+    """내 일정 조회 (Google Calendar + DB 메타데이터 병합).
+    
+    Args:
+        employee_id: 사원 번호
+        start_date: 시작일 (ISO 8601)
+        end_date: 종료일 (ISO 8601)
+        
+    Returns:
+        병합된 일정 목록
+    """
+    try:
+        from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
+        
+        scheduler = HybridScheduler()
+        user_id = str(employee_id)
+        
+        # HybridScheduler.get_events 사용 (Google Calendar + DB 병합)
+        events = await scheduler.get_events(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        return {
+            "ok": True,
+            "events": events,
+            "count": len(events)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "events": [],
+            "count": 0,
+            "message": f"일정 조회 실패: {str(e)}"
+        }
 
 
 # ===== 테스트용 엔드포인트 (연차/반차 & 일정 관리) =====
@@ -1809,3 +1948,104 @@ async def test_schedule_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"일정 테스트 실패: {exc}") from exc
+
+
+# ===== 회의실 조회 REST API 엔드포인트 =====
+
+@app.get("/api/meeting-rooms")
+async def get_meeting_rooms(
+    floor: Optional[int] = Query(None, description="층수 (선택사항)"),
+    capacity: Optional[int] = Query(None, description="최소 수용 인원 (선택사항)"),
+    has_video: Optional[bool] = Query(None, description="화상회의 장비 필요 여부 (선택사항)"),
+    has_projector: Optional[bool] = Query(None, description="프로젝터 필요 여부 (선택사항)"),
+    has_whiteboard: Optional[bool] = Query(None, description="화이트보드 필요 여부 (선택사항)"),
+    start_date: Optional[str] = Query(None, description="시작 날짜 (YYYY-MM-DD)"),
+    start_time: Optional[str] = Query(None, description="시작 시간 (HH:MM)"),
+    end_date: Optional[str] = Query(None, description="종료 날짜 (YYYY-MM-DD)"),
+    end_time: Optional[str] = Query(None, description="종료 시간 (HH:MM)"),
+) -> Dict[str, Any]:
+    """회의실 목록 조회 (조건별 필터링 가능, AI 없이 직접 DB 조회).
+    
+    Args:
+        floor: 층수
+        capacity: 최소 수용 인원
+        has_video: 화상회의 장비 필요 여부
+        has_projector: 프로젝터 필요 여부
+        has_whiteboard: 화이트보드 필요 여부
+        start_date: 시작 날짜
+        start_time: 시작 시간
+        end_date: 종료 날짜
+        end_time: 종료 시간
+        
+    Returns:
+        회의실 목록
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        
+        db_service = DatabaseService()
+        rooms = await db_service.get_meeting_rooms(
+            capacity=capacity,
+            floor=floor,
+            has_video_conf=has_video,
+            has_projector=has_projector,
+            has_whiteboard=has_whiteboard,
+        )
+        
+        # 날짜/시간 기반 예약 가능 여부 필터링 (선택사항)
+        available_rooms = rooms
+        if start_date and start_time and end_date and end_time:
+            from datetime import datetime
+            try:
+                start_datetime = datetime.fromisoformat(f"{start_date}T{start_time}")
+                end_datetime = datetime.fromisoformat(f"{end_date}T{end_time}")
+                
+                # 각 회의실의 예약 확인
+                filtered_rooms = []
+                for room in rooms:
+                    room_id = room.get("id")
+                    if room_id:
+                        # 해당 시간대에 예약이 있는지 확인 (겹치는 예약 찾기)
+                        conflicts = await db_service.find_room_conflicts(
+                            meeting_room_id=room_id,
+                            start_time=start_datetime,
+                            end_time=end_datetime
+                        )
+                        # 예약이 없으면 사용 가능
+                        if not conflicts or len(conflicts) == 0:
+                            filtered_rooms.append(room)
+                    else:
+                        filtered_rooms.append(room)
+                
+                available_rooms = filtered_rooms
+            except Exception as e:
+                print(f"날짜/시간 필터링 오류: {e}")
+                # 필터링 실패 시 모든 회의실 반환
+        
+        return {
+            "ok": True,
+            "rooms": [
+                {
+                    "id": room.get("id"),
+                    "room_code": room.get("room_code"),
+                    "name": room.get("name"),
+                    "building": room.get("building"),
+                    "floor": room.get("floor"),
+                    "capacity": room.get("capacity"),
+                    "has_video": bool(room.get("has_video", 0)),
+                    "has_projector": bool(room.get("has_projector", 0)) if "has_projector" in room else None,
+                    "has_whiteboard": bool(room.get("has_whiteboard", 0)) if "has_whiteboard" in room else None,
+                }
+                for room in available_rooms
+            ],
+            "count": len(available_rooms)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "rooms": [],
+            "count": 0,
+            "message": f"회의실 목록 조회 실패: {str(e)}"
+        }
