@@ -1165,18 +1165,14 @@ def _save_email_cache(cache_data: Dict[str, Any], session_id: Optional[str] = No
 
 def _imap_connect() -> imaplib.IMAP4_SSL:
 	"""IMAP 서버에 연결 (mail_test.py 방식 참고)."""
-	# mail_test.py: host = "imap.naver.com", port = 993
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+	# mail_test.py: host = "imap.gmail.com", port = 993
+	host = _get_env("IMAP_HOST")
+	port = int(_get_env("IMAP_PORT"))
+	user = _get_env("GMAIL_EMAIL") 
+	pwd = _get_env("GMAIL_APP_PASSWORD")
 	if not user or not pwd:
 		raise RuntimeError(
-			"IMAP 접속 정보가 필요합니다. .env 파일에 NAVER_EMAIL, NAVER_APP_PASSWORD를 설정해 주세요."
+			"IMAP 접속 정보가 필요합니다. .env 파일에 GMAIL_EMAIL, GMAIL_APP_PASSWORD를 설정해 주세요."
 		)
 	m = imaplib.IMAP4_SSL(host, port)
 	m.login(user, pwd)
@@ -1225,14 +1221,10 @@ async def sync_emails_to_redis(
 		return {"ok": True, "count": count, "message": f"이미 {count}개의 메일이 동기화되어 있습니다."}
 	
 	# IMAP 연결
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+	host = _get_env("IMAP_HOST")
+	port = int(_get_env("IMAP_PORT"))
+	user = _get_env("GMAIL_EMAIL")
+	pwd = _get_env("GMAIL_APP_PASSWORD")
 	
 	if not user or not pwd:
 		return {"ok": False, "count": 0, "message": "IMAP 접속 정보가 필요합니다."}
@@ -1346,8 +1338,10 @@ def _email_recent100_redis_key(session_id: str) -> str:
 
 	- Redis에는 UID 100개만 저장합니다(본문/메타데이터 저장 X).
 	- 최신이 앞(0번 인덱스)으로 오도록 저장합니다.
+	- 이메일은 공유 계정을 사용하므로 session_id 기반으로 키 생성
 	"""
-	return f"{session_id}_EMAIL_RECENT100"
+	# 이메일은 공유 계정 사용이므로 employee_id 없이 session_id 기반으로 키 생성
+	return f"email:recent100:{session_id}"
 
 
 def register_email_check_session(session_id: str) -> None:
@@ -1369,14 +1363,10 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 	4) 신규 UID가 있으면 해당 메일만 fetch해서 프론트로 알림 발행
 	5) Redis의 최근 100개 UID 목록을 최신으로 갱신
 	"""
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+	host = _get_env("IMAP_HOST")
+	port = int(_get_env("IMAP_PORT"))
+	user = _get_env("GMAIL_EMAIL") 
+	pwd = _get_env("GMAIL_APP_PASSWORD")
 
 	if not user or not pwd:
 		logger.debug(f"[EMAIL CHECK][{session_id}] IMAP 접속 정보 없음")
@@ -1570,14 +1560,10 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 	}
 
 	# IMAP 연결
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+	host = _get_env("IMAP_HOST")
+	port = int(_get_env("IMAP_PORT"))
+	user = _get_env("GMAIL_EMAIL")
+	pwd = _get_env("GMAIL_APP_PASSWORD")
 	if not user or not pwd:
 		logger.debug(f"[EMAIL CHECK][{session_id}] IMAP 접속 정보 없음")
 		return []
@@ -1676,14 +1662,10 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 			email_data: Dict[str, Dict[str, str]] = {}
 
 			# IMAP에서 본문까지 가져와 content 채우기 (UID 기반)
-			host = _get_env("IMAP_HOST") or "imap.naver.com"
-			port = int(_get_env("IMAP_PORT") or "993")
-			user = _get_env("NAVER_EMAIL") or ""
-			if not user:
-				nid = _get_env("NAVER_ID") or ""
-				if nid:
-					user = f"{nid}@naver.com"
-			pwd = _get_env("NAVER_APP_PASSWORD") or ""
+			host = _get_env("IMAP_HOST")
+			port = int(_get_env("IMAP_PORT"))
+			user = _get_env("GMAIL_EMAIL")
+			pwd = _get_env("GMAIL_APP_PASSWORD")
 
 			mail = None
 			if user and pwd:
@@ -1846,9 +1828,9 @@ async def email_search(
 		이미 설정된 환경변수는 .env로 덮어쓰지 않습니다.
 
 	환경 변수:
-		IMAP_HOST (기본 imap.naver.com), IMAP_PORT (기본 993)
-		EMAIL_USERNAME 또는 NAVER_EMAIL
-		EMAIL_PASSWORD 또는 NAVER_APP_PASSWORD
+		IMAP_HOST (기본 imap.gmail.com), IMAP_PORT (기본 993)
+		GMAIL_EMAIL: Gmail 이메일 주소
+		GMAIL_APP_PASSWORD: Gmail 앱 비밀번호
 		IMAP_MAX_FETCH: 최근 몇 개 메시지 범위를 검색할지 (기본 1000)
 
 	Args:
@@ -1858,7 +1840,7 @@ async def email_search(
 		표준화된 dict 결과. format_result와 호환되는 구조.
 	
 	Note:
-		.env 파일의 NAVER_EMAIL, NAVER_APP_PASSWORD는 모듈 로드 시 자동으로 환경변수에 주입됩니다.
+		.env 파일의 GMAIL_EMAIL, GMAIL_APP_PASSWORD는 모듈 로드 시 자동으로 환경변수에 주입됩니다.
 	"""
 	# 로깅 설정 (EMAIL_DEBUG=true 시 활성화)
 	def _mask_user(u: str) -> str:
@@ -1937,16 +1919,12 @@ async def email_search(
 		search_keyword = f"{search_keyword} ({date_range.get('start')} ~ {date_range.get('end')})"
 
 	# IMAP 연결
-	host = _get_env("IMAP_HOST") or "imap.naver.com"
-	port = int(_get_env("IMAP_PORT") or "993")
-	user = _get_env("NAVER_EMAIL") or ""
-	if not user:
-		nid = _get_env("NAVER_ID") or ""
-		if nid:
-			user = f"{nid}@naver.com"
-	pwd = _get_env("NAVER_APP_PASSWORD") or ""
+	host = _get_env("IMAP_HOST")
+	port = int(_get_env("IMAP_PORT"))
+	user = _get_env("GMAIL_EMAIL")
+	pwd = _get_env("GMAIL_APP_PASSWORD")
 	if not user or not pwd:
-		return {"ok": False, "error": "IMAP 접속 정보가 필요합니다. .env에 NAVER_EMAIL/NAVER_APP_PASSWORD를 설정해 주세요."}
+		return {"ok": False, "error": "IMAP 접속 정보가 필요합니다. .env에 GMAIL_EMAIL/GMAIL_APP_PASSWORD를 설정해 주세요."}
 
 	max_results = int(_get_env("IMAP_SEARCH_MAX_RESULTS", "20") or "20")
 	candidate_limit = int(_get_env("IMAP_CANDIDATE_LIMIT", "80") or "80")

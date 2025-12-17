@@ -1,6 +1,7 @@
 """프롬프트 및 LLM 설정."""
 
 from __future__ import annotations
+from typing import Optional
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -10,14 +11,39 @@ from agents.master_graphs.tech.article_agent_module.state import (
     OPENAI_TIMEOUT,
 )
 
-# Intent 분류용 LLM
-LLM = ChatOpenAI(
-    model=OPENAI_MODEL,
-    temperature=0.0,
-    max_tokens=512,
-    timeout=OPENAI_TIMEOUT,
-    max_retries=2,
-)
+# Intent 분류용 LLM (지연 초기화로 변경하여 환경 변수 로드 문제 방지)
+_LLM_INSTANCE: Optional[ChatOpenAI] = None
+
+def get_intent_llm() -> ChatOpenAI:
+    """Intent 분류용 LLM 인스턴스 반환 (지연 초기화)."""
+    global _LLM_INSTANCE
+    if _LLM_INSTANCE is None:
+        if not OPENAI_MODEL:
+            raise ValueError("OPENAI_MODEL 환경 변수가 설정되지 않았습니다. .env 파일에 OPENAI_MODEL을 설정해주세요.")
+        _LLM_INSTANCE = ChatOpenAI(
+            model=OPENAI_MODEL,
+            temperature=0.0,
+            max_tokens=512,
+            timeout=OPENAI_TIMEOUT,
+            max_retries=2,
+        )
+    return _LLM_INSTANCE
+
+# 하위 호환성을 위한 별칭 (지연 초기화)
+# OPENAI_MODEL이 None이면 초기화하지 않고, 사용 시점에 get_intent_llm() 호출
+if OPENAI_MODEL:
+    try:
+        LLM = get_intent_llm()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"LLM 초기화 실패: {e}")
+        LLM = None
+else:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("OPENAI_MODEL 환경 변수가 설정되지 않았습니다. LLM은 None입니다.")
+    LLM = None
 
 # Intent 분류 프롬프트
 INTENT_PROMPT = ChatPromptTemplate.from_messages(

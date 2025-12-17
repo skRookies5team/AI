@@ -432,17 +432,13 @@ def send_email_via_smtp(
 		(success, error_message) 튜플
 	"""
 	try:
-		smtp_server = _get_env("SMTP_SERVER") or "smtp.naver.com"
-		smtp_port = int(_get_env("SMTP_PORT") or "587")
-		email_user = _get_env("NAVER_EMAIL") or ""
-		if not email_user:
-			nid = _get_env("NAVER_ID") or ""
-			if nid:
-				email_user = f"{nid}@naver.com"
-		email_password = _get_env("NAVER_APP_PASSWORD") or ""
+		smtp_server = _get_env("SMTP_SERVER")
+		smtp_port = int(_get_env("SMTP_PORT"))
+		email_user = _get_env("GMAIL_EMAIL")
+		email_password = _get_env("GMAIL_APP_PASSWORD")
 		
 		if not email_user or not email_password:
-			return False, "SMTP 접속 정보가 필요합니다. .env 파일에 NAVER_EMAIL, NAVER_APP_PASSWORD를 설정해 주세요."
+			return False, "SMTP 접속 정보가 필요합니다. .env 파일에 GMAIL_EMAIL, GMAIL_APP_PASSWORD를 설정해 주세요."
 		
 		to_emails = [addr.strip() for addr in to.split(',') if addr.strip()]
 		if not to_emails:
