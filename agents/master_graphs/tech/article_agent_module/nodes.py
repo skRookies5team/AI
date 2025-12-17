@@ -23,7 +23,7 @@ from agents.master_graphs.tech.article_agent_module.utils import (
     parse_search_source_keywords as _parse_search_source_keywords,
 )
 from agents.master_graphs.tech.article_agent_module.keyword import generate_search_keyword, generate_summary
-from agents.master_graphs.tech.article_agent_module.crawler import download_pdfs_from_results, search_scienceon_papers
+from agents.master_graphs.tech.article_agent_module.crawler import search_scienceon_papers
 from agents.master_graphs.tech.article_agent_module.vector_db import (
     extract_keyword_from_text,
     check_vector_db,
@@ -231,37 +231,52 @@ async def analyze_input_node(state: ScienceONAgentState) -> ScienceONAgentState:
     search_keywords = ["논문", "찾아", "검색", "paper", "article", "찾아줘", "찾아주세요"]
     has_search_keyword = any(kw in user_input for kw in search_keywords)
     
-    # 명확한 검색 키워드가 있고, 순번 패턴이 없으면 새로운 검색으로 간주
-    if has_search_keyword and results_count > 0:
-        # 순번 패턴 확인 (예: "1번", "2번째", "첫 번째" 등)
-        number_patterns = [
-            r'(\d+)번',
-            r'(\d+)번째',
-            r'첫.*번째?',
-            r'두.*번째?',
-            r'세.*번째?',
-            r'마지막',
-        ]
-        has_index_pattern = any(re.search(p, user_input.lower()) for p in number_patterns)
-        
-        
-        # 순번 패턴이 없으면 새로운 검색 요청으로 간주
-        if not has_index_pattern:
-            LOGGER.debug(f"새로운 검색 요청 감지: '{user_input}' - 이전 결과 리셋")
-            state["results"] = []
-            state["displayed_count"] = 0
-            state["keyword"] = ""
-            state["vector_db_results"] = []
-            state["download_index"] = []
-            state["error"] = None  # 에러 초기화
-            state["response"] = ""  # 응답 초기화
-            # 검색 키워드 추출
-            # "시스템 논문", "배터리 논문" 등에서 주제 추출
-            state["query"] = user_input
-            state["intent"] = "search"
-            # 아래 LLM 분류 로직으로 진행 (results_count=0이 됨)
-            results_count = 0  # results_count 업데이트
+    # 🔧 수정: 순번 패턴을 먼저 확인 (검색 키워드보다 우선)
+    number_patterns = [
+        r'(\d+)번',
+        r'(\d+)번째',
+        r'첫.*번째?',
+        r'두.*번째?',
+        r'세.*번째?',
+        r'마지막',
+    ]
+    has_index_pattern = any(re.search(p, user_input.lower()) for p in number_patterns)
     
+    # 순번 패턴이 있으면 detail/download 요청으로 처리 (검색 키워드가 있어도)
+    if has_index_pattern and results_count > 0:
+        # detail/download 키워드 확인
+        detail_keywords = ["에 대해", "알려", "설명", "상세", "정보", "비교", "요약", "결론"]
+        download_keywords = ["다운로드", "다운받", "pdf", "저장", "받아"]
+        
+        has_detail_keyword = any(kw in user_input for kw in detail_keywords)
+        has_download_keyword = any(kw in user_input for kw in download_keywords)
+        
+        # download 키워드가 있으면 download, detail 키워드가 있거나 둘 다 없으면 detail
+        if has_download_keyword:
+            intent = "download"
+        elif has_detail_keyword or (not has_download_keyword and not has_detail_keyword):
+            # detail 키워드가 있거나, 둘 다 없으면 detail로 (순번만 있어도 detail)
+            intent = "detail"
+        else:
+            intent = "detail"  # 기본값
+        
+        LOGGER.debug(f"순번 패턴 감지 (검색 키워드 무시): '{user_input}' -> {intent}로 처리")
+        # 아래 download_index 파싱 로직으로 진행
+    # 명확한 검색 키워드가 있고, 순번 패턴이 없으면 새로운 검색으로 간주
+    elif has_search_keyword and results_count > 0:
+        # 순번 패턴이 없으면 새로운 검색 요청으로 간주
+        LOGGER.debug(f"새로운 검색 요청 감지: '{user_input}' - 이전 결과 리셋")
+        state["results"] = []
+        state["displayed_count"] = 0
+        state["keyword"] = ""
+        state["vector_db_results"] = []
+        state["download_index"] = []
+        state["error"] = None
+        state["response"] = ""
+        state["query"] = user_input
+        state["intent"] = "search"
+        results_count = 0
+        
     # LLM을 사용한 intent 분류 (정규식 제거, LLM이 모든 것을 처리)
     # 단, ask_source에서 이미 LLM을 호출한 경우 결과 재사용 (중복 호출 방지)
     if llm_intent_result:
@@ -275,8 +290,7 @@ async def analyze_input_node(state: ScienceONAgentState) -> ScienceONAgentState:
         try:
             history = _render_history(messages[:-1] if len(messages) > 1 else [])  # 마지막 사용자 입력 제외
             
-            # previous_keyword 가져오기 (이전 검색 키워드)
-            previous_keyword = state.get("keyword", "").split(',')[0].strip() if state.get("keyword") else ""
+            previous_keyword = state.get("keyword", "") if state.get("keyword") else ""
             
             prompt = INTENT_PROMPT.format_messages(
                 results_count=results_count,
@@ -646,27 +660,20 @@ async def check_db_node(state: ScienceONAgentState) -> ScienceONAgentState:
     
     query = state.get("user_input", "")
     
-    # 키워드 생성 (한 번만 호출하여 비용 절감)
-    # 쉼표로 구분된 키워드에서 첫 번째만 추출 (컬렉션 이름용)
     keyword = state.get("keyword", "")
-    collection_keyword = None  # 컬렉션 이름용 키워드
-    
+
     if not keyword:
         try:
             search_keyword = await generate_search_keyword(query)
-            # 쉼표로 구분된 키워드에서 첫 번째 키워드만 추출
-            collection_keyword = search_keyword.split(',')[0].strip()
-            state["keyword"] = search_keyword  # 전체 키워드는 state에 저장 (search_papers에서 재사용)
+            state["keyword"] = search_keyword
+            keyword = search_keyword
         except Exception as e:
             LOGGER.warning(f"키워드 생성 실패: {e}")
-            collection_keyword = extract_keyword_from_text(query)
-    else:
-        # 이미 생성된 키워드가 있으면 첫 번째만 추출
-        collection_keyword = keyword.split(',')[0].strip()
+            keyword = extract_keyword_from_text(query)
     
     # 벡터DB 검색 (생성된 키워드 전달)
     try:
-        results = await check_vector_db(query, limit=5, max_distance=1.5, keyword=collection_keyword)
+        results = await check_vector_db(query, limit=5, max_distance=1.5, keyword=keyword)
     except Exception as e:
         LOGGER.error(f"벡터DB 검색 중 예외 발생: {e}")
         error_str = str(e).lower()
@@ -913,6 +920,13 @@ async def ask_search_source_with_db_result(state: ScienceONAgentState) -> Scienc
             state["next_action"] = "search_papers"
             state["ask_source_retry_count"] = 0  # 리셋
             state["response"] = ""  # 선택 질문 메시지 제거
+            orchestrator_state = state.get("_orchestrator_state")
+            if orchestrator_state is not None:
+                if "tech_search_context" not in orchestrator_state or orchestrator_state["tech_search_context"] is None:
+                    orchestrator_state["tech_search_context"] = {}
+                if "article" not in orchestrator_state["tech_search_context"]:
+                    orchestrator_state["tech_search_context"]["article"] = {}
+                orchestrator_state["tech_search_context"]["article"].pop("intent", None)
         else:
             # 명확하지 않으면 다시 질문 (하지만 최대 재시도 횟수 확인)
             if retry_count >= MAX_ASK_SOURCE_RETRIES:
@@ -1051,56 +1065,65 @@ async def rag_answer_node(state: ScienceONAgentState) -> ScienceONAgentState:
             state["next_action"] = "generate_response"
             return state
         
-        # 다운로드할 논문들 수집
-        download_targets = []
-        for idx in valid_indices:
-            target_result = results[idx]
-            pdf_link = target_result.get("pdf_link", "")
-            if pdf_link and pdf_link != "원문보기 링크 없음":
-                download_targets.append(target_result)
-            else:
-                title = target_result.get("title", f"{idx + 1}번째 논문")
-                LOGGER.warning(f"PDF 링크 없음: {title}")
-        
-        if not download_targets:
-            state["response"] = "⚠️ 다운로드 가능한 PDF 링크가 없습니다."
-            state["next_action"] = "generate_response"
-            return state
-        
+        # 요청한 모든 논문의 정보 수집
         try:
-            # download_pdfs_from_results는 파일 상단에서 이미 import됨
-            # 다운로드 디렉토리 설정 (None이면 crawler.py의 PDF_DOWNLOAD_DIR 사용)
-            download_dir = None
+            import json
             
-            # 여러 논문 다운로드
-            download_results = await download_pdfs_from_results(
-                results=download_targets,
-                download_dir=download_dir
-            )
+            # 모든 논문을 JSON 배열에 포함 (링크가 없어도 포함)
+            all_papers_data = []
             
-            # 성공/실패 메시지 생성
-            success_list = []
-            fail_list = []
-            for i, result in enumerate(download_results):
-                idx = valid_indices[i]
-                title = result.get("title", f"{idx + 1}번째 논문")
-                if result.get("pdf_path"):
-                    success_list.append(f"  ✅ {idx + 1}번째: {title} → {result['pdf_path']}")
-                else:
-                    fail_list.append(f"  ❌ {idx + 1}번째: {title}")
+            for idx in valid_indices:
+                target_result = results[idx]
+                pdf_link = target_result.get("pdf_link", "")
+                title = target_result.get("title", f"{idx + 1}번째 논문")
+                
+                # PDF 링크가 있으면 실제 링크, 없으면 "pdf 링크가 없습니다"
+                paper_data = {
+                    "index": idx + 1,
+                    "title": title,
+                    "pdf_link": pdf_link if (pdf_link and pdf_link != "원문보기 링크 없음") else "pdf 링크가 없습니다"
+                }
+                
+                all_papers_data.append(paper_data)
+                
+                if not pdf_link or pdf_link == "원문보기 링크 없음":
+                    LOGGER.warning(f"PDF 링크 없음: {title}")
             
-            response_parts = ["📄 PDF 다운로드 결과:\n"]
-            if success_list:
-                response_parts.append("성공:\n" + "\n".join(success_list))
-            if fail_list:
-                response_parts.append("\n실패:\n" + "\n".join(fail_list))
+            # JSON 형식으로 응답 생성
+            if len(all_papers_data) == 1:
+                # 단일 논문인 경우
+                json_response = json.dumps(
+                    {
+                        "pdf_link": all_papers_data[0]["pdf_link"],
+                        "title": all_papers_data[0]["title"],
+                        "index": all_papers_data[0]["index"]
+                    },
+                    ensure_ascii=False,
+                    indent=2
+                )
+            else:
+                # 여러 논문인 경우 배열 형식
+                json_response = json.dumps(
+                    [
+                        {
+                            "index": item["index"],
+                            "title": item["title"],
+                            "pdf_link": item["pdf_link"]
+                        }
+                        for item in all_papers_data
+                    ],
+                    ensure_ascii=False,
+                    indent=2
+                )
             
-            state["response"] = "\n".join(response_parts)
+            response_msg = f"{json_response}"
+            
+            state["response"] = response_msg
             state["next_action"] = "generate_response"
             return state
         except Exception as e:
-            LOGGER.exception(f"PDF 다운로드 중 오류 발생: {e}")
-            state["response"] = f"⚠️ PDF 다운로드 중 오류가 발생했습니다: {str(e)}"
+            LOGGER.exception(f"PDF 링크 수집 중 오류 발생: {e}")
+            state["response"] = f"⚠️ PDF 링크 수집 중 오류가 발생했습니다: {str(e)}"
             state["next_action"] = "generate_response"
             return state
     
@@ -1483,27 +1506,35 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
     current_query = state.get("query", "").strip()
     previous_keyword = state.get("keyword", "")  # 이전 검색 키워드
     
-    # 이미 생성된 키워드가 있으면 재사용 (비용 절감)
     keyword = None
-    if previous_keyword:
-        # 이미 생성된 키워드 재사용
-        keyword = previous_keyword
-    else:
-        # 키워드가 없으면 생성
-        try:
-            if current_query:
-                keyword = await generate_search_keyword(current_query)
-            else:
-                keyword = ""
-        except Exception as e:
-            LOGGER.warning(f"키워드 생성 실패: {e}")
-            keyword = ""
+    try:
+        if current_query:
+            keyword = await generate_search_keyword(current_query)
+    except Exception as e:
+        LOGGER.warning(f"키워드 생성 실패: {e}")
+        keyword = ""
     
-    is_new_search = (
-        not previous_keyword or 
-        keyword != previous_keyword or
-        not results
-    )
+    # 🔧 수정: 새로운 검색인지 확인 (생성된 키워드와 이전 키워드 비교)
+    is_new_search = False
+    if keyword:
+        current_keyword_normalized = keyword.split(',')[0].strip().lower()
+        previous_keyword_normalized = previous_keyword.split(',')[0].strip().lower() if previous_keyword else ""
+        
+        if previous_keyword_normalized:
+            # 이전 키워드와 다르면 새로운 검색
+            if current_keyword_normalized != previous_keyword_normalized:
+                is_new_search = True
+                LOGGER.info(f"search_papers: 새로운 검색 감지 - previous_keyword='{previous_keyword}', current_keyword='{keyword}'")
+        else:
+            # 이전 키워드가 없으면 새로운 검색
+            is_new_search = True
+    else:
+        # 키워드 생성 실패 시 새로운 검색으로 간주
+        is_new_search = True
+    
+    if not is_new_search and previous_keyword:
+        keyword = previous_keyword
+        LOGGER.info(f"search_papers: 이전 키워드 재사용 - keyword='{keyword}'")
     
     query = state.get("query", "").strip()
     if not query:
@@ -1514,7 +1545,7 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
         }
 
     try:
-        # keyword는 이미 위에서 추출했으므로 재사용 (중복 호출 제거)
+        # keyword는 이미 위에서 결정했으므로 재사용
         if not keyword:  # keyword가 없으면 한 번 더 시도
             keyword = await generate_search_keyword(query)
 
@@ -1529,7 +1560,7 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
             kw = kw.strip()
             if kw:
                 try:
-                    results = await search_scienceon_papers(kw, enable_downloads=False)
+                    results = await search_scienceon_papers(kw)
                     all_results.extend(results)
                 except RuntimeError as e:
                     error_msg = str(e)
@@ -1630,11 +1661,11 @@ async def search_papers(state: ScienceONAgentState) -> ScienceONAgentState:
         return {
             "query": query,
             "keyword": keyword,
-            "results": all_results,  # 전체 결과 저장
+            "results": all_results,
             "summary": summary,
             "error": None,
             "displayed_count": len(all_results),
-            "response": pre_message,  # check_db_node에서 설정한 메시지 유지
+            "response": pre_message,
             "intent": "search",
         }
     except Exception as exc:

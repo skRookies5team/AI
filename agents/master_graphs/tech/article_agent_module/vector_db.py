@@ -323,6 +323,37 @@ async def get_or_create_paper_collection(collection_name: str) -> Optional[Any]:
         return None
 
 
+async def get_paper_collection(collection_name: str) -> Optional[Any]:
+    """기존 논문 컬렉션만 가져오기 (생성하지 않음)."""
+    if not VECTOR_DB_AVAILABLE:
+        return None
+    
+    # 멀티톤 패턴: 캐시에 있으면 재사용 (async-safe)
+    lock = _get_collection_lock()
+    async with lock:
+        cached = _collection_cache.get(collection_name)
+    if cached is not None:
+        return cached
+    
+    try:
+        await initialize_milvus()
+        
+        # 기존 컬렉션이 있으면 로드
+        if collection_name in utility.list_collections():
+            collection = Collection(collection_name)
+            collection.load()
+            # 캐시에 저장 (Lock으로 보호)
+            async with lock:
+                _collection_cache[collection_name] = collection
+            return collection
+        
+        # 컬렉션이 없으면 None 반환 (생성하지 않음)
+        return None
+    except Exception as e:
+        LOGGER.warning(f"컬렉션 로드 실패: {e}")
+        return None
+
+
 async def check_vector_db(query: str, limit: int = 5, max_distance: float = 1.5, keyword: Optional[str] = None) -> List[Dict[str, Any]]:
     """벡터DB에서 유사 논문 검색."""
     if not VECTOR_DB_AVAILABLE:
@@ -335,20 +366,9 @@ async def check_vector_db(query: str, limit: int = 5, max_distance: float = 1.5,
         if not keyword:
             keyword = extract_keyword_from_text(query)
         
-        collection_name = await get_collection_name(keyword, prefix="papers_embeddings")
-        
-        try:
-            collection = await get_or_create_paper_collection(collection_name)
-            if not collection:
-                return []
-            
-            if not utility.has_collection(collection_name):
-                return []
-            
-            num_entities = collection.num_entities
-            if num_entities == 0:
-                return []
-        except Exception:
+        # 🔧 개선: 다중 컬렉션 검색 지원
+        collections = await _load_paper_collections_for_query(keyword)
+        if not collections:
             return []
         
         embeddings_result = await encode_texts([query])
@@ -356,67 +376,92 @@ async def check_vector_db(query: str, limit: int = 5, max_distance: float = 1.5,
             return []
         query_vec = embeddings_result[0].tolist()
         
-        # 스키마 확인하여 pdf_link 필드 존재 여부 체크
-        schema = collection.schema
-        field_names = [field.name for field in schema.fields]
-        has_pdf_link = "pdf_link" in field_names
-        
-        output_fields = ["identifier", "title", "content"]
-        if has_pdf_link:
-            output_fields.append("pdf_link")
-        
-        results = await asyncio.to_thread(
-            collection.search,
-            data=[query_vec],
-            anns_field="embedding",
-            param={"metric_type": "L2", "params": {"nprobe": 10}},
-            limit=limit * 5,
-            expr=None,
-            output_fields=output_fields
-        )
-        
-        if not results or len(results) == 0 or len(results[0]) == 0:
-            return []
-        
-        found_papers = []
-        seen_identifiers = set()
         query_lower = query.lower()
         query_words = re.findall(r'[\w가-힣]+', query_lower)
         
-        for hit in results[0]:
-            identifier = hit.entity.get('identifier')
-            if not identifier or identifier in seen_identifiers:
-                continue
-            
-            title = hit.entity.get('title', '').lower()
-            content = hit.entity.get('content', '').lower()
-            
-            full_match = (query_lower in title or query_lower in content)
-            word_match = any(word in title or word in content for word in query_words if len(word) > 1)
-            keyword_match = full_match or word_match
-            
-            effective_max_distance = 2.0 if keyword_match else max_distance
-            
-            if hit.distance > effective_max_distance:
-                continue
-            
-            seen_identifiers.add(identifier)
-            similarity = 1.0 / (1.0 + hit.distance)
-            
-            paper_data = {
-                "identifier": identifier,
-                "title": hit.entity.get('title'),
-                "content": hit.entity.get('content', ''),
-                "score": hit.distance,
-                "similarity": similarity,
-            }
-            # pdf_link가 있으면 추가
-            if has_pdf_link:
-                paper_data["pdf_link"] = hit.entity.get("pdf_link", "")
-            found_papers.append(paper_data)
+        # 여러 컬렉션의 결과를 집계
+        aggregated: List[Dict[str, Any]] = []
+        seen_identifiers: set[str] = set()
         
-        found_papers.sort(key=lambda x: x["score"])
-        return found_papers[:limit]
+        for collection_name in collections:
+            try:
+                collection = await get_paper_collection(collection_name)
+                if not collection:
+                    continue
+                
+                num_entities = collection.num_entities
+                if num_entities == 0:
+                    continue
+            except Exception:
+                continue
+            
+            # 스키마 확인하여 pdf_link 필드 존재 여부 체크
+            schema = collection.schema
+            field_names = [field.name for field in schema.fields]
+            has_pdf_link = "pdf_link" in field_names
+            
+            output_fields = ["identifier", "title", "content"]
+            if has_pdf_link:
+                output_fields.append("pdf_link")
+            
+            try:
+                results = await asyncio.to_thread(
+                    collection.search,
+                    data=[query_vec],
+                    anns_field="embedding",
+                    param={"metric_type": "L2", "params": {"nprobe": 10}},
+                    limit=limit * 5,
+                    expr=None,
+                    output_fields=output_fields
+                )
+            except Exception:
+                continue
+            
+            if not results or len(results) == 0 or len(results[0]) == 0:
+                continue
+            
+            # 각 컬렉션의 결과 처리
+            for hit in results[0]:
+                identifier = hit.entity.get('identifier')
+                if not identifier:
+                    continue
+                
+                # identifier 기반 중복 제거 (여러 컬렉션에 있을 수 있음)
+                if identifier in seen_identifiers:
+                    continue
+                
+                title = hit.entity.get('title', '').lower()
+                content = hit.entity.get('content', '').lower()
+                
+                # 키워드 매칭 확인
+                full_match = (query_lower in title or query_lower in content)
+                word_match = any(word in title or word in content for word in query_words if len(word) > 1)
+                keyword_match = full_match or word_match
+                
+                # 키워드 매칭이 있으면 거리 임계값 완화
+                effective_max_distance = 2.0 if keyword_match else max_distance
+                
+                if hit.distance > effective_max_distance:
+                    continue
+                
+                seen_identifiers.add(identifier)
+                similarity = 1.0 / (1.0 + hit.distance)
+                
+                paper_data = {
+                    "identifier": identifier,
+                    "title": hit.entity.get('title'),
+                    "content": hit.entity.get('content', ''),
+                    "score": hit.distance,
+                    "similarity": similarity,
+                }
+                # pdf_link가 있으면 추가
+                if has_pdf_link:
+                    paper_data["pdf_link"] = hit.entity.get("pdf_link", "")
+                
+                aggregated.append(paper_data)
+        
+        aggregated.sort(key=lambda x: x["score"])
+        return aggregated[:limit]
     except Exception as e:
         LOGGER.warning(f"벡터DB 검색 오류: {e}")
         return []
@@ -470,14 +515,19 @@ async def retrieve_paper_chunks_from_milvus(
         return []
 
     query_vec = embeddings[0].tolist()
-    collections = await _load_paper_collections_for_query(keyword)
+        
+    if identifier:
+        collections = await _load_paper_collections_for_query(None)  # 모든 컬렉션
+    else:
+        collections = await _load_paper_collections_for_query(keyword)
+    
     if not collections:
         return []
 
     aggregated: List[Dict[str, Any]] = []
     for collection_name in collections:
         try:
-            collection = await get_or_create_paper_collection(collection_name)
+            collection = await get_paper_collection(collection_name)
             if not collection:
                 continue
         except Exception:
@@ -588,7 +638,7 @@ async def check_paper_exists(identifier: str, keyword: Optional[str] = None) -> 
                         continue
                     
                     try:
-                        collection = await get_or_create_paper_collection(collection_name)
+                        collection = await get_paper_collection(collection_name)
                         if not collection:
                             continue
                         
@@ -619,7 +669,7 @@ async def check_paper_exists(identifier: str, keyword: Optional[str] = None) -> 
         
         for collection_name in paper_collections:
             try:
-                collection = await get_or_create_paper_collection(collection_name)
+                collection = await get_paper_collection(collection_name)
                 if not collection:
                     continue
                 
@@ -648,7 +698,6 @@ async def check_paper_exists(identifier: str, keyword: Optional[str] = None) -> 
 async def download_and_vectorize_paper(
     result: Dict[str, Any],
     keyword: Optional[str] = None,
-    base_dir: Optional[Path] = None
 ) -> bool:
     """논문을 PDF 다운로드하고 벡터DB에 저장한다 (메모리 처리 방식)."""
     if not VECTOR_DB_AVAILABLE:
@@ -742,7 +791,6 @@ async def download_and_vectorize_paper(
 async def embed_and_store_paper(
     identifier: str,
     title: str,
-    text_path: Optional[Path] = None,
     text: Optional[str] = None,
     paper_keyword: Optional[str] = None,
     collection_keyword: Optional[str] = None,
@@ -758,11 +806,8 @@ async def embed_and_store_paper(
         
         if text:
             text_content = text.strip()
-        elif text_path:
-            with open(text_path, "r", encoding="utf-8") as f:
-                text_content = f.read().strip()
         else:
-            LOGGER.error("text_path 또는 text 중 하나는 필수입니다.")
+            LOGGER.error("text 파라미터는 필수입니다.")
             return 0
         
         if collection_keyword:
