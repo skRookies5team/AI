@@ -193,6 +193,19 @@ except Exception as e:
 
 def check_tech_ask_source_state(query: str, state: OrchestratorState, user_message: Message) -> Optional[Dict[str, Any]]:
     """Tech 도메인의 ask_source 상태를 확인하고 tech 도메인으로 유지할지 결정."""
+    
+    # 먼저 recruitment 컨텍스트 확인 (우선순위)
+    # 번호 선택 패턴이고 recruitment 결과가 있으면 tech로 라우팅하지 않음
+    recruitment_context = state.get("recruitment_context", {})
+    if recruitment_context:
+        resume_search = recruitment_context.get("resume_search", {})
+        last_results = resume_search.get("last_results", [])
+        if last_results:
+            number_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기|요약)?', re.IGNORECASE)
+            if number_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2):
+                # recruitment 결과가 있으면 tech로 라우팅하지 않음
+                return None
+    
     tech_search_context = state.get("tech_search_context", {})
     
     # YAML에서 키워드 로드 (함수 시작 부분에서 한 번만 로드 - 특허 검색 관련)
@@ -497,23 +510,28 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
             from agents.session_manager import get_session_manager
             session_manager = await get_session_manager()
             if session_manager:
-                session_data = await session_manager.load_session_data(session_id)
-                if session_data and session_data.get("last_domain"):
-                    redis_last_domain = session_data.get("last_domain")
-                    if redis_last_domain and redis_last_domain in MASTER_GRAPHS:
-                        print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
-                        _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
-                        # 대화 히스토리에 사용자 메시지 추가
-                        user_message: Message = {
-                            "role": "user",
-                            "content": query,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                        return {
-                            "domain": redis_last_domain,
-                            "conversation_history": [user_message],
-                            **current_date_info
-                        }
+                # employee_id를 state에서 가져오기
+                employee_id = state.get("employee_id")
+                if employee_id:
+                    session_data = await session_manager.load_session_data(session_id, employee_id)
+                    if session_data and session_data.get("last_domain"):
+                        redis_last_domain = session_data.get("last_domain")
+                        if redis_last_domain and redis_last_domain in MASTER_GRAPHS:
+                            print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
+                            _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
+                            # 대화 히스토리에 사용자 메시지 추가
+                            user_message: Message = {
+                                "role": "user",
+                                "content": query,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            return {
+                                "domain": redis_last_domain,
+                                "conversation_history": [user_message],
+                                **current_date_info
+                            }
+                else:
+                    print(f"⚠️ employee_id가 없어서 last_domain 조회 불가")
         except Exception as e:
             print(f"⚠️ Redis에서 last_domain 조회 실패: {e}, LLM으로 분류 계속 진행")
     
@@ -523,6 +541,22 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         "content": query,
         "timestamp": datetime.now().isoformat()
     }
+    
+    # 번호 선택 패턴이고 recruitment 컨텍스트가 있으면 recruitment로 우선 라우팅
+    if is_number_selection:
+        recruitment_context = state.get("recruitment_context", {})
+        if recruitment_context:
+            resume_search = recruitment_context.get("resume_search", {})
+            last_results = resume_search.get("last_results", [])
+            if last_results:
+                # recruitment 결과가 있으면 tech 체크를 건너뛰고 recruitment로 라우팅
+                print(f"✅ Recruitment 컨텍스트 확인: '{query}' → recruitment 도메인으로 라우팅 (인재 검색 결과 선택)")
+                _routing_logger.info(f"[라우팅 완료] Recruitment 컨텍스트 기반: recruitment (요청: {query})")
+                return {
+                    "domain": "recruitment",
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
     
     # Tech 도메인 ask_source 상태 확인 (최우선 처리)
     step_start = time.time()
@@ -681,9 +715,12 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 from agents.session_manager import get_session_manager
                 session_manager = await get_session_manager()
                 if session_manager:
-                    session_data = await session_manager.load_session_data(session_id)
-                    if session_data and session_data.get("last_domain"):
-                        redis_last_domain = session_data.get("last_domain")
+                    # employee_id를 state에서 가져오기
+                    employee_id = state.get("employee_id")
+                    if employee_id:
+                        session_data = await session_manager.load_session_data(session_id, employee_id)
+                        if session_data and session_data.get("last_domain"):
+                            redis_last_domain = session_data.get("last_domain")
             except Exception as e:
                 print(f"⚠️ Redis에서 last_domain 조회 실패 (프롬프트용): {e}")
         

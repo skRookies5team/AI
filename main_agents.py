@@ -162,7 +162,8 @@ async def chat_loop_async() -> None:
 	
 	# 세션 ID 생성 (대화 세션별 메모리 관리)
 	session_id = f"cli_session_{uuid.uuid4()}"
-	employee_id = 4003  # 기본 사원 번호
+	# CLI 모드에서는 기본 employee_id 사용 (환경 변수에서 가져오거나 기본값)
+	employee_id = int(os.getenv("DEFAULT_EMPLOYEE_ID", "4001"))
 	
 	print(f"📌 현재 세션: {session_id}\n")
 	
@@ -361,10 +362,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
         graph = get_orchestrator_graph(checkpointer=None)
         
         # Initial State
+        # employee_id는 요청에서 받거나 환경 변수에서 가져옴
+        employee_id = getattr(request, 'employee_id', None) or int(os.getenv("DEFAULT_EMPLOYEE_ID", "4001"))
         input_state = {
             "query": normalized,
             "session_id": session_id,
-            "employee_id": 4003,  # 기본 사원 번호 (요청에서 받을 수도 있음)
+            "employee_id": employee_id,
             "messages": [],
             "conversation_history": []  # 멀티턴 대화 히스토리
         }

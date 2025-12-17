@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -132,6 +133,8 @@ class GoogleTokenService:
                 "employee_id": int,
                 "google_email": str,
                 "google_sub": str,
+                "client_id": str,  # OAuth Client ID
+                "client_secret": str,  # OAuth Client Secret
                 "refresh_token": str,  # 복호화된 평문
                 "scope": str,
                 "token_version": int,
@@ -145,6 +148,8 @@ class GoogleTokenService:
             employee_id,
             google_email,
             google_sub,
+            client_id,
+            client_secret,
             refresh_token,
             scope,
             token_version,
@@ -272,6 +277,52 @@ class GoogleTokenService:
         """
         credentials = await self.get_google_credentials(employee_id)
         return credentials is not None and credentials.get("refresh_token") is not None
+    
+    async def get_oauth_client_config(self) -> Optional[Dict[str, str]]:
+        """DB에서 OAuth Client 설정 조회 (client_id, client_secret).
+        
+        Returns:
+            {"client_id": str, "client_secret": str} 또는 None
+            
+        Note:
+            - DB에서 첫 번째 레코드의 client_id/client_secret을 가져옵니다.
+            - 없으면 환경 변수에서 fallback합니다.
+        """
+        sql = """
+        SELECT client_id, client_secret
+        FROM google_credentials
+        WHERE client_id IS NOT NULL 
+          AND client_secret IS NOT NULL
+          AND client_id != ''
+          AND client_secret != ''
+        LIMIT 1;
+        """
+        
+        try:
+            async with self.db._session() as session:
+                result = await session.execute(text(sql))
+                row = result.mappings().first()
+            
+            if row and row.get("client_id") and row.get("client_secret"):
+                return {
+                    "client_id": row["client_id"],
+                    "client_secret": row["client_secret"],
+                }
+        except Exception as e:
+            print(f"❌ OAuth Client 설정 조회 실패: {e}")
+        
+        # DB에서 가져올 수 없으면 환경 변수에서 fallback
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        
+        if client_id and client_secret:
+            print("⚠️ DB에서 OAuth Client 설정을 찾지 못해 환경 변수를 사용합니다.")
+            return {
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }
+        
+        return None
 
 
 # 싱글톤 인스턴스
