@@ -99,13 +99,17 @@ class SessionManager:
         
         Args:
             session_id: 세션 ID (형식: session_{uuid} 또는 session_{employee_id}_{uuid})
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호 (필수, None이면 오류 발생)
             
         Returns:
             Redis 키 (형식: session:{employee_id}:{session_id_part})
+            
+        Raises:
+            ValueError: employee_id가 None인 경우
         """
-        # employee_id는 항상 4000으로 고정
-        employee_id = 4000
+        # employee_id가 None이면 오류 발생
+        if employee_id is None:
+            raise ValueError("employee_id는 필수입니다. 세션 키를 생성하려면 employee_id가 필요합니다.")
         
         # session_id에서 실제 세션 ID 부분만 추출
         session_id_part = session_id
@@ -131,11 +135,12 @@ class SessionManager:
         # 키 생성: session:{employee_id}:{session_id_part}
         return f"session:{employee_id}:{session_id_part}"
     
-    async def load_history(self, session_id: str) -> List[Message]:
+    async def load_history(self, session_id: str, employee_id: Optional[int] = None) -> List[Message]:
         """세션의 대화 히스토리 로드.
         
         Args:
             session_id: 세션 ID
+            employee_id: 사원 번호 (필수, None이면 오류 발생)
             
         Returns:
             대화 히스토리 리스트
@@ -143,10 +148,14 @@ class SessionManager:
         if not session_id:
             return []
         
+        if employee_id is None:
+            print(f"[WARNING] 세션 히스토리 로드 실패: employee_id가 필요합니다 (session_id={session_id})")
+            return []
+        
         lock = await self._get_lock(session_id)
         
         async with lock:
-            key = self._get_key(session_id)
+            key = self._get_key(session_id, employee_id)
             try:
                 value = await self.redis.get(key)
                 
@@ -159,11 +168,12 @@ class SessionManager:
                 print(f"[WARNING] 세션 히스토리 로드 실패 (session_id={session_id}): {e}")
                 return []
     
-    async def load_session_data(self, session_id: str) -> Dict[str, Any]:
+    async def load_session_data(self, session_id: str, employee_id: Optional[int] = None) -> Dict[str, Any]:
         """세션 데이터 전체 로드 (conversation_history + 컨텍스트들).
         
         Args:
             session_id: 세션 ID
+            employee_id: 사원 번호 (필수, None이면 오류 발생)
             
         Returns:
             세션 데이터 딕셔너리 (conversation_history, email_search_context 등)
@@ -179,10 +189,13 @@ class SessionManager:
                 "document_context": {}
             }
         
+        if employee_id is None:
+            raise ValueError("employee_id는 필수입니다.")
+        
         lock = await self._get_lock(session_id)
         
         async with lock:
-            key = self._get_key(session_id)
+            key = self._get_key(session_id, employee_id)
             try:
                 # 타임아웃 설정으로 Redis 조회 (5초)
                 value = await asyncio.wait_for(self.redis.get(key), timeout=5.0)
@@ -429,16 +442,20 @@ class SessionManager:
         
         Args:
             session_id: 세션 ID
-            state: OrchestratorState 딕셔너리
+            state: OrchestratorState 딕셔너리 (employee_id 포함 필요)
         """
         if not session_id:
+            return
+        
+        # state에서 employee_id 추출 (필수)
+        employee_id = state.get("employee_id")
+        if not employee_id:
+            print(f"[WARNING] 세션 state에 employee_id가 없습니다 (session_id={session_id})")
             return
         
         lock = await self._get_lock(session_id)
         
         async with lock:
-            # employee_id는 항상 4000으로 고정
-            employee_id = 4000
             key = self._get_key(session_id, employee_id)
             
             try:
@@ -506,7 +523,7 @@ class SessionManager:
                 else:
                     data["created_at"] = now
                 
-                # employee_id 저장 (항상 4000)
+                # employee_id 저장
                 data["employee_id"] = employee_id
                 
                 # 저장 시도 (타임아웃 설정)
@@ -576,14 +593,11 @@ class SessionManager:
         """사원별 세션 목록 조회 (최신순).
         
         Args:
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호
             
         Returns:
             세션 메타데이터 리스트 (최신순 정렬)
         """
-        # employee_id는 항상 4000으로 고정
-        employee_id = 4000
-        
         try:
             sessions_key = self._get_employee_sessions_key(employee_id)
             # Sorted Set에서 세션 ID 목록 조회 (최신순, updated_at 기준 내림차순)
@@ -597,7 +611,7 @@ class SessionManager:
                 session_id = session_id_bytes.decode('utf-8') if isinstance(session_id_bytes, bytes) else session_id_bytes
                 
                 # 세션 데이터 로드
-                session_data = await self.load_session_data(session_id)
+                session_data = await self.load_session_data(session_id, employee_id)
                 if not session_data:
                     continue
                 
@@ -638,7 +652,7 @@ class SessionManager:
         """새 세션 생성 및 사원 세션 목록에 추가.
         
         Args:
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호
             session_id: 세션 ID (None이면 자동 생성)
             title: 세션 제목 (None이면 "새 대화")
             
@@ -646,9 +660,6 @@ class SessionManager:
             생성된 세션 ID
         """
         import uuid
-        
-        # employee_id는 항상 4000으로 고정
-        employee_id = 4000
         
         # 세션 ID 자동 생성 (employee_id 제외)
         if not session_id:
@@ -698,7 +709,7 @@ class SessionManager:
         
         Args:
             session_id: 삭제할 세션 ID
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호 (필수, None이면 오류 발생)
             
         Returns:
             삭제 성공 여부
@@ -706,10 +717,11 @@ class SessionManager:
         if not session_id:
             return False
         
+        if employee_id is None:
+            print(f"[WARNING] 세션 삭제 실패: employee_id가 필요합니다 (session_id={session_id})")
+            return False
+        
         try:
-            # employee_id는 항상 4000으로 고정
-            employee_id = 4000
-            
             # 세션 데이터 삭제
             key = self._get_key(session_id, employee_id)
             await self.redis.delete(key)
@@ -723,11 +735,12 @@ class SessionManager:
             print(f"[WARNING] 세션 삭제 실패 (session_id={session_id}): {e}")
             return False
     
-    async def update_session_metadata(self, session_id: str, title: Optional[str] = None) -> bool:
+    async def update_session_metadata(self, session_id: str, employee_id: int, title: Optional[str] = None) -> bool:
         """세션 메타데이터 업데이트 (제목 변경 등).
         
         Args:
             session_id: 세션 ID
+            employee_id: 사원 번호 (필수)
             title: 새로운 제목 (None이면 업데이트 안 함)
             
         Returns:
@@ -736,11 +749,13 @@ class SessionManager:
         if not session_id:
             return False
         
+        if employee_id is None:
+            print(f"[WARNING] 세션 메타데이터 업데이트 실패: employee_id가 필요합니다 (session_id={session_id})")
+            return False
+        
         lock = await self._get_lock(session_id)
         
         async with lock:
-            # employee_id는 항상 4000으로 고정
-            employee_id = 4000
             key = self._get_key(session_id, employee_id)
             
             try:
