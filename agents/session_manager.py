@@ -116,7 +116,7 @@ class SessionManager:
         if session_id.startswith("session_"):
             parts = session_id.split("_")
             if len(parts) >= 3:
-                # session_4000_xxx 형식인 경우, employee_id 부분 제외
+                # session_4003_xxx 형식인 경우, employee_id 부분 제외
                 session_id_part = "_".join(parts[2:])
             elif len(parts) == 2:
                 # session_xxx 형식

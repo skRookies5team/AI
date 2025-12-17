@@ -61,7 +61,7 @@ class MeetingRoomReservation(BaseModel):
         json_schema_extra = {
             "example": {
                 "room_id": 1,
-                "employee_id": 4001,
+                "employee_id": 4003,
                 "event_title": "팀 회의",
                 "start_time": "2024-12-10T14:00:00",
                 "end_time": "2024-12-10T15:00:00",
