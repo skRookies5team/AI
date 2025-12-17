@@ -99,20 +99,20 @@ class SessionManager:
         
         Args:
             session_id: 세션 ID (형식: session_{uuid} 또는 session_{employee_id}_{uuid})
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호 (무시됨, 항상 4003 사용)
             
         Returns:
             Redis 키 (형식: session:{employee_id}:{session_id_part})
         """
-        # employee_id는 항상 4000으로 고정
-        employee_id = 4000
+        # employee_id는 항상 4003으로 고정
+        employee_id = 4003
         
         # session_id에서 실제 세션 ID 부분만 추출
         session_id_part = session_id
         if session_id.startswith("session_"):
             parts = session_id.split("_")
             if len(parts) >= 3:
-                # session_4000_xxx 형식인 경우, employee_id 부분 제외
+                # session_4003_xxx 형식인 경우, employee_id 부분 제외
                 session_id_part = "_".join(parts[2:])
             elif len(parts) == 2:
                 # session_xxx 형식
@@ -437,8 +437,8 @@ class SessionManager:
         lock = await self._get_lock(session_id)
         
         async with lock:
-            # employee_id는 항상 4000으로 고정
-            employee_id = 4000
+            # employee_id는 항상 4003으로 고정
+            employee_id = 4003
             key = self._get_key(session_id, employee_id)
             
             try:
@@ -506,7 +506,7 @@ class SessionManager:
                 else:
                     data["created_at"] = now
                 
-                # employee_id 저장 (항상 4000)
+                # employee_id 저장 (항상 4003)
                 data["employee_id"] = employee_id
                 
                 # 저장 시도 (타임아웃 설정)
@@ -576,13 +576,13 @@ class SessionManager:
         """사원별 세션 목록 조회 (최신순).
         
         Args:
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호 (무시됨, 항상 4003 사용)
             
         Returns:
             세션 메타데이터 리스트 (최신순 정렬)
         """
-        # employee_id는 항상 4000으로 고정
-        employee_id = 4000
+        # employee_id는 항상 4003으로 고정
+        employee_id = 4003
         
         try:
             sessions_key = self._get_employee_sessions_key(employee_id)
@@ -638,7 +638,7 @@ class SessionManager:
         """새 세션 생성 및 사원 세션 목록에 추가.
         
         Args:
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호 (무시됨, 항상 4003 사용)
             session_id: 세션 ID (None이면 자동 생성)
             title: 세션 제목 (None이면 "새 대화")
             
@@ -647,8 +647,8 @@ class SessionManager:
         """
         import uuid
         
-        # employee_id는 항상 4000으로 고정
-        employee_id = 4000
+        # employee_id는 항상 4003으로 고정
+        employee_id = 4003
         
         # 세션 ID 자동 생성 (employee_id 제외)
         if not session_id:
@@ -698,7 +698,7 @@ class SessionManager:
         
         Args:
             session_id: 삭제할 세션 ID
-            employee_id: 사원 번호 (무시됨, 항상 4000 사용)
+            employee_id: 사원 번호 (무시됨, 항상 4003 사용)
             
         Returns:
             삭제 성공 여부
@@ -707,8 +707,8 @@ class SessionManager:
             return False
         
         try:
-            # employee_id는 항상 4000으로 고정
-            employee_id = 4000
+            # employee_id는 항상 4003으로 고정
+            employee_id = 4003
             
             # 세션 데이터 삭제
             key = self._get_key(session_id, employee_id)
@@ -739,8 +739,8 @@ class SessionManager:
         lock = await self._get_lock(session_id)
         
         async with lock:
-            # employee_id는 항상 4000으로 고정
-            employee_id = 4000
+            # employee_id는 항상 4003으로 고정
+            employee_id = 4003
             key = self._get_key(session_id, employee_id)
             
             try:
