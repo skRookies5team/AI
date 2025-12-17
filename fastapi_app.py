@@ -1757,3 +1757,104 @@ async def test_schedule_endpoint(payload: ScheduleTestRequest) -> ScheduleTestRe
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"일정 테스트 실패: {exc}") from exc
+
+
+# ===== 회의실 조회 REST API 엔드포인트 =====
+
+@app.get("/api/meeting-rooms")
+async def get_meeting_rooms(
+    floor: Optional[int] = Query(None, description="층수 (선택사항)"),
+    capacity: Optional[int] = Query(None, description="최소 수용 인원 (선택사항)"),
+    has_video: Optional[bool] = Query(None, description="화상회의 장비 필요 여부 (선택사항)"),
+    has_projector: Optional[bool] = Query(None, description="프로젝터 필요 여부 (선택사항)"),
+    has_whiteboard: Optional[bool] = Query(None, description="화이트보드 필요 여부 (선택사항)"),
+    start_date: Optional[str] = Query(None, description="시작 날짜 (YYYY-MM-DD)"),
+    start_time: Optional[str] = Query(None, description="시작 시간 (HH:MM)"),
+    end_date: Optional[str] = Query(None, description="종료 날짜 (YYYY-MM-DD)"),
+    end_time: Optional[str] = Query(None, description="종료 시간 (HH:MM)"),
+) -> Dict[str, Any]:
+    """회의실 목록 조회 (조건별 필터링 가능, AI 없이 직접 DB 조회).
+    
+    Args:
+        floor: 층수
+        capacity: 최소 수용 인원
+        has_video: 화상회의 장비 필요 여부
+        has_projector: 프로젝터 필요 여부
+        has_whiteboard: 화이트보드 필요 여부
+        start_date: 시작 날짜
+        start_time: 시작 시간
+        end_date: 종료 날짜
+        end_time: 종료 시간
+        
+    Returns:
+        회의실 목록
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        
+        db_service = DatabaseService()
+        rooms = await db_service.get_meeting_rooms(
+            capacity=capacity,
+            floor=floor,
+            has_video_conf=has_video,
+            has_projector=has_projector,
+            has_whiteboard=has_whiteboard,
+        )
+        
+        # 날짜/시간 기반 예약 가능 여부 필터링 (선택사항)
+        available_rooms = rooms
+        if start_date and start_time and end_date and end_time:
+            from datetime import datetime
+            try:
+                start_datetime = datetime.fromisoformat(f"{start_date}T{start_time}")
+                end_datetime = datetime.fromisoformat(f"{end_date}T{end_time}")
+                
+                # 각 회의실의 예약 확인
+                filtered_rooms = []
+                for room in rooms:
+                    room_id = room.get("id")
+                    if room_id:
+                        # 해당 시간대에 예약이 있는지 확인 (겹치는 예약 찾기)
+                        conflicts = await db_service.find_room_conflicts(
+                            meeting_room_id=room_id,
+                            start_time=start_datetime,
+                            end_time=end_datetime
+                        )
+                        # 예약이 없으면 사용 가능
+                        if not conflicts or len(conflicts) == 0:
+                            filtered_rooms.append(room)
+                    else:
+                        filtered_rooms.append(room)
+                
+                available_rooms = filtered_rooms
+            except Exception as e:
+                print(f"날짜/시간 필터링 오류: {e}")
+                # 필터링 실패 시 모든 회의실 반환
+        
+        return {
+            "ok": True,
+            "rooms": [
+                {
+                    "id": room.get("id"),
+                    "room_code": room.get("room_code"),
+                    "name": room.get("name"),
+                    "building": room.get("building"),
+                    "floor": room.get("floor"),
+                    "capacity": room.get("capacity"),
+                    "has_video": bool(room.get("has_video", 0)),
+                    "has_projector": bool(room.get("has_projector", 0)) if "has_projector" in room else None,
+                    "has_whiteboard": bool(room.get("has_whiteboard", 0)) if "has_whiteboard" in room else None,
+                }
+                for room in available_rooms
+            ],
+            "count": len(available_rooms)
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "rooms": [],
+            "count": 0,
+            "message": f"회의실 목록 조회 실패: {str(e)}"
+        }
