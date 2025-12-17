@@ -2240,7 +2240,7 @@
 
         // 대화 삭제
         async function deleteConversation(sessionId) {
-            if (!confirm('이 대화를 삭제하시겠습니까?')) {
+            if (!confirm('이 대화를 삭제하시겠습니까? 삭제된 대화는 복구할 수 없습니다.')) {
                 return;
             }
             
@@ -2253,13 +2253,29 @@
                     throw new Error('세션 삭제 실패');
                 }
                 
-                // 현재 선택된 세션이 삭제된 경우 새 대화 생성
+                // 현재 선택된 세션이 삭제된 경우
                 if (sessionId === currentSessionId) {
-                    await createNewConversation();
-                } else {
-                    // 히스토리 목록만 새로고침
-                    await loadConversationHistory();
+                    // 현재 세션 ID 초기화
+                    currentSessionId = null;
+                    localStorage.removeItem('chat_session_id');
+                    
+                    // 대화 영역 비우기
+                    const chatMessages = document.getElementById('chatMessages');
+                    if (chatMessages) {
+                        chatMessages.innerHTML = '';
+                    }
+                    
+                    // 입력 필드 비우기
+                    const userInput = document.getElementById('userInput');
+                    if (userInput) {
+                        userInput.value = '';
+                    }
                 }
+                
+                // 히스토리 목록 새로고침 (삭제된 세션이 목록에서 제거됨)
+                await loadConversationHistory();
+                
+                console.log(`✅ 세션 삭제 완료: ${sessionId}`);
             } catch (error) {
                 console.error('대화 삭제 실패:', error);
                 alert('대화 삭제에 실패했습니다.');

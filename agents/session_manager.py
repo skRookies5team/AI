@@ -705,7 +705,9 @@ class SessionManager:
             raise
     
     async def delete_session(self, session_id: str, employee_id: Optional[int] = None) -> bool:
-        """세션 삭제.
+        """세션 삭제 (완전 삭제).
+        
+        세션 데이터, 대화 히스토리, 모든 컨텍스트를 Redis에서 완전히 삭제합니다.
         
         Args:
             session_id: 삭제할 세션 ID
@@ -722,17 +724,34 @@ class SessionManager:
             return False
         
         try:
-            # 세션 데이터 삭제
+            # 세션 데이터 키 생성
             key = self._get_key(session_id, employee_id)
-            await self.redis.delete(key)
+            
+            # 세션 데이터 존재 여부 확인
+            exists = await self.redis.exists(key)
+            if exists:
+                # 세션 데이터 완전 삭제 (conversation_history, 모든 컨텍스트 포함)
+                deleted = await self.redis.delete(key)
+                print(f"[INFO] 세션 데이터 삭제 완료 (session_id={session_id}, employee_id={employee_id}, key={key}, deleted={deleted})")
+            else:
+                print(f"[INFO] 세션 데이터가 이미 없음 (session_id={session_id}, key={key})")
             
             # 사원 세션 목록에서 제거
             sessions_key = self._get_employee_sessions_key(employee_id)
-            await self.redis.zrem(sessions_key, session_id)
+            removed = await self.redis.zrem(sessions_key, session_id)
+            print(f"[INFO] 세션 목록에서 제거 완료 (session_id={session_id}, sessions_key={sessions_key}, removed={removed})")
+            
+            # 삭제 확인: 세션 데이터가 정말 삭제되었는지 확인
+            final_check = await self.redis.exists(key)
+            if final_check:
+                print(f"[WARNING] 세션 데이터가 여전히 존재함 (session_id={session_id}, key={key}) - 재시도")
+                await self.redis.delete(key)
             
             return True
         except Exception as e:
-            print(f"[WARNING] 세션 삭제 실패 (session_id={session_id}): {e}")
+            print(f"[ERROR] 세션 삭제 실패 (session_id={session_id}, employee_id={employee_id}): {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     async def update_session_metadata(self, session_id: str, employee_id: int, title: Optional[str] = None) -> bool:
