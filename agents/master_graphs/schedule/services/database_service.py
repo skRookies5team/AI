@@ -16,6 +16,75 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("SQLAlchemy 설치가 필요합니다. pyproject.toml 의존성을 확인하세요.") from exc
 
 
+def _load_env_file() -> None:
+    """모듈 로드 시 .env 파일을 읽어 환경변수에 주입.
+    
+    여러 경로에서 .env 파일을 찾습니다.
+    """
+    import sys
+    from pathlib import Path
+    
+    # 가능한 .env 파일 경로들
+    possible_paths = [
+        os.path.join(os.getcwd(), ".env"),  # 현재 작업 디렉토리
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"),  # 프로젝트 루트
+        os.path.join(os.path.dirname(__file__), ".env"),  # 현재 파일 디렉토리
+    ]
+    
+    # 스크립트 파일이 있는 경우 그 디렉토리도 확인
+    if hasattr(sys, 'argv') and sys.argv:
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        possible_paths.append(os.path.join(script_dir, ".env"))
+        possible_paths.append(os.path.join(script_dir, "..", ".env"))
+    
+    env_path = None
+    for path in possible_paths:
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
+            env_path = abs_path
+            break
+    
+    if not env_path:
+        print("[WARNING] .env 파일을 찾을 수 없습니다.")
+        return
+    
+    try:
+        loaded_vars = []
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                original_line = line
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                # 따옴표 제거 (단, 값이 비어있지 않은 경우만)
+                if v:
+                    v = v.strip("'").strip('"')
+                
+                # 기존 환경 변수가 있으면 덮어쓰지 않음 (환경 변수 우선)
+                if k:
+                    if k not in os.environ:
+                        os.environ[k] = v
+                        loaded_vars.append(k)
+        
+        # 로드된 변수 확인
+        db_password = os.getenv("DB_PASSWORD", "")
+        print(f"[INFO] DatabaseService .env 파일 로드 완료: {env_path}")
+        print(f"[DEBUG] DB_PASSWORD 존재 여부: {'있음' if db_password else '없음'}, 길이: {len(db_password)}")
+    except Exception as e:
+        print(f"[WARNING] .env 파일 로드 실패 ({env_path}): {e}")
+        import traceback
+        traceback.print_exc()
+
+
+# 모듈 로드 시 .env 파일 로드
+_load_env_file()
+
+
 def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
     """환경 변수에서 값을 읽고, 공백이면 기본값을 사용한다."""
     value = os.getenv(name)
@@ -32,11 +101,24 @@ class DatabaseService:
 
     def __init__(self) -> None:
         """비동기 SQLAlchemy 엔진과 세션 팩토리를 구성한다."""
+        # .env 파일이 로드되었는지 확인하고, 없으면 다시 로드 시도
+        if not os.getenv("DB_PASSWORD") and not os.getenv("DB_USERNAME"):
+            _load_env_file()
+        
         username = _get_env("DB_USERNAME", "root")
         password = _get_env("DB_PASSWORD", "")
         host = _get_env("DB_HOST") or _get_env("HOST", "127.0.0.1")
         port = _get_env("DB_PORT", "3306")
         db_name = _get_env("DB_NAME", "ai_agent")
+        
+        # DB 연결 정보 디버깅 (비밀번호는 마스킹)
+        password_display = "***" if password else "(없음)"
+        print(f"[INFO] DatabaseService 초기화: host={host}, port={port}, db={db_name}, user={username}, password={password_display}")
+        
+        # 비밀번호가 없으면 경고
+        if not password:
+            print("[WARNING] DB_PASSWORD가 설정되지 않았습니다. DB 연결이 실패할 수 있습니다.")
+            print("[WARNING] .env 파일에 DB_PASSWORD=your_password 형식으로 설정해주세요.")
 
         self._engine: AsyncEngine = create_async_engine(
             f"mysql+asyncmy://{username}:{password}@{host}:{port}/{db_name}",

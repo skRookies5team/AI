@@ -11,11 +11,44 @@ from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 
-load_dotenv()
+# .env 파일 로드 (여러 경로에서 시도)
+def _load_env_file() -> None:
+    """모듈 로드 시 .env 파일을 읽어 환경변수에 주입."""
+    import sys
+    from pathlib import Path
+    
+    # 가능한 .env 파일 경로들
+    possible_paths = [
+        os.path.join(os.getcwd(), ".env"),  # 현재 작업 디렉토리
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"),  # 프로젝트 루트
+        os.path.join(os.path.dirname(__file__), ".env"),  # 현재 파일 디렉토리
+    ]
+    
+    # 스크립트 파일이 있는 경우 그 디렉토리도 확인
+    if hasattr(sys, 'argv') and sys.argv:
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        possible_paths.append(os.path.join(script_dir, ".env"))
+        possible_paths.append(os.path.join(script_dir, "..", ".env"))
+    
+    env_path = None
+    for path in possible_paths:
+        abs_path = os.path.abspath(path)
+        if os.path.exists(abs_path):
+            env_path = abs_path
+            break
+    
+    if env_path:
+        load_dotenv(env_path, override=False)  # 기존 환경 변수는 덮어쓰지 않음
+    else:
+        # dotenv의 기본 동작 시도
+        load_dotenv(override=False)
+
+_load_env_file()
 
 LOGGER = logging.getLogger(__name__)
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL")
+# OPENAI_MODEL 환경 변수 가져오기 (기본값 제공)
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or os.getenv("OPENAI_MODEL_NAME") or "gpt-4o-mini"
 
 
 def _get_int_env(key: str, default: int) -> int:

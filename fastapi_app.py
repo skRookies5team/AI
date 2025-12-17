@@ -6,11 +6,13 @@ import os
 from pathlib import Path
 from typing import Any, Optional, List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form, Query, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form, Query, Response, Request, Depends, status
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import json
 from pydantic import BaseModel, Field
+from typing import Dict, Any
 
 from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.session_manager import get_session_manager
@@ -100,6 +102,9 @@ app = FastAPI(
     description="AI 기반 사내 도우미 시스템",
     version="1.0.0"
 )
+
+# 인증 관련
+security = HTTPBearer()
 
 def cleanup_old_redis_sessions():
     """백그라운드에서 오래된 Redis 세션 데이터를 정리하는 함수."""
@@ -239,7 +244,7 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., description="사용자 입력 질의 문장")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화 지원)")
-    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
+    # employee_id는 인증된 사용자에서 자동으로 가져옴 (더 이상 필요 없음)
 
 
 class ChatResponse(BaseModel):
@@ -258,7 +263,7 @@ class ChatResponse(BaseModel):
 class SessionRequest(BaseModel):
     """세션 변경 요청 모델."""
     session_id: Optional[str] = Field(default=None, description="세션 ID (None이면 새 세션 생성)")
-    employee_id: Optional[int] = Field(default=4000, description="사원 번호")
+    # employee_id는 인증된 사용자에서 자동으로 가져옴 (더 이상 필요 없음)
 
 
 class SessionResponse(BaseModel):
@@ -291,7 +296,7 @@ class SessionListResponse(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     """세션 생성 요청 모델."""
-    employee_id: int = Field(default=4000, description="사원 번호")
+    # employee_id는 인증된 사용자에서 자동으로 가져옴 (더 이상 필요 없음)
     title: Optional[str] = Field(default=None, description="세션 제목")
 
 
@@ -312,6 +317,16 @@ class DocumentUploadResponse(BaseModel):
 
 # ===== 엔드포인트 =====
 
+@app.get("/login", response_class=HTMLResponse)
+async def serve_login():
+    """로그인 페이지."""
+    html_file = Path(__file__).parent / "templates" / "login.html"
+    if not html_file.exists():
+        raise HTTPException(status_code=404, detail="login.html을 찾을 수 없습니다.")
+    with open(html_file, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     """메인 UI 페이지 (index.html)."""
@@ -320,6 +335,119 @@ async def serve_index():
         raise HTTPException(status_code=404, detail="index.html을 찾을 수 없습니다.")
     with open(html_file, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> Dict[str, Any]:
+    """현재 로그인한 사용자 조회 (의존성 주입).
+    
+    Args:
+        credentials: HTTP Bearer 토큰
+        
+    Returns:
+        사용자 정보 (employee_id 포함)
+        
+    Raises:
+        HTTPException: 인증 실패 시
+    """
+    from agents.auth_service import get_auth_service
+    
+    session_token = credentials.credentials
+    
+    auth_service = await get_auth_service()
+    session_data = await auth_service.get_auth_session(session_token)
+    
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 세션이 만료되었거나 유효하지 않습니다.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return session_data
+
+
+@app.post("/api/auth/login")
+async def login(
+    login_id: str = Form(...),
+    password: str = Form(...),
+    request: Request = None
+) -> Dict[str, Any]:
+    """사용자 로그인 (employee 테이블의 login_id와 password 사용).
+    
+    Args:
+        login_id: 로그인 ID
+        password: 비밀번호
+        request: FastAPI Request 객체 (IP 주소 추출용)
+        
+    Returns:
+        세션 토큰 및 사용자 정보
+    """
+    from agents.auth_service import get_auth_service
+    
+    auth_service = await get_auth_service()
+    
+    # employee 테이블에서 인증
+    employee = await auth_service.authenticate_employee(login_id, password)
+    
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="로그인 ID 또는 비밀번호가 올바르지 않습니다.",
+        )
+    
+    # 인증 세션 생성
+    ip_address = request.client.host if request else None
+    user_agent = request.headers.get("user-agent") if request else None
+    
+    session_info = await auth_service.create_auth_session(
+        employee_id=employee["employee_id"],
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    
+    return {
+        "ok": True,
+        "session_token": session_info["session_token"],
+        "employee_id": employee["employee_id"],
+        "name": employee.get("name"),
+        "dept": employee.get("dept"),
+        "position": employee.get("position"),
+        "expires_at": session_info["expires_at"]
+    }
+
+
+@app.get("/api/auth/me")
+async def get_current_user_info(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """현재 로그인한 사용자 정보 조회."""
+    return {
+        "ok": True,
+        "employee_id": current_user["employee_id"],
+        "expires_at": current_user.get("expires_at")
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> Dict[str, Any]:
+    """사용자 로그아웃."""
+    from agents.auth_service import get_auth_service
+    
+    session_token = credentials.credentials
+    auth_service = await get_auth_service()
+    success = await auth_service.revoke_session(session_token)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="로그아웃에 실패했습니다.",
+        )
+    
+    return {"ok": True, "message": "로그아웃되었습니다."}
 
 
 @app.get("/api/documents/{filename:path}")
@@ -372,10 +500,16 @@ async def notifications_stream(session_id: str):
 
 
 @app.post("/api/chat/stream")
-async def chat_stream_endpoint(payload: ChatRequest):
+async def chat_stream_endpoint(
+    payload: ChatRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     """스트리밍 챗봇 엔드포인트 - 실시간 작업 상태 표시."""
     async def generate():
         try:
+            # 인증된 사용자의 employee_id 사용
+            employee_id = current_user["employee_id"]
+            
             # 세션 ID 설정 (employee_id 기반으로 고정 세션 사용)
             # session_id가 없으면 새 세션 생성 (첫 메시지를 타이틀로 사용)
             if not payload.session_id:
@@ -384,12 +518,12 @@ async def chat_stream_endpoint(payload: ChatRequest):
                     # 첫 메시지를 타이틀로 사용하여 새 세션 생성
                     title = payload.query[:30] if payload.query else "새 대화"  # 첫 30자만 타이틀로 사용
                     session_id = await session_manager.create_session(
-                        employee_id=payload.employee_id,
+                        employee_id=employee_id,
                         title=title
                     )
                 else:
                     import uuid
-                    session_id = f"session_{uuid.uuid4().hex[:8]}"
+                    session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
             else:
                 session_id = payload.session_id
 
@@ -417,7 +551,7 @@ async def chat_stream_endpoint(payload: ChatRequest):
                 "recruitment_context": {}
             }
             if session_manager:
-                session_data = await session_manager.load_session_data(session_id)
+                session_data = await session_manager.load_session_data(session_id, employee_id)
             
             # 그래프 가져오기 (체크포인터 없이 실행)
             graph = get_cached_orchestrator_graph()
@@ -429,9 +563,9 @@ async def chat_stream_endpoint(payload: ChatRequest):
             
             input_state = {
                 "query": payload.query,
-                "user_id": payload.employee_id,
+                "user_id": employee_id,
                 "session_id": session_id,
-                "employee_id": payload.employee_id,
+                "employee_id": employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
                 # Redis/세션에서 null(None)로 들어오는 경우 방어
@@ -630,7 +764,8 @@ async def chat_stream_endpoint(payload: ChatRequest):
                         "schedule_context": final_state.get("schedule_context", {}),
                         "document_context": final_state.get("document_context", {}),
                         "recruitment_context": final_state.get("recruitment_context", {}),
-                        "last_domain": final_state.get("last_domain")  # last_domain 저장
+                        "last_domain": final_state.get("last_domain"),  # last_domain 저장
+                        "employee_id": employee_id  # employee_id 추가
                     }
                     # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
                     await session_manager.save_session_state(session_id, session_state)
@@ -656,7 +791,10 @@ async def chat_stream_endpoint(payload: ChatRequest):
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
+async def chat_endpoint(
+    payload: ChatRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> ChatResponse:
     """LangGraph Orchestrator 기반 통합 챗봇 엔드포인트.
     
     지원 시나리오:
@@ -667,14 +805,17 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
     - 기술 검색 (특허, 논문)
     """
     try:
+        # 인증된 사용자의 employee_id 사용
+        employee_id = current_user["employee_id"]
+        
         # session_id가 없으면 새 세션 생성
         if not payload.session_id:
             session_manager = await get_session_manager()
             if session_manager:
-                session_id = await session_manager.create_session(employee_id=payload.employee_id)
+                session_id = await session_manager.create_session(employee_id=employee_id)
             else:
                 import uuid
-                session_id = f"session_{payload.employee_id}_{uuid.uuid4().hex[:8]}"
+                session_id = f"session_{employee_id}_{uuid.uuid4().hex[:8]}"
         else:
             session_id = payload.session_id
 
@@ -701,7 +842,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
             "recruitment_context": {}
         }
         if session_manager:
-            session_data = await session_manager.load_session_data(session_id)
+            session_data = await session_manager.load_session_data(session_id, employee_id)
         
         # 캐시된 Orchestrator 그래프 가져오기 (체크포인터 없이 실행)
         graph = get_cached_orchestrator_graph()
@@ -709,9 +850,9 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
         # 입력 state 구성 (이전 세션 데이터 포함)
         input_state = {
             "query": payload.query,
-            "user_id": payload.employee_id,
+            "user_id": employee_id,
             "session_id": session_id,
-            "employee_id": payload.employee_id,
+            "employee_id": employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
             # Redis/세션에서 null(None)로 들어오는 경우 방어
@@ -818,7 +959,8 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
                 "schedule_context": final_state.get("schedule_context", {}),
                 "document_context": final_state.get("document_context", {}),
                 "recruitment_context": final_state.get("recruitment_context", {}),
-                "last_domain": final_state.get("last_domain")  # last_domain 저장
+                "last_domain": final_state.get("last_domain"),  # last_domain 저장
+                "employee_id": employee_id  # employee_id 추가
             }
             # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
             await session_manager.save_session_state(session_id, session_state)
@@ -892,7 +1034,7 @@ async def chat_endpoint(payload: ChatRequest) -> ChatResponse:
 async def upload_document_endpoint(
     file: UploadFile = FastAPIFile(...),
     document_title: str = Form(...),
-    employee_id: int = Form(4000)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ) -> DocumentUploadResponse:
     """문서 업로드 엔드포인트 (Milvus Vector DB 저장).
     
@@ -921,6 +1063,7 @@ async def upload_document_endpoint(
                 temp_file = tmp.name
             
             # 세션 관리자로 이전 세션 데이터 로드
+            employee_id = current_user["employee_id"]
             session_manager = await get_session_manager()
             # 문서 업데이트용 새 세션 생성
             if session_manager:
@@ -937,7 +1080,7 @@ async def upload_document_endpoint(
                 "document_context": {}
             }
             if session_manager:
-                session_data = await session_manager.load_session_data(session_id)
+                session_data = await session_manager.load_session_data(session_id, employee_id)
             
             # master_graph의 update_document를 직접 호출하여 conversation_history를 포함한 결과 받기
             from agents.master_graphs.document.master_graph import DocumentMasterGraph
@@ -1177,16 +1320,19 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
     return HTMLResponse(content=success_html)
 
 @app.get("/api/sessions", response_model=SessionListResponse)
-async def list_sessions(employee_id: int = Query(4000, description="사원 번호")) -> SessionListResponse:
+async def list_sessions(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SessionListResponse:
     """사원별 세션 목록 조회 (최신순).
     
     Args:
-        employee_id: 사원 번호
+        current_user: 인증된 사용자 정보
         
     Returns:
         세션 목록 (최신순 정렬)
     """
     try:
+        employee_id = current_user["employee_id"]
         session_manager = await get_session_manager()
         if not session_manager:
             return SessionListResponse(
@@ -1227,23 +1373,27 @@ async def list_sessions(employee_id: int = Query(4000, description="사원 번�
 
 
 @app.post("/api/sessions", response_model=SessionResponse)
-async def create_session(payload: SessionCreateRequest) -> SessionResponse:
-
+async def create_session(
+    payload: SessionCreateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SessionResponse:
     """새 세션 생성.
     
     Args:
-        payload: 세션 생성 요청 (employee_id, title)
+        payload: 세션 생성 요청 (title)
+        current_user: 인증된 사용자 정보
         
     Returns:
         생성된 세션 정보
     """
     try:
+        employee_id = current_user["employee_id"]
         session_manager = await get_session_manager()
         if not session_manager:
             raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
         
         session_id = await session_manager.create_session(
-            employee_id=payload.employee_id,
+            employee_id=employee_id,
             title=payload.title
         )
         
@@ -1260,16 +1410,20 @@ async def create_session(payload: SessionCreateRequest) -> SessionResponse:
 
 
 @app.delete("/api/sessions/{session_id}", response_model=SessionResponse)
-async def delete_session(session_id: str, employee_id: int = Query(4000, description="사원 번호")) -> SessionResponse:
+async def delete_session(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SessionResponse:
     """세션 삭제.
     
     Args:
         session_id: 삭제할 세션 ID
-        employee_id: 사원 번호
+        current_user: 인증된 사용자 정보
         
     Returns:
         삭제 결과
     """
+    employee_id = current_user["employee_id"]
     try:
         session_manager = await get_session_manager()
         if not session_manager:
@@ -1295,17 +1449,23 @@ async def delete_session(session_id: str, employee_id: int = Query(4000, descrip
 
 
 @app.patch("/api/sessions/{session_id}", response_model=SessionResponse)
-async def update_session(session_id: str, payload: SessionUpdateRequest) -> SessionResponse:
+async def update_session(
+    session_id: str, 
+    payload: SessionUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SessionResponse:
     """세션 메타데이터 업데이트 (제목 변경 등).
     
     Args:
         session_id: 업데이트할 세션 ID
         payload: 업데이트 요청 (title 등)
+        current_user: 인증된 사용자 정보
         
     Returns:
         업데이트된 세션 정보
     """
     try:
+        employee_id = current_user["employee_id"]
         session_manager = await get_session_manager()
         if not session_manager:
             raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
@@ -1317,7 +1477,7 @@ async def update_session(session_id: str, payload: SessionUpdateRequest) -> Sess
         
         if success:
             # 업데이트된 세션 정보 조회
-            session_data = await session_manager.load_session_data(session_id)
+            session_data = await session_manager.load_session_data(session_id, employee_id)
             message_count = len(session_data.get("conversation_history", []))
             
             return SessionResponse(
@@ -1366,7 +1526,10 @@ async def create_new_session(employee_id: int = 4000) -> SessionResponse:
 
 
 @app.post("/api/session/change", response_model=SessionResponse)
-async def change_session(payload: SessionRequest) -> SessionResponse:
+async def change_session(
+    payload: SessionRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SessionResponse:
     """세션 변경 또는 생성.
     
     Args:
@@ -1376,6 +1539,7 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
         세션 정보
     """
     try:
+        employee_id = current_user["employee_id"]
         session_manager = await get_session_manager()
         if not session_manager:
             raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
@@ -1383,7 +1547,7 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
         if payload.session_id:
             # 기존 세션으로 변경
             session_id = payload.session_id
-            session_data = await session_manager.load_session_data(session_id)
+            session_data = await session_manager.load_session_data(session_id, employee_id)
             message_count = len(session_data.get("conversation_history", []))
             
             return SessionResponse(
@@ -1393,8 +1557,7 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
                 message=f"세션이 변경되었습니다. (대화 {message_count}개)"
             )
         else:
-            # 새 세션 생성
-            employee_id = payload.employee_id or 4000
+            # 새 세션 생성 (인증된 사용자의 employee_id 사용)
             session_id = await session_manager.create_session(employee_id=employee_id)
             
             return SessionResponse(
@@ -1412,21 +1575,26 @@ async def change_session(payload: SessionRequest) -> SessionResponse:
 
 
 @app.get("/api/session/current/{session_id}", response_model=SessionResponse)
-async def get_session_info(session_id: str) -> SessionResponse:
+async def get_session_info(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SessionResponse:
     """현재 세션 정보 조회.
     
     Args:
         session_id: 세션 ID
+        current_user: 인증된 사용자 정보
         
     Returns:
         세션 정보 (대화 히스토리 개수 등)
     """
+    employee_id = current_user["employee_id"]
     session_manager = await get_session_manager()
     message_count = 0
     conversation_history = []
     
     if session_manager:
-        session_data = await session_manager.load_session_data(session_id)
+        session_data = await session_manager.load_session_data(session_id, employee_id)
         conversation_history = session_data.get("conversation_history", [])
         message_count = len(conversation_history)
     
@@ -1450,7 +1618,7 @@ async def health_check():
 class LeaveTestRequest(BaseModel):
     """연차 테스트 요청 모델."""
     query: str = Field(..., description="연차 관련 질의")
-    employee_id: int = Field(default=12345, description="사원 번호")
+    # employee_id는 인증된 사용자에서 자동으로 가져옴
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
 
 
@@ -1464,7 +1632,10 @@ class LeaveTestResponse(BaseModel):
 
 
 @app.post("/api/test/leave", response_model=LeaveTestResponse)
-async def test_leave_endpoint(payload: LeaveTestRequest) -> LeaveTestResponse:
+async def test_leave_endpoint(
+    payload: LeaveTestRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> LeaveTestResponse:
     """연차/반차 기능 테스트 엔드포인트.
     
     테스트 시나리오:
@@ -1483,21 +1654,24 @@ async def test_leave_endpoint(payload: LeaveTestRequest) -> LeaveTestResponse:
         from agents.master_graphs.schedule.nodes.leave_nodes import process_leave_request
         from agents.state import OrchestratorState
         
+        # 인증된 사용자의 employee_id 사용
+        employee_id = current_user["employee_id"]
+        
         # 세션 ID 설정
-        session_id = payload.session_id or f"test_leave_{payload.employee_id}"
+        session_id = payload.session_id or f"test_leave_{employee_id}"
         
         # 세션 관리자로 이전 컨텍스트 로드
         session_manager = await get_session_manager()
         session_data = {"schedule_context": {}}
         if session_manager:
-            loaded_data = await session_manager.load_session_data(session_id)
+            loaded_data = await session_manager.load_session_data(session_id, employee_id)
             session_data = {"schedule_context": loaded_data.get("schedule_context", {})}
         
         # State 구성
         state = OrchestratorState(
             query=payload.query,
-            employee_id=payload.employee_id,
-            user_id=str(payload.employee_id),
+            employee_id=employee_id,
+            user_id=str(employee_id),
             messages=[],
             schedule_context=session_data.get("schedule_context", {}),
         )
@@ -1532,7 +1706,7 @@ async def test_leave_endpoint(payload: LeaveTestRequest) -> LeaveTestResponse:
 class ScheduleTestRequest(BaseModel):
     """일정 테스트 요청 모델."""
     query: str = Field(..., description="일정 관련 질의")
-    employee_id: int = Field(default=12345, description="사원 번호")
+    # employee_id는 인증된 사용자에서 자동으로 가져옴
     user_id: Optional[str] = Field(default=None, description="사용자 ID (Google Calendar)")
     session_id: Optional[str] = Field(default=None, description="세션 ID (멀티턴 대화)")
 
@@ -1548,7 +1722,10 @@ class ScheduleTestResponse(BaseModel):
 
 
 @app.post("/api/test/schedule", response_model=ScheduleTestResponse)
-async def test_schedule_endpoint(payload: ScheduleTestRequest) -> ScheduleTestResponse:
+async def test_schedule_endpoint(
+    payload: ScheduleTestRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> ScheduleTestResponse:
     """일정 관리 기능 테스트 엔드포인트 (Google Calendar 연동).
     
     테스트 시나리오:
@@ -1568,21 +1745,24 @@ async def test_schedule_endpoint(payload: ScheduleTestRequest) -> ScheduleTestRe
         from agents.master_graphs.schedule.nodes.schedule_nodes import process_schedule_request
         from agents.state import OrchestratorState
         
+        # 인증된 사용자의 employee_id 사용
+        employee_id = current_user["employee_id"]
+        
         # 세션 ID 설정
-        user_id = payload.user_id or str(payload.employee_id)
+        user_id = payload.user_id or str(employee_id)
         session_id = payload.session_id or f"test_schedule_{user_id}"
         
         # 세션 관리자로 이전 컨텍스트 로드
         session_manager = await get_session_manager()
         session_data = {"schedule_context": {}}
         if session_manager:
-            loaded_data = await session_manager.load_session_data(session_id)
+            loaded_data = await session_manager.load_session_data(session_id, employee_id)
             session_data = {"schedule_context": loaded_data.get("schedule_context", {})}
         
         # State 구성
         state = OrchestratorState(
             query=payload.query,
-            employee_id=payload.employee_id,
+            employee_id=employee_id,
             user_id=user_id,
             messages=[],
             schedule_context=session_data.get("schedule_context", {}),
