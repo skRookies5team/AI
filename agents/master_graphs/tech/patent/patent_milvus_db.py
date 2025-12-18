@@ -63,9 +63,9 @@ def _initialize_milvus() -> None:
         raise ImportError("pymilvus가 설치되지 않았습니다. pip install pymilvus")
 
     # 공용 서버 주소 (.env 파일에서 환경 변수 읽기)
-    milvus_host = _get_env("HOST") or _get_env("MILVUS_HOST") or "175.114.229.152"
-    milvus_port_str = _get_env("MILVUS_PORT") or "19530"
-    milvus_port = int(milvus_port_str.strip()) if milvus_port_str else 19530
+    milvus_host = _get_env("HOST") or _get_env("MILVUS_HOST")
+    milvus_port_str = _get_env("MILVUS_PORT")
+    milvus_port = int(milvus_port_str.strip()) if milvus_port_str else ""
     
     try:
         connections.connect("default", host=milvus_host, port=milvus_port)
