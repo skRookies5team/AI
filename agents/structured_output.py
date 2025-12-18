@@ -201,3 +201,32 @@ class AgentResponse(BaseModel):
     )
     next_action: Optional[str] = Field(default=None, description="다음 액션 힌트")
 
+
+class WorkflowDetectionResult(BaseModel):
+    """워크플로우 감지 결과.
+    
+    사용자 질의를 분석하여 복합 워크플로우 실행 요청인지 판단합니다.
+    """
+    
+    workflow_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "감지된 워크플로우 타입 (예: 'business_trip'). "
+            "워크플로우 실행 요청이 아니면 None. "
+            "실행 의도가 확실할 때만 값을 설정하세요."
+        )
+    )
+    confidence: float = Field(
+        ...,
+        description="워크플로우 감지 신뢰도 (0.0 ~ 1.0). 0.8 이상이면 높은 신뢰도",
+        ge=0.0,
+        le=1.0
+    )
+    is_workflow_request: bool = Field(
+        ...,
+        description=(
+            "워크플로우 실행 요청인지 여부. "
+            "실행 동사('다녀올게', '갈게', '신청해줘' 등)가 명확하면 True, "
+            "질문형('알려줘', '방법은?' 등)이면 False"
+        )
+    )

@@ -26,7 +26,7 @@ from langgraph.graph import StateGraph, END
 
 from agents.state import OrchestratorState, Message
 from agents.llm_router import classify_intent_with_llm
-from agents.structured_output import extract_structured_output, QueryIntent
+from agents.structured_output import extract_structured_output, QueryIntent, WorkflowDetectionResult
 from agents.redis_optimizer import optimize_state_before_save
 from agents.domain_node_handler import process_domain_node_result
 from agents.utils import check_detailed_response_in_history, get_clarification_message
@@ -97,6 +97,7 @@ _routing_logger = _setup_routing_logger()
 # 프롬프트 캐시 (모듈 로드 시 즉시 로드하여 첫 요청 시 지연 방지)
 _orchestrator_prompts = None
 _orchestrator_config = None
+_workflows_config: Optional[Dict[str, Any]] = None
 
 def _load_orchestrator_prompts_sync() -> Dict[str, Any]:
     """오케스트레이터 프롬프트를 YAML 파일에서 동기적으로 로드합니다.
@@ -189,6 +190,141 @@ try:
 except Exception as e:
     # 모듈 로드 시 오류가 발생해도 나중에 다시 시도할 수 있도록 무시
     print(f"[WARNING] Orchestrator 프롬프트 사전 로드 실패 (나중에 다시 시도): {e}")
+
+
+def load_workflows_config() -> Dict[str, Any]:
+    """워크플로우 설정을 YAML 파일에서 로드합니다.
+    
+    Returns:
+        워크플로우 설정 딕셔너리
+    """
+    global _workflows_config
+    
+    if _workflows_config is not None:
+        return _workflows_config
+    
+    current_dir = Path(__file__).parent
+    yaml_path = current_dir / "workflows.yaml"
+    
+    if not yaml_path.exists():
+        print(f"⚠️ 워크플로우 파일을 찾을 수 없습니다: {yaml_path}")
+        return {}
+    
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        _workflows_config = yaml.safe_load(f)
+    
+    return _workflows_config
+
+
+# 키워드 기반 워크플로우 감지는 더 이상 사용하지 않음 (LLM 기반만 사용)
+# 이전에 사용하던 detect_workflow_type_keyword 함수는 제거되었습니다.
+
+
+async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:
+    """LLM 기반 워크플로우 타입 감지.
+    
+    Args:
+        query: 사용자 쿼리
+        
+    Returns:
+        {'workflow_type': str, 'confidence': float} 또는 None
+    """
+    workflows = load_workflows_config()
+    
+    for workflow_type, workflow_config in workflows.get("workflows", {}).items():
+        detection_prompt_template = workflow_config.get("detection_prompt", "")
+        if not detection_prompt_template:
+            continue
+        
+        # 프롬프트에 query 삽입
+        detection_prompt = detection_prompt_template.format(query=query)
+        
+        try:
+            result = await extract_structured_output(
+                query=query,
+                model_class=WorkflowDetectionResult,
+                system_prompt=detection_prompt,
+                temperature=0.0
+            )
+            
+            if result.is_workflow_request and result.workflow_type == workflow_type and result.confidence >= 0.8:
+                print(f"✅ LLM 기반 워크플로우 감지: {workflow_type} (신뢰도: {result.confidence:.2f})")
+                return {
+                    "workflow_type": workflow_type,
+                    "confidence": result.confidence
+                }
+        except Exception as e:
+            print(f"⚠️ 워크플로우 감지 중 오류 발생 ({workflow_type}): {e}")
+            continue
+    
+    return None
+
+
+async def detect_workflow_type(query: str) -> Optional[Dict[str, Any]]:
+    """워크플로우 타입 감지 (LLM 기반만 사용).
+    
+    LLM을 사용하여 사용자 질의를 분석하고 워크플로우 실행 요청인지 판단합니다.
+    키워드 기반 감지는 사용하지 않습니다.
+    
+    Args:
+        query: 사용자 쿼리
+        
+    Returns:
+        {'workflow_type': str, 'confidence': float} 또는 None
+    """
+    # LLM 기반 감지만 사용
+    llm_result = await detect_workflow_type_with_llm(query)
+    return llm_result
+
+
+async def extract_workflow_data(query: str, workflow_type: str) -> Dict[str, Any]:
+    """워크플로우 실행에 필요한 데이터를 추출합니다.
+    
+    Args:
+        query: 사용자 쿼리
+        workflow_type: 워크플로우 타입
+        
+    Returns:
+        추출된 데이터 딕셔너리
+    """
+    workflows = load_workflows_config()
+    workflow_config = workflows.get("workflows", {}).get(workflow_type)
+    
+    if not workflow_config:
+        return {}
+    
+    data_extraction_prompt = workflow_config.get("data_extraction_prompt", "")
+    if not data_extraction_prompt:
+        return {}
+    
+    try:
+        from agents.structured_output import ScheduleParams
+        
+        # 출장/휴가 워크플로우의 경우 ScheduleParams로 데이터 추출
+        if workflow_type == "business_trip":
+            result = await extract_structured_output(
+                query=query,
+                model_class=ScheduleParams,
+                system_prompt=data_extraction_prompt,
+                temperature=0.0
+            )
+            
+            extracted_data = {}
+            if result.start_date:
+                extracted_data["start_date"] = result.start_date
+            if result.end_date:
+                extracted_data["end_date"] = result.end_date
+            if result.destination:
+                extracted_data["destination"] = result.destination
+            if result.reason:
+                extracted_data["reason"] = result.reason
+            
+            return extracted_data
+    except Exception as e:
+        print(f"⚠️ 워크플로우 데이터 추출 실패: {e}")
+        return {}
+    
+    return {}
 
 
 def check_tech_ask_source_state(query: str, state: OrchestratorState, user_message: Message) -> Optional[Dict[str, Any]]:
@@ -558,6 +694,100 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     **current_date_info
                 }
     
+    # 워크플로우 진행 중인지 확인
+    workflow_in_progress = state.get("workflow_in_progress", False)
+    
+    # 워크플로우 진행 중이면 다음 단계로 진행
+    if workflow_in_progress:
+        workflow_type = state.get("workflow_type")
+        workflow_steps = state.get("workflow_steps", [])
+        current_step_index = state.get("current_workflow_step_index", 0)
+        next_domain = state.get("next_domain")
+        
+        # 취소 요청 확인
+        cancel_keywords = ["취소", "중단", "그만", "stop", "cancel"]
+        if any(kw in query.lower() for kw in cancel_keywords):
+            print(f"⚠️ 워크플로우 취소 요청 감지: {workflow_type}")
+            return {
+                "workflow_type": None,
+                "workflow_steps": None,
+                "current_workflow_step_index": None,
+                "workflow_completed_steps": None,
+                "workflow_in_progress": False,
+                "next_domain": None,
+                "domain": None,
+                "final_response": f"워크플로우({workflow_type})가 취소되었습니다.",
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+        
+        # 다음 단계 도메인 설정
+        if next_domain and next_domain in MASTER_GRAPHS:
+            print(f"✅ 워크플로우 다음 단계: {next_domain} (step {current_step_index + 1}/{len(workflow_steps)})")
+            return {
+                "domain": next_domain,
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+        else:
+            # 워크플로우 완료
+            print(f"✅ 워크플로우 완료: {workflow_type}")
+            workflows = load_workflows_config()
+            workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+            completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
+            
+            return {
+                "workflow_type": None,
+                "workflow_steps": None,
+                "current_workflow_step_index": None,
+                "workflow_completed_steps": None,
+                "workflow_in_progress": False,
+                "next_domain": None,
+                "domain": None,
+                "final_response": completion_message,
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+    
+    # 새로운 워크플로우 감지 시도
+    step_start = time.time()
+    workflow_detection_result = await detect_workflow_type(query)
+    step_elapsed = (time.time() - step_start) * 1000
+    _routing_logger.info(f"[워크플로우 감지] {step_elapsed:.2f}ms")
+    
+    # LLM 기반 감지만 사용 (detect_workflow_type_with_llm에서 이미 0.8 이상만 반환)
+    if workflow_detection_result and workflow_detection_result.get("confidence", 0) >= 0.8:
+        workflow_type = workflow_detection_result["workflow_type"]
+        workflows = load_workflows_config()
+        workflow_config = workflows.get("workflows", {}).get(workflow_type)
+        
+        if workflow_config:
+            steps = workflow_config.get("steps", [])
+            workflow_domains = [step.get("domain") for step in steps if step.get("domain")]
+            
+            if workflow_domains:
+                # 워크플로우 데이터 추출
+                workflow_data = await extract_workflow_data(query, workflow_type)
+                
+                # 첫 번째 단계 도메인 설정
+                first_domain = workflow_domains[0]
+                
+                print(f"✅ 워크플로우 감지: {workflow_type} (단계 수: {len(workflow_domains)})")
+                print(f"✅ 첫 번째 단계 도메인: {first_domain}")
+                
+                return {
+                    "workflow_type": workflow_type,
+                    "workflow_steps": workflow_domains,
+                    "current_workflow_step_index": 0,
+                    "workflow_completed_steps": [],
+                    "workflow_in_progress": True,
+                    "next_domain": None,
+                    "domain": first_domain,
+                    "conversation_history": [user_message],
+                    **workflow_data,  # start_date, end_date, destination, reason 등
+                    **current_date_info
+                }
+    
     # Tech 도메인 ask_source 상태 확인 (최우선 처리)
     step_start = time.time()
     tech_result = check_tech_ask_source_state(query, state, user_message)
@@ -883,6 +1113,33 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
             print("✅ 이전 대화 확인 질문 - orchestrator에서 직접 처리 완료, END로 이동")
             return END
         
+        # 워크플로우 진행 중인지 확인
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        
+        if workflow_in_progress:
+            # 워크플로우 진행 중인 경우, next_domain 또는 domain 확인
+            next_domain = state.get("next_domain")
+            workflow_steps = state.get("workflow_steps", [])
+            current_step_index = state.get("current_workflow_step_index", 0)
+            
+            # next_domain이 있으면 다음 단계로 진행
+            if next_domain and next_domain in MASTER_GRAPHS:
+                print(f"--- [Orchestrator] 워크플로우 다음 단계 라우팅: {next_domain} ---")
+                return next_domain
+            
+            # next_domain이 없지만 domain이 있으면 현재 단계 실행 (첫 단계)
+            if domain and domain in MASTER_GRAPHS:
+                print(f"--- [Orchestrator] 워크플로우 첫 단계 라우팅: {domain} ---")
+                return domain
+            
+            # 워크플로우가 완료되었거나 모든 단계가 끝났는지 확인
+            if current_step_index >= len(workflow_steps):
+                print("✅ 워크플로우 완료 - END로 이동")
+                return END
+            
+            # 예상치 못한 경우
+            print(f"⚠️ 워크플로우 라우팅 오류: domain={domain}, next_domain={next_domain}, step_index={current_step_index}")
+        
         print(f"--- [Orchestrator] State domain value: {domain} ---")
         print(f"--- [Orchestrator] State keys: {list(state.keys())} ---")
         
@@ -915,9 +1172,32 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         routing_map
     )
     
-    # 모든 마스터그래프는 END로 연결
+    # 도메인 노드 이후 라우팅 함수 (워크플로우 처리)
+    def route_after_domain(state: OrchestratorState) -> str:
+        """도메인 노드 실행 후 라우팅.
+        
+        워크플로우가 진행 중이면 route_to_domain으로 돌아가서 다음 단계를 처리하고,
+        그렇지 않으면 END로 이동합니다.
+        """
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        
+        if workflow_in_progress:
+            print("✅ 워크플로우 진행 중 - route_to_domain으로 돌아가서 다음 단계 처리")
+            return "route_to_domain"
+        else:
+            print("✅ 일반 작업 완료 - END로 이동")
+            return END
+    
+    # 모든 마스터그래프는 route_after_domain으로 연결
     for domain_name in MASTER_GRAPHS.keys():
-        workflow.add_edge(domain_name, END)
+        workflow.add_conditional_edges(
+            domain_name,
+            route_after_domain,
+            {
+                "route_to_domain": "route_to_domain",
+                END: END
+            }
+        )
     
     print(f"📊 총 {len(MASTER_GRAPHS)}개 마스터그래프 등록 완료")
     

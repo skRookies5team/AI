@@ -200,15 +200,6 @@ async def startup_event():
     try:
         print("🚀 FastAPI 앱 시작 - 세션 관리자 초기화 중...")
         
-        # 이전 형식의 email:recent100:* 키 자동 정리
-        try:
-            from agents.master_graphs.email.email_search_agent import cleanup_old_email_recent100_keys
-            deleted_count = await cleanup_old_email_recent100_keys()
-            if deleted_count > 0:
-                print(f"✅ 이전 형식의 email:recent100:* 키 {deleted_count}개 정리 완료")
-        except Exception as e:
-            print(f"⚠️ 이전 이메일 키 정리 중 오류 발생 (무시): {e}")
-        
         # 세션 관리자 초기화
         session_manager = await get_session_manager()
         if session_manager:
@@ -232,20 +223,6 @@ async def startup_event():
             while True:
                 time.sleep(1800)  # 30분 대기
                 cleanup_old_redis_sessions()
-                
-                # 이전 형식의 email:recent100:* 키도 정기적으로 정리
-                try:
-                    import asyncio
-                    from agents.master_graphs.email.email_search_agent import cleanup_old_email_recent100_keys
-                    # 새로운 이벤트 루프 생성 (스레드에서 실행)
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    deleted_count = loop.run_until_complete(cleanup_old_email_recent100_keys())
-                    if deleted_count > 0:
-                        print(f"✅ 정기 정리: 이전 형식의 email:recent100:* 키 {deleted_count}개 삭제")
-                    loop.close()
-                except Exception as e:
-                    print(f"⚠️ 이메일 키 정기 정리 중 오류 (무시): {e}")
         
         periodic_thread = threading.Thread(target=periodic_cleanup, daemon=True)
         periodic_thread.start()
