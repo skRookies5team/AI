@@ -1551,26 +1551,37 @@ def start_email_checker_supervisor(check_interval: int = 30) -> None:
 	print(f"📧 [EMAIL CHECK] supervisor 시작 (interval={check_interval}s)")
 
 
-async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100) -> List[Dict[str, Any]]:
-	"""IMAP 최신 recent_limit개 vs Redis(해당 세션) 최신 recent_limit개 비교 → 새 메일 메타데이터 반환."""
+async def _check_new_emails_for_session(session_id: str, employee_id: int, recent_limit: int = 100) -> List[str]:
+	"""IMAP 최신 recent_limit개 vs Redis UID 리스트 비교 → 새 메일 UID만 반환.
+	
+	세션별 이메일 저장 없이 UID만 사용합니다.
+	
+	Args:
+		session_id: 세션 ID
+		employee_id: 사원 번호
+		recent_limit: 최대 개수
+		
+	Returns:
+		신규 메일 UID 리스트
+	"""
 	redis_client = _get_redis_client()
 	if not redis_client:
 		logger.debug(f"[EMAIL CHECK][{session_id}] Redis 연결 실패")
 		return []
 
-	storage = EmailRedisStorage(redis_client, session_id)
-	redis_by_date_key = f"{storage.email_key_prefix}:index:by_date"
-
-	# Redis 최신 recent_limit개
-	if not await storage.redis.exists(redis_by_date_key):
-		logger.debug(f"[EMAIL CHECK][{session_id}] Redis 동기화 데이터 없음 ({redis_by_date_key})")
-		return []
-
-	redis_recent_ids_raw = await storage.redis.zrevrange(redis_by_date_key, 0, recent_limit - 1)
-	redis_recent_ids = {
-		(x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else str(x))
-		for x in redis_recent_ids_raw
-	}
+	# UID만 저장된 키 사용 (세션별 이메일 저장 없음)
+	recent_key = _email_recent100_redis_key(session_id, employee_id)
+	
+	# Redis에서 최근 UID 목록 로드
+	redis_recent_uids: set[str] = set()
+	try:
+		raw = await redis_client.lrange(recent_key, 0, recent_limit - 1)
+		redis_recent_uids = {
+			(x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else str(x))
+			for x in (raw or [])
+		}
+	except Exception:
+		redis_recent_uids = set()
 
 	# IMAP 연결
 	host = _get_env("IMAP_HOST")
@@ -1598,46 +1609,14 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 		ids.reverse()
 		ids = ids[:recent_limit]
 
-		new_pairs: List[Tuple[str, bytes]] = []
+		# 신규 UID만 찾기 (세션별 저장 없이 UID만 비교)
+		new_uids: List[str] = []
 		for uid_bytes in ids:
-			email_id = uid_bytes.decode("utf-8") if isinstance(uid_bytes, (bytes, bytearray)) else str(uid_bytes)
-			if email_id not in redis_recent_ids:
-				new_pairs.append((email_id, uid_bytes))
+			uid_str = uid_bytes.decode("utf-8") if isinstance(uid_bytes, (bytes, bytearray)) else str(uid_bytes)
+			if uid_str not in redis_recent_uids:
+				new_uids.append(uid_str)
 
-		if not new_pairs:
-			return []
-
-		new_emails: List[Dict[str, Any]] = []
-		for email_id, uid_bytes in new_pairs:
-			try:
-				st, msg_data = mail.uid("fetch", email_id, "(BODY.PEEK[HEADER])")
-				if st != "OK" or not msg_data or not msg_data[0]:
-					continue
-
-				header_data = msg_data[0][1]
-				if not isinstance(header_data, (bytes, bytearray)):
-					continue
-
-				msg = email_pkg.message_from_bytes(header_data)
-
-				subject = _decode_mime_header(msg.get("Subject", ""))
-				from_addr = _decode_mime_header(msg.get("From", ""))
-				date = _decode_header_value(msg.get("Date", ""))
-
-				new_emails.append(
-					{
-						"email_id": email_id,
-						"subject": subject or "(제목 없음)",
-						"from_addr": from_addr or "(발신자 없음)",
-						"date": date or "",
-						"msg_id_bytes": uid_bytes,
-					}
-				)
-			except Exception as e:
-				logger.debug(f"[EMAIL CHECK][{session_id}] 새 메일 파싱 실패: {e}")
-				continue
-
-		return new_emails
+		return new_uids
 	except Exception as e:
 		logger.error(f"[EMAIL CHECK][{session_id}] 체크 실패: {e}")
 		# 콘솔 스팸 방지: 에러는 logger로만 남김
@@ -1649,26 +1628,24 @@ async def _check_new_emails_for_session(session_id: str, recent_limit: int = 100
 			pass
 
 
-async def _background_email_checker_for_session(session_id: str, check_interval: int = 30) -> None:
-	"""현재 세션(session_id)만 주기 체크 + 카운트다운 + 새 메일 Redis 저장."""
-	# 첫 실행에서 Redis에 1000개 동기화가 없으면 동기화(기존 기능 활용)
-	try:
-		redis_client = _get_redis_client()
-		if redis_client:
-			storage = EmailRedisStorage(redis_client, session_id)
-			if not await storage.has_synced_data():
-				sync_result = await sync_emails_to_redis(session_id, limit=1000)
-	except Exception as e:
-		logger.debug(f"[EMAIL CHECK][{session_id}] 초기 동기화 중 오류(무시): {e}")
-
+async def _background_email_checker_for_session(session_id: str, employee_id: int, check_interval: int = 30) -> None:
+	"""현재 세션(session_id)만 주기 체크 - UID만 사용, 세션별 이메일 저장 없음.
+	
+	Args:
+		session_id: 세션 ID
+		employee_id: 사원 번호
+		check_interval: 체크 간격 (초)
+	"""
+	# 세션별 이메일 저장 제거 - UID만 사용
 	while True:
 		try:
 			# 콘솔 카운트다운 출력은 비활성화 (요청: "다음 체크" 문구 미출력)
 			await asyncio.sleep(check_interval)
 			# 콘솔 로그 비활성화 (요청: "IMAP 최신 100개 체크 시작" 미출력)
 
-			new_emails = await _check_new_emails_for_session(session_id, recent_limit=100)
-			if not new_emails:
+			# UID만 비교 (세션별 저장 없음)
+			new_uids = await _check_new_emails_for_session(session_id, employee_id, recent_limit=100)
+			if not new_uids:
 				continue
 
 			# 새 메일은 프론트로만 발행 (콘솔 출력 X)
@@ -1691,34 +1668,36 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 					mail = None
 
 			try:
-				for idx, e in enumerate(new_emails, 1):
+				for idx, uid_str in enumerate(new_uids, 1):
 					email_info: Dict[str, str] = {
-						"subject": e.get("subject", "(제목 없음)"),
-						"from": e.get("from_addr", "(발신자 없음)"),
-						"date": e.get("date", ""),
+						"subject": "(제목 없음)",
+						"from": "(발신자 없음)",
+						"date": "",
 						"content": "",
 					}
 
 					if mail:
 						try:
-							uid_str = str(e.get("email_id") or "")
 							st, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
 							if st == "OK" and msg_data and msg_data[0]:
 								msg = email_pkg.message_from_bytes(msg_data[0][1])
+								email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
+								email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
+								email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
 								text_body, html_body, attachments = _get_email_body_and_attachments(msg)
 								if html_body:
 									email_info["content"] = html_body
 								elif text_body:
 									email_info["content"] = text_body
 								else:
-									email_info["content"] = e.get("subject", "")
+									email_info["content"] = email_info["subject"]
 							else:
-								email_info["content"] = e.get("subject", "")
+								email_info["content"] = email_info["subject"]
 						except Exception as fetch_err:
-							logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={e.get('email_id')}): {fetch_err}")
-							email_info["content"] = e.get("subject", "")
+							logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
+							email_info["content"] = email_info["subject"]
 					else:
-						email_info["content"] = e.get("subject", "")
+						email_info["content"] = email_info["subject"]
 
 					email_data[str(idx)] = email_info
 			finally:
@@ -1728,9 +1707,9 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 					except Exception:
 						pass
 
-			summary_message = f"📧 새 메일 도착: {len(new_emails)}개"
+			summary_message = f"📧 새 메일 도착: {len(new_uids)}개"
 			json_result = {summary_message: email_data}
-			# 프론트로 알림 발행
+			# 프론트로 알림 발행 (세션별 저장 없음)
 			publish_notification(
 				session_id,
 				{
@@ -1740,23 +1719,6 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 					"timestamp": datetime.now().isoformat(),
 				},
 			)
-
-			redis_client = _get_redis_client()
-			if redis_client:
-				storage = EmailRedisStorage(redis_client, session_id)
-				await storage.save_email_metadata_batch(
-					[
-						{
-							"email_id": e["email_id"],
-							"subject": e["subject"],
-							"from_addr": e["from_addr"],
-							"date": e["date"],
-							"snippet": (e["subject"] or "")[:200],
-							"msg_id_bytes": e["msg_id_bytes"],
-						}
-						for e in new_emails
-					]
-				)
 		except asyncio.CancelledError:
 			# 종료 시에는 1줄만 남기고 깔끔하게 종료
 			print(f"[EMAIL CHECK][{session_id}] 체커 종료(cancelled)")

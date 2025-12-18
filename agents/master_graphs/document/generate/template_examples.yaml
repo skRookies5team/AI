@@ -467,4 +467,51 @@ templates:
           </div>
       </div>
 
+  vacation_request_form:
+    title: "휴가 신청서"
+    example: |
+      <div style="font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; line-height: 1.6;">
+          <div style="font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;">
+              📋 <strong>휴가 신청서 작성 예시</strong>
+          </div>
+          
+          <div style="color: #495057; margin-bottom: 20px;">
+              다음 형식을 참고하여 제목과 요구사항을 입력해주세요:
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">입력 형식:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 12px 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px; color: #2c3e50;">
+                  제목: [문서 제목]<br>
+                  요구사항: [상세 요구사항]
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 1:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 2024년 연차 휴가 신청서
+      요구사항:
+      - 휴가 유형: 연차
+      - 휴가 기간: 2024년 3월 15일 ~ 2024년 3월 17일
+      - 휴가 사유: 개인 사정으로 인한 휴가
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 2:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 반차 신청서
+      요구사항:
+      휴가 유형: 반차(오전), 휴가 기간: 2024년 4월 10일
+      휴가 사유: 병원 방문
+              </div>
+          </div>
+          
+          <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 12px; margin-top: 20px; color: #004085;">
+              💡 위 예시를 참고하여 <strong>제목</strong>과 <strong>요구사항</strong>을 입력해주세요!
+              <br>💡 신청자 정보는 로그인한 사용자 정보로 자동 설정됩니다.
+          </div>
+      </div>
+
 
