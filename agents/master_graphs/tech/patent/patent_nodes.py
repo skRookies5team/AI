@@ -103,9 +103,24 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
     _notify_progress(state["progress_status"])
 
     # 특허_키워드 필터링 (세부 원문 요청 시)
-    filter_keyword = None
-    if current_search_mode == "server" and state.get("keyword"):
-        filter_keyword = f"특허_{state['keyword']}"
+    search_keyword = state.get("keyword")
+    if not search_keyword:
+        # state["keyword"]가 없으면 orchestrator_state에서 저장된 키워드 찾기
+        # 저장 시 사용한 키워드와 동일한 키워드 사용
+        orchestrator_state = patent_config_module._current_orchestrator_state_for_node
+        if orchestrator_state and "tech_search_context" in orchestrator_state:
+            tech_context = orchestrator_state.get("tech_search_context", {})
+            patent_context = tech_context.get("patent", {})
+            search_keyword = patent_context.get("last_keyword")
+            if search_keyword:
+                LOGGER.info("check_db_node: orchestrator_state에서 저장된 키워드 사용: '%s' (저장 시와 동일)", search_keyword)
+    
+    # search_keyword는 이미 정규화된 키워드이므로 그대로 전달
+    filter_keyword = search_keyword  # "특허_" 접두사 없이 정규화된 키워드만 전달
+    if filter_keyword:
+        LOGGER.info("check_db_node: filter_keyword 설정: '%s' (정규화된 키워드, 저장 시와 동일)", filter_keyword)
+    else:
+        LOGGER.warning("check_db_node: 키워드를 찾을 수 없음 - query='%s'", query)
 
     # 거리 임계값을 더 완화하여 검색 (1.5로 증가)
     results = check_vector_db(query, limit=5, max_distance=1.5, filter_keyword=filter_keyword)
@@ -189,13 +204,18 @@ def ask_search_mode_node(state: PatentSearchState) -> PatentSearchState:
     # 세션 ID 가져오기
     session_id = state.get("session_id")
     # user_query를 우선 사용 (검색어가 더 정확함)
-    keyword = state.get("user_query", "") or state.get("keyword", "")
+    user_query = state.get("user_query", "") or state.get("keyword", "")
+    # 🔧 정규화된 키워드 추출
+    from .patent_utils import _extract_keyword
+    normalized_keyword = _extract_keyword(user_query) if user_query else ""
+    
     # orchestrator_state는 전역 변수에서 가져오기
     orchestrator_state = patent_config_module._current_orchestrator_state_for_node
-    if session_id and keyword:
-        # 검색어를 저장하고 대기 상태 설정 (Redis 우선)
-        set_waiting_for_search_mode(session_id, True, keyword=keyword, orchestrator_state=orchestrator_state)
-        LOGGER.info("검색어 저장: session_id=%s, keyword=%s", session_id, keyword)
+    if session_id and normalized_keyword:
+        # 🔧 정규화된 키워드를 pending_search_keyword에 저장
+        set_waiting_for_search_mode(session_id, True, keyword=normalized_keyword, orchestrator_state=orchestrator_state)
+        set_original_search_keyword(session_id, user_query, orchestrator_state)
+        LOGGER.info("검색어 저장: session_id=%s, normalized_keyword=%s, user_query=%s", session_id, normalized_keyword, user_query)
 
     state["progress_status"] = "❓ 검색 방식을 선택해주세요:\n1. 서버 기반 검색 (빠르지만 제한적)\n2. 웹 검색 (느리지만 광범위)\n\n'1' 또는 '서버', '2' 또는 '웹'으로 답변해주세요.\n\n서버 기반 검색을 선택하면 벡터DB에서 먼저 검색하고, 결과가 없으면 자동으로 웹 검색으로 전환됩니다."
     state["next_action"] = "end"

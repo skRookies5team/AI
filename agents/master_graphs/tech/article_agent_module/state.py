@@ -138,5 +138,5 @@ class ScienceONAgentState(TypedDict):
     vector_db_results: List[Dict[str, Any]]  # 벡터DB 검색 결과
     next_action: Literal["check_db", "ask_search_source_with_db", "search_papers", "rag_answer", "generate_response", "end"]  # 다음 액션
     ask_source_retry_count: int  # ask_search_source 질문 재시도 횟수 (무한 루프 방지)
-    last_selected_paper_index: int  # 마지막으로 선택한 논문 인덱스 (순번 없을 때 사용)
+    last_selected_paper_indices: List[int]  # 마지막으로 선택한 논문 인덱스 (순번 없을 때 사용)
 
