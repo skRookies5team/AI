@@ -631,13 +631,26 @@ class SessionManager:
                             break
                 
                 # 세션 메타데이터 구성
+                # updated_at 우선순위: updated_at → last_updated → conversation_history의 마지막 메시지 timestamp → created_at
+                updated_at = session_data.get("updated_at") or session_data.get("last_updated")
+                if not updated_at and conversation_history:
+                    # conversation_history의 마지막 메시지 timestamp 사용
+                    last_msg = conversation_history[-1]
+                    updated_at = last_msg.get("timestamp") or last_msg.get("created_at")
+                if not updated_at:
+                    # 최후의 수단으로 created_at 사용
+                    updated_at = session_data.get("created_at")
+                
+                # 디버깅 로그 (프로덕션에서는 제거 가능)
+                print(f"[DEBUG] session_id={session_id}, updated_at={updated_at}, created_at={session_data.get('created_at')}")
+                
                 metadata = {
                     "session_id": session_id,
                     "title": session_data.get("title", title),
                     "employee_id": employee_id,
                     "message_count": len(conversation_history),
                     "created_at": session_data.get("created_at", datetime.now().isoformat()),
-                    "updated_at": session_data.get("updated_at", session_data.get("last_updated", datetime.now().isoformat())),
+                    "updated_at": updated_at or datetime.now().isoformat(),  # 최후의 fallback만 현재 시간
                     "last_domain": session_data.get("last_domain"),
                     "ttl": ttl
                 }
