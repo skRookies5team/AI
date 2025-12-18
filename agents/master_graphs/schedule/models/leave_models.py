@@ -36,7 +36,7 @@ class LeaveBalance(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "employee_id": 4001,
+                "employee_id": 4003,
                 "total_leave": 15.0,
                 "used_leave": 3.0,
                 "pending_leave": 1.0,
@@ -59,7 +59,7 @@ class LeaveRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "employee_id": 4001,
+                "employee_id": 4003,
                 "leave_type": "연차",
                 "start_date": "2024-12-25",
                 "end_date": "2024-12-26",

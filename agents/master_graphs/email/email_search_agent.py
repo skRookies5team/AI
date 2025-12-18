@@ -1321,7 +1321,7 @@ _ACTIVE_EMAIL_CHECKERS: Dict[str, asyncio.Task] = {}
 
 # ===== Email checker v2 (single supervisor per process) =====
 _EMAIL_CHECKER_SUPERVISOR_TASK: Optional[asyncio.Task] = None
-_EMAIL_CHECKER_ACTIVE_SESSIONS: set[str] = set()
+_EMAIL_CHECKER_ACTIVE_SESSIONS: Dict[str, int] = {}  # {session_id: employee_id}
 _EMAIL_CHECK_LAST_UID: Dict[str, int] = {}
 
 
@@ -1333,25 +1333,31 @@ def _email_last_uid_redis_key(session_id: str) -> str:
 	return f"{session_id}_email"
 
 
-def _email_recent100_redis_key(session_id: str) -> str:
+def _email_recent100_redis_key(session_id: str, employee_id: int) -> str:
 	"""세션별 '최근 100개 메일 UID' 저장 키(요청 기반 수신감지용).
 
 	- Redis에는 UID 100개만 저장합니다(본문/메타데이터 저장 X).
 	- 최신이 앞(0번 인덱스)으로 오도록 저장합니다.
-	- 이메일은 공유 계정을 사용하므로 session_id 기반으로 키 생성
+	
+	Args:
+		session_id: 세션 ID
+		employee_id: 사원 번호
 	"""
-	# 이메일은 공유 계정 사용이므로 employee_id 없이 session_id 기반으로 키 생성
-	return f"email:recent100:{session_id}"
+	return f"employee:{employee_id}:email"
 
 
-def register_email_check_session(session_id: str) -> None:
+def register_email_check_session(session_id: str, employee_id: int) -> None:
 	"""이메일 수신감지 대상 세션을 등록합니다.
 
 	- 프로세스 메모리 기반이므로, 프로세스가 재시작되면 다시 등록되어야 합니다.
 	- 신규 메일 판별은 IMAP UID 기반(last_seen_uid)으로 수행됩니다. (Redis 비교/저장 없음)
+	
+	Args:
+		session_id: 세션 ID
+		employee_id: 사원 번호
 	"""
-	if session_id:
-		_EMAIL_CHECKER_ACTIVE_SESSIONS.add(session_id)
+	if session_id and employee_id:
+		_EMAIL_CHECKER_ACTIVE_SESSIONS[session_id] = employee_id
 
 
 async def _check_and_publish_new_emails_for_session(session_id: str, recent_limit: int = 100) -> None:
@@ -1387,7 +1393,14 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 		return
 
 	redis_client = _get_redis_client()
-	recent_key = _email_recent100_redis_key(session_id)
+	
+	# _EMAIL_CHECKER_ACTIVE_SESSIONS에서 employee_id 조회
+	employee_id = _EMAIL_CHECKER_ACTIVE_SESSIONS.get(session_id)
+	if not employee_id:
+		logger.warning(f"[EMAIL CHECK][{session_id}] employee_id를 찾을 수 없습니다. 세션이 등록되지 않았을 수 있습니다.")
+		return
+	
+	recent_key = _email_recent100_redis_key(session_id, employee_id)
 
 	try:
 		# 1) IMAP에서 전체 UID 목록 → 최신 recent_limit개
@@ -1516,7 +1529,7 @@ async def _email_checker_supervisor_loop(check_interval: int = 30) -> None:
 			# 콘솔 로그 비활성화 (요청: "IMAP 최신 100개 체크 시작" 미출력)
 
 			# 세션별 체크 (순차 실행: IMAP 부하/로그인 충돌 방지)
-			for sid in list(_EMAIL_CHECKER_ACTIVE_SESSIONS):
+			for sid, emp_id in list(_EMAIL_CHECKER_ACTIVE_SESSIONS.items()):
 				try:
 					await _check_and_publish_new_emails_for_session(sid, recent_limit=100)
 				except Exception as e:
@@ -1754,10 +1767,16 @@ async def _background_email_checker_for_session(session_id: str, check_interval:
 			await asyncio.sleep(60)
 
 
-def start_email_checker_for_session(session_id: str, check_interval: int = 30) -> None:
-	"""첫 채팅에서 알아낸 '현재 세션'만 이메일 체커 시작(중복 실행 방지)."""
+def start_email_checker_for_session(session_id: str, employee_id: int, check_interval: int = 30) -> None:
+	"""첫 채팅에서 알아낸 '현재 세션'만 이메일 체커 시작(중복 실행 방지).
+	
+	Args:
+		session_id: 세션 ID
+		employee_id: 사원 번호
+		check_interval: 체크 간격 (초)
+	"""
 	# v2: 세션별 태스크를 만들지 않고 supervisor 1개만 돌립니다.
-	register_email_check_session(session_id)
+	register_email_check_session(session_id, employee_id)
 	start_email_checker_supervisor(check_interval=check_interval)
 
 
