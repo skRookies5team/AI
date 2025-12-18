@@ -404,7 +404,44 @@
                             <option value="activity_based_costing">활동기준 원가 계산서</option>
                             <option value="project_schedule">프로젝트 일정표</option>
                             <option value="product_comparison_table">제품 비교표</option>
+                            <option value="vacation_request_form">휴가 신청서</option>
                         </select>
+                        
+                        <!-- 문서 양식 카드 선택 (선택사항) -->
+                        <div class="template-grid" style="margin-top: 15px;">
+                            <div class="template-card" data-template="product_development_plan">
+                                <div class="template-icon">📋</div>
+                                <div class="template-name">제품개발 계획서</div>
+                            </div>
+                            <div class="template-card" data-template="purchase_order">
+                                <div class="template-icon">📝</div>
+                                <div class="template-name">발주서</div>
+                            </div>
+                            <div class="template-card" data-template="hr_summary_report">
+                                <div class="template-icon">👥</div>
+                                <div class="template-name">인사정보 요약 리포트</div>
+                            </div>
+                            <div class="template-card" data-template="monthly_profit_analysis_report">
+                                <div class="template-icon">📊</div>
+                                <div class="template-name">월별 수익 분석 리포트</div>
+                            </div>
+                            <div class="template-card" data-template="work_performance_review">
+                                <div class="template-icon">⭐</div>
+                                <div class="template-name">업무 성과 평가</div>
+                            </div>
+                            <div class="template-card" data-template="product_comparison_table">
+                                <div class="template-icon">📊</div>
+                                <div class="template-name">제품 비교표</div>
+                            </div>
+                            <div class="template-card" data-template="vacation_request_form">
+                                <div class="template-icon">🏖️</div>
+                                <div class="template-name">휴가 신청서</div>
+                            </div>
+                            <div class="template-card" data-template="activity_based_costing">
+                                <div class="template-icon">💰</div>
+                                <div class="template-name">활동기준 원가 계산서</div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 제목 입력 -->
@@ -480,6 +517,42 @@
 
     <script>
         const API_URL = 'http://localhost:8000/api/chat';
+
+        // 템플릿 카드 클릭 이벤트 처리
+        document.addEventListener('DOMContentLoaded', function() {
+            const templateCards = document.querySelectorAll('.template-card');
+            const templateSelect = document.getElementById('templateSelect');
+            
+            templateCards.forEach(card => {
+                card.addEventListener('click', function() {
+                    // 모든 카드에서 selected 클래스 제거
+                    templateCards.forEach(c => c.classList.remove('selected'));
+                    
+                    // 클릭한 카드에 selected 클래스 추가
+                    this.classList.add('selected');
+                    
+                    // select 드롭다운 값 업데이트
+                    const templateValue = this.getAttribute('data-template');
+                    templateSelect.value = templateValue;
+                    
+                    // select 변경 이벤트 트리거 (다른 이벤트 리스너가 있을 경우)
+                    templateSelect.dispatchEvent(new Event('change'));
+                });
+            });
+            
+            // select 드롭다운 변경 시 카드 선택 상태 동기화
+            templateSelect.addEventListener('change', function() {
+                const selectedValue = this.value;
+                templateCards.forEach(card => {
+                    if (card.getAttribute('data-template') === selectedValue) {
+                        templateCards.forEach(c => c.classList.remove('selected'));
+                        card.classList.add('selected');
+                    } else if (!selectedValue) {
+                        card.classList.remove('selected');
+                    }
+                });
+            });
+        });
 
         // 폼 제출 처리
         document.getElementById('documentForm').addEventListener('submit', async function(e) {

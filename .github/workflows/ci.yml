@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+jobs:
+  docker-build-sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker build (sanity)
+        run: |
+          set -euo pipefail
+          if [ -f Dockerfile ]; then
+            docker build -t ai-app:ci .
+          else
+            echo "No Dockerfile; skip docker build"
+          fi
