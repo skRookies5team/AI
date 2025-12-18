@@ -899,3 +899,502 @@ def fetch_hr_summary_report_data(
             print(f"⚠️ 전체 데이터 조회도 실패했습니다. 테이블이 비어있거나 접근 권한이 없을 수 있습니다.")
     
     return results if results else []
+
+
+def fetch_employee_info(employee_id: int) -> Optional[Dict[str, Any]]:
+    """employee 테이블에서 특정 직원 정보를 조회합니다.
+    
+    Args:
+        employee_id: 직원 ID
+    
+    Returns:
+        직원 정보 딕셔너리 또는 None
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 조회 건너뜀")
+        return None
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 조회를 건너뜀")
+        return None
+    
+    query = "SELECT * FROM employee WHERE employee_id = %s LIMIT 1"
+    results = execute_query(query, (employee_id,))
+    
+    if results and len(results) > 0:
+        print(f"✅ 직원 정보 조회 성공: employee_id={employee_id}")
+        return results[0]
+    else:
+        print(f"⚠️ 직원 정보를 찾을 수 없음: employee_id={employee_id}")
+        return None
+
+
+def fetch_department_manager(dept: str) -> Optional[Dict[str, Any]]:
+    """부서장 정보를 조회합니다.
+    
+    Args:
+        dept: 부서명
+    
+    Returns:
+        부서장 정보 딕셔너리 또는 None
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 조회 건너뜀")
+        return None
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 조회를 건너뜀")
+        return None
+    
+    # 부서장은 position에 "부장", "팀장", "본부장" 등이 포함된 사람
+    query = """
+    SELECT * FROM employee 
+    WHERE dept = %s 
+    AND (position LIKE %s OR position LIKE %s OR position LIKE %s OR job_title LIKE %s)
+    LIMIT 1
+    """
+    params = (dept, "%부장%", "%팀장%", "%본부장%", "%Manager%")
+    results = execute_query(query, params)
+    
+    if results and len(results) > 0:
+        print(f"✅ 부서장 정보 조회 성공: dept={dept}")
+        return results[0]
+    else:
+        print(f"⚠️ 부서장 정보를 찾을 수 없음: dept={dept}")
+        return None
+
+
+def fetch_leave_request_data(
+    employee_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    leave_type: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """leave_request 테이블에서 휴가 신청 데이터를 조회합니다.
+    
+    Args:
+        employee_id: 직원 ID (선택사항)
+        start_date: 시작일 (선택사항)
+        end_date: 종료일 (선택사항)
+        leave_type: 휴가 유형 (선택사항)
+    
+    Returns:
+        휴가 신청 데이터 리스트
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 조회 건너뜀")
+        return []
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 조회를 건너뜀")
+        return []
+    
+    query = "SELECT * FROM leave_request WHERE 1=1"
+    params = []
+    
+    if employee_id:
+        query += " AND employee_id = %s"
+        params.append(employee_id)
+    
+    if start_date:
+        query += " AND start_date = %s"
+        params.append(start_date)
+    
+    if end_date:
+        query += " AND end_date = %s"
+        params.append(end_date)
+    
+    if leave_type:
+        query += " AND leave_type = %s"
+        params.append(leave_type)
+    
+    query += " ORDER BY request_date DESC LIMIT 10"
+    
+    results = execute_query(query, tuple(params) if params else None)
+    
+    if results:
+        print(f"✅ 휴가 신청 데이터 조회 성공: {len(results)}개")
+    else:
+        print(f"⚠️ 휴가 신청 데이터 조회 결과 없음")
+    
+    return results if results else []
+
+
+def save_leave_request(
+    employee_id: int,
+    leave_type: str,
+    start_date: str,
+    end_date: str,
+    reason: str,
+    request_date: Optional[str] = None,
+    status: str = "대기"
+) -> Optional[int]:
+    """leave_request 테이블에 휴가 신청 데이터를 저장합니다.
+    
+    Args:
+        employee_id: 직원 ID
+        leave_type: 휴가 유형 (연차, 반차(오전), 반차(오후), 병가, 경조사 등)
+        start_date: 시작일 (YYYY-MM-DD 형식)
+        end_date: 종료일 (YYYY-MM-DD 형식)
+        reason: 휴가 사유
+        request_date: 신청일 (YYYY-MM-DD 형식, None이면 오늘 날짜)
+        status: 상태 (기본값: "대기")
+    
+    Returns:
+        저장된 id (AUTO_INCREMENT) 또는 None (실패 시)
+        참고: request_id는 문자열 컬럼이고, id는 AUTO_INCREMENT 정수 컬럼입니다.
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 저장 건너뜀")
+        return None
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 저장을 건너뜀")
+        return None
+    
+    from datetime import datetime, date, timedelta
+    
+    # 신청일 설정
+    if not request_date:
+        request_date = date.today().isoformat()
+    
+    # request_id 생성 (LR{year}-{employee_id}-{sequence} 형식)
+    # 예: LR2025-4004-02
+    # 참고: request_id는 VARCHAR 컬럼이고, id는 AUTO_INCREMENT PRIMARY KEY입니다.
+    current_year = datetime.now().year
+    pattern = f"LR{current_year}-{employee_id}-%"  # 패턴을 미리 정의하여 재사용
+    
+    # DB 연결 (구별 번호 조회와 저장을 한 번의 연결로 처리)
+    connection = None
+    request_id = None
+    try:
+        connection = pymysql.connect(**db_config)
+        with connection.cursor() as cursor:
+            # 같은 년도, 같은 employee_id의 최대 구별 번호 조회 (숫자로 정렬)
+            check_query = """
+            SELECT request_id 
+            FROM leave_request 
+            WHERE employee_id = %s 
+            AND request_id LIKE %s
+            ORDER BY CAST(SUBSTRING_INDEX(request_id, '-', -1) AS UNSIGNED) DESC
+            LIMIT 1
+            """
+            
+            try:
+                cursor.execute(check_query, (employee_id, pattern))
+                result = cursor.fetchone()
+                
+                max_sequence = 0
+                if result:
+                    # DictCursor 사용 시 딕셔너리, 일반 cursor 사용 시 튜플
+                    if isinstance(result, dict):
+                        existing_request_id = result.get('request_id')
+                    else:
+                        existing_request_id = result[0] if len(result) > 0 else None
+                    
+                    if existing_request_id:
+                        # request_id에서 구별 번호 추출 (LR2025-4004-02 -> 02)
+                        parts = existing_request_id.split('-')
+                        if len(parts) == 3 and parts[2].isdigit():
+                            max_sequence = int(parts[2])
+                            print(f"🔍 [leave_request] 기존 최대 구별 번호: {max_sequence} (request_id: {existing_request_id})")
+                        else:
+                            print(f"⚠️ [leave_request] request_id 형식 파싱 실패: {existing_request_id}")
+                    else:
+                        print(f"🔍 [leave_request] 기존 request_id 없음, 01부터 시작")
+                else:
+                    print(f"🔍 [leave_request] 기존 request_id 없음, 01부터 시작")
+            except Exception as e:
+                print(f"⚠️ [leave_request] 구별 번호 조회 쿼리 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                max_sequence = 0
+            
+            # 다음 구별 번호 생성 (중복 체크 포함)
+            max_attempts = 10  # 최대 10번 시도
+            for attempt in range(max_attempts):
+                next_sequence = max_sequence + 1 + attempt
+                candidate_request_id = f"LR{current_year}-{employee_id}-{next_sequence:02d}"
+                
+                # 중복 확인
+                duplicate_check_query = """
+                SELECT COUNT(*) as cnt
+                FROM leave_request 
+                WHERE request_id = %s
+                """
+                cursor.execute(duplicate_check_query, (candidate_request_id,))
+                dup_result = cursor.fetchone()
+                
+                # DictCursor 사용 시 딕셔너리, 일반 cursor 사용 시 튜플
+                dup_count = 0
+                if dup_result:
+                    if isinstance(dup_result, dict):
+                        dup_count = dup_result.get('cnt', 0) or 0
+                    else:
+                        dup_count = dup_result[0] if len(dup_result) > 0 else 0
+                
+                if dup_count > 0:
+                    print(f"⚠️ [leave_request] request_id 중복: {candidate_request_id}, 다음 번호 시도...")
+                    continue
+                else:
+                    request_id = candidate_request_id
+                    print(f"📝 [leave_request] 생성된 request_id: {request_id}")
+                    break
+            
+            # 모든 시도 실패 시
+            if not request_id:
+                # 마지막으로 큰 번호를 찾아서 +1
+                fallback_query = """
+                SELECT request_id 
+                FROM leave_request 
+                WHERE employee_id = %s 
+                AND request_id LIKE %s
+                ORDER BY CAST(SUBSTRING_INDEX(request_id, '-', -1) AS UNSIGNED) DESC
+                LIMIT 1
+                """
+                cursor.execute(fallback_query, (employee_id, pattern))
+                fallback_result = cursor.fetchone()
+                
+                existing_id = None
+                if fallback_result:
+                    if isinstance(fallback_result, dict):
+                        existing_id = fallback_result.get('request_id')
+                    else:
+                        existing_id = fallback_result[0] if len(fallback_result) > 0 else None
+                
+                if existing_id:
+                    parts = existing_id.split('-')
+                    if len(parts) == 3 and parts[2].isdigit():
+                        last_seq = int(parts[2])
+                        request_id = f"LR{current_year}-{employee_id}-{last_seq + 1:02d}"
+                    else:
+                        request_id = f"LR{current_year}-{employee_id}-01"
+                else:
+                    request_id = f"LR{current_year}-{employee_id}-01"
+                print(f"📝 [leave_request] 최종 request_id: {request_id}")
+                
+    except Exception as e:
+        print(f"⚠️ [leave_request] 구별 번호 조회 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        # 기본값으로 request_id 생성
+        if not request_id:
+            request_id = f"LR{current_year}-{employee_id}-01"
+            print(f"📝 [leave_request] 기본 request_id 사용: {request_id}")
+        if connection:
+            connection.close()
+            connection = None
+    
+    # leave_type 정규화 (DB ENUM 타입에 맞게 변환)
+    # DB의 leave_type 컬럼은 ENUM('연차', '반차', '병가', '경조사') 타입이므로
+    # "반차(오전)", "반차(오후)" 등을 "반차"로 변환해야 함
+    normalized_leave_type = leave_type
+    if "반차" in str(leave_type):
+        normalized_leave_type = "반차"
+    elif "연차" in str(leave_type):
+        normalized_leave_type = "연차"
+    elif "병가" in str(leave_type):
+        normalized_leave_type = "병가"
+    elif "경조사" in str(leave_type):
+        normalized_leave_type = "경조사"
+    else:
+        # 기본값
+        normalized_leave_type = "연차"
+    
+    print(f"📝 [leave_request] leave_type 정규화: '{leave_type}' → '{normalized_leave_type}'")
+    
+    # 휴가 일수 계산
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        # 반차인 경우 0.5일
+        if normalized_leave_type == "반차":
+            total_days = 0.5
+        else:
+            # 주말 제외한 일수 계산
+            total_days = 0
+            current = start
+            while current <= end:
+                weekday = current.weekday()
+                if weekday < 5:  # 월~금 (0~4)
+                    total_days += 1
+                # 다음 날로 이동
+                current = current + timedelta(days=1)
+    except Exception as e:
+        print(f"⚠️ 휴가 일수 계산 실패: {e}, 기본값 1일 사용")
+        total_days = 1.0
+    
+    # SQL 쿼리 (document_id는 NULL로 설정)
+    query = """
+    INSERT INTO leave_request (
+        request_id,
+        document_id,
+        employee_id,
+        request_date,
+        leave_type,
+        start_date,
+        end_date,
+        total_days,
+        status,
+        reason,
+        created_at,
+        updated_at
+    ) VALUES (
+        %s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+    )
+    """
+    
+    params = (
+        request_id,
+        employee_id,
+        request_date,
+        normalized_leave_type,  # 정규화된 leave_type 사용
+        start_date,
+        end_date,
+        total_days,
+        status,
+        reason
+    )
+    
+    try:
+        print(f"💾 [leave_request] 휴가 신청 데이터 저장 시도...")
+        print(f"  - request_id: {request_id}")
+        print(f"  - employee_id: {employee_id}")
+        print(f"  - leave_type (원본): {leave_type}")
+        print(f"  - leave_type (정규화): {normalized_leave_type}")
+        print(f"  - start_date: {start_date}")
+        print(f"  - end_date: {end_date}")
+        print(f"  - total_days: {total_days}")
+        print(f"  - reason: {reason[:50]}...")
+        
+        # connection이 없으면 새로 생성
+        if not connection:
+            connection = pymysql.connect(**db_config)
+        
+        # INSERT 전에 최종 중복 체크
+        with connection.cursor() as cursor:
+            final_check_query = """
+            SELECT COUNT(*) as cnt
+            FROM leave_request 
+            WHERE request_id = %s
+            """
+            cursor.execute(final_check_query, (request_id,))
+            final_check_result = cursor.fetchone()
+            
+            # DictCursor 사용 시 딕셔너리, 일반 cursor 사용 시 튜플
+            final_dup_count = 0
+            if final_check_result:
+                if isinstance(final_check_result, dict):
+                    final_dup_count = final_check_result.get('cnt', 0) or 0
+                else:
+                    final_dup_count = final_check_result[0] if len(final_check_result) > 0 else 0
+            
+            if final_dup_count > 0:
+                print(f"⚠️ [leave_request] INSERT 전 최종 중복 체크 실패: {request_id} 이미 존재")
+                # 다시 최대 번호 조회하여 다음 번호 생성
+                max_seq_query = """
+                SELECT request_id 
+                FROM leave_request 
+                WHERE employee_id = %s 
+                AND request_id LIKE %s
+                ORDER BY CAST(SUBSTRING_INDEX(request_id, '-', -1) AS UNSIGNED) DESC
+                LIMIT 1
+                """
+                cursor.execute(max_seq_query, (employee_id, pattern))
+                max_result = cursor.fetchone()
+                
+                existing_id = None
+                if max_result:
+                    if isinstance(max_result, dict):
+                        existing_id = max_result.get('request_id')
+                    else:
+                        existing_id = max_result[0] if len(max_result) > 0 else None
+                
+                if existing_id:
+                    parts = existing_id.split('-')
+                    if len(parts) == 3 and parts[2].isdigit():
+                        last_seq = int(parts[2])
+                        request_id = f"LR{current_year}-{employee_id}-{last_seq + 1:02d}"
+                        print(f"📝 [leave_request] 중복 방지를 위해 request_id 재생성: {request_id}")
+                        # params 업데이트
+                        params = (
+                            request_id,
+                            employee_id,
+                            request_date,
+                            normalized_leave_type,
+                            start_date,
+                            end_date,
+                            total_days,
+                            status,
+                            reason
+                        )
+            
+            # INSERT 실행
+            cursor.execute(query, params)
+            connection.commit()
+            inserted_id = cursor.lastrowid
+            print(f"✅ [leave_request] 휴가 신청 데이터 저장 성공: request_id={request_id}, id={inserted_id}")
+            # inserted_id는 AUTO_INCREMENT된 id 컬럼의 값입니다.
+            # request_id는 문자열 컬럼이고, id는 정수 PRIMARY KEY입니다.
+            return inserted_id
+            
+    except Exception as e:
+        print(f"❌ [leave_request] 휴가 신청 데이터 저장 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    finally:
+        # DB 연결 종료
+        if connection:
+            connection.close()
+
+
+def verify_leave_request_saved(employee_id: int, start_date: str, end_date: str) -> Optional[Dict[str, Any]]:
+    """저장된 휴가 신청 데이터를 확인합니다.
+    
+    Args:
+        employee_id: 직원 ID
+        start_date: 시작일 (YYYY-MM-DD 형식)
+        end_date: 종료일 (YYYY-MM-DD 형식)
+    
+    Returns:
+        저장된 데이터 딕셔너리 또는 None
+    """
+    if not PYMYSQL_AVAILABLE:
+        return None
+    
+    db_config = get_db_config()
+    if not db_config:
+        return None
+    
+    query = """
+    SELECT * FROM leave_request 
+    WHERE employee_id = %s 
+    AND start_date = %s 
+    AND end_date = %s 
+    ORDER BY created_at DESC 
+    LIMIT 1
+    """
+    
+    try:
+        connection = pymysql.connect(**db_config)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, (employee_id, start_date, end_date))
+                result = cursor.fetchone()
+                if result:
+                    # 딕셔너리로 변환
+                    columns = [desc[0] for desc in cursor.description]
+                    return dict(zip(columns, result))
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"⚠️ [leave_request] 저장 확인 실패: {e}")
+        return None
+    
+    return None
