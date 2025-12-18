@@ -30,6 +30,14 @@ class OrchestratorState(TypedDict):
     template_name: Optional[str]  # 문서 템플릿 이름 (예: 'work_performance_review', 'hr_summary_report')
     current_step: Optional[str]  # Optional로 변경 (기본값 없음)
     
+    # Multi-Agent Workflow Management
+    workflow_type: Optional[str]  # 워크플로우 타입 (예: 'business_trip')
+    workflow_steps: Optional[List[str]]  # 워크플로우 단계별 도메인 리스트 (예: ['schedule', 'document', 'email', 'schedule'])
+    current_workflow_step_index: Optional[int]  # 현재 워크플로우 단계 인덱스 (0부터 시작)
+    workflow_completed_steps: Optional[List[str]]  # 완료된 워크플로우 단계 도메인 리스트
+    workflow_in_progress: Optional[bool]  # 워크플로우 진행 중 여부
+    next_domain: Optional[str]  # 워크플로우의 다음 단계 도메인
+    
     # Extracted Data (Entities)
     employee_id: Optional[int]
     employee_name: Optional[str]

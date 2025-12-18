@@ -71,11 +71,12 @@ def process_domain_node_result(
     
     공통 로직:
     1. last_domain 업데이트
-    2. 도메인 전환 시 이전 도메인 정보 정리
-    3. conversation_history 보장
-    4. 추천 메시지 추가
-    5. 불필요한 다른 도메인 컨텍스트 제거 (메모리 최적화)
-    6. Redis state 최적화 (성능 최적화: 필요한 경우에만)
+    2. 워크플로우 상태 업데이트 (워크플로우 진행 중인 경우)
+    3. 도메인 전환 시 이전 도메인 정보 정리
+    4. conversation_history 보장
+    5. 추천 메시지 추가
+    6. 불필요한 다른 도메인 컨텍스트 제거 (메모리 최적화)
+    7. Redis state 최적화 (성능 최적화: 필요한 경우에만)
     
     Args:
         state: 오케스트레이터 상태
@@ -89,6 +90,86 @@ def process_domain_node_result(
     # 1. domain 및 last_domain 업데이트 (LLM 라우팅 시 결정된 도메인 정보 유지)
     result["domain"] = domain_name
     result["last_domain"] = domain_name
+    
+    # 2. 워크플로우 상태 업데이트
+    workflow_in_progress = state.get("workflow_in_progress", False)
+    if workflow_in_progress:
+        workflow_steps = state.get("workflow_steps", [])
+        current_step_index = state.get("current_workflow_step_index", 0)
+        workflow_completed_steps = state.get("workflow_completed_steps", [])
+        
+        # 현재 단계를 완료된 단계 목록에 추가
+        if domain_name not in workflow_completed_steps:
+            workflow_completed_steps = workflow_completed_steps + [domain_name]
+        
+        # 다음 단계 인덱스 계산
+        next_step_index = current_step_index + 1
+        
+        # 다음 단계 도메인 확인
+        if next_step_index < len(workflow_steps):
+            next_domain = workflow_steps[next_step_index]
+            result["current_workflow_step_index"] = next_step_index
+            result["next_domain"] = next_domain
+            result["workflow_completed_steps"] = workflow_completed_steps
+            result["workflow_in_progress"] = True
+            
+            # 워크플로우 단계 완료 메시지 추가 (선택적)
+            # step_completion_messages가 workflows.yaml에 정의되어 있으면 사용
+            try:
+                from agents.orchestrator_v3 import load_workflows_config
+                workflows = load_workflows_config()
+                workflow_type = state.get("workflow_type")
+                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                step_completion_messages = workflow_config.get("step_completion_messages", {})
+                
+                # 단계별 메시지 키 생성
+                # workflows.yaml의 step 정의에서 action 필드를 확인
+                steps = workflow_config.get("steps", [])
+                if current_step_index < len(steps):
+                    step_config = steps[current_step_index]
+                    action = step_config.get("action", "")
+                    
+                    # action을 기반으로 메시지 키 생성
+                    # workflows.yaml의 키 형식: {domain}_{action_first_word}
+                    # 예: check_conflicts -> schedule_check, generate_document -> document_generate
+                    #     compose_absence_email -> email_compose, register_absence -> schedule_register
+                    if action:
+                        # action의 첫 단어 추출 (예: check_conflicts -> check)
+                        action_first_word = action.split("_")[0]
+                        step_message_key = f"{domain_name}_{action_first_word}"
+                        
+                        if step_message_key in step_completion_messages:
+                            step_message = step_completion_messages[step_message_key]
+                            existing_response = result.get("final_response", default_message)
+                            result["final_response"] = f"{existing_response}\n\n{step_message}"
+            except Exception as e:
+                # 완료 메시지 로드 실패는 치명적이지 않으므로 계속 진행
+                pass
+            
+            print(f"✅ 워크플로우 단계 완료: {domain_name} (step {current_step_index + 1}/{len(workflow_steps)}), 다음 단계: {next_domain}")
+        else:
+            # 모든 단계 완료
+            result["current_workflow_step_index"] = next_step_index
+            result["next_domain"] = None
+            result["workflow_completed_steps"] = workflow_completed_steps
+            result["workflow_in_progress"] = False
+            
+            # 워크플로우 완료 메시지 추가
+            try:
+                from agents.orchestrator_v3 import load_workflows_config
+                workflows = load_workflows_config()
+                workflow_type = state.get("workflow_type")
+                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
+                
+                existing_response = result.get("final_response", default_message)
+                result["final_response"] = f"{existing_response}\n\n{completion_message}"
+            except Exception as e:
+                # 완료 메시지 로드 실패는 치명적이지 않으므로 기본 메시지 사용
+                existing_response = result.get("final_response", default_message)
+                result["final_response"] = f"{existing_response}\n\n워크플로우가 완료되었습니다."
+            
+            print(f"✅ 워크플로우 완료: 모든 단계 완료 ({len(workflow_steps)}/{len(workflow_steps)})")
     
     # 2. 도메인 전환 시 이전 도메인 정보 정리 (빠른 작업)
     cleanup_previous_domain_info(state, result, domain_name)
