@@ -1,8 +1,5 @@
 """논문 검색 에이전트 패키지."""
 
-# state.py에서 ScienceONAgentState import
-from .state import ScienceONAgentState
-
 # nodes.py에서도 export (ragas_scienceon_eval.py에서 사용)
 from .nodes import (
     rag_answer_node,
@@ -36,8 +33,7 @@ def __getattr__(name):
         return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-__all__ = [
-    "ScienceONAgentState",
+__all__ = [ 
     "run_scienceon_agent",
     "build_scienceon_agent_graph",
     "create_scienceon_subgraph",

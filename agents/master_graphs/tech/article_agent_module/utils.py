@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-
-from .state import ScienceONAgentState, _get_int_env, OPENAI_MODEL
+from agents.state import OrchestratorState
+from .state import _get_int_env, OPENAI_MODEL
 
 LOGGER = logging.getLogger(__name__)
 
@@ -118,15 +118,21 @@ def get_user_friendly_error_message(exc: Exception) -> str:
     return "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
 
-def validate_state(state: ScienceONAgentState) -> Tuple[bool, Optional[str]]:
+def validate_state(state: OrchestratorState) -> Tuple[bool, Optional[str]]:
     """상태의 일관성을 검증한다.
+    
+    Args:
+        state: OrchestratorState 딕셔너리
     
     Returns:
         (is_valid, error_message) 튜플
     """
+    # article_ctx 접근
+    article_ctx = state.get("tech_search_context", {}).get("article", {})
+    
     # download_index 범위 검증
-    download_index = state.get("download_index", [])
-    results = state.get("results", [])
+    download_index = article_ctx.get("download_index", [])
+    results = article_ctx.get("results", [])
     
     if download_index:
         for idx in download_index:
@@ -135,16 +141,16 @@ def validate_state(state: ScienceONAgentState) -> Tuple[bool, Optional[str]]:
             if idx < 0 or idx >= len(results):
                 return False, f"요청하신 {idx + 1}번째 논문을 찾을 수 없습니다. (현재 검색 결과: {len(results)}개)"
     
-    # 필수 필드 검증
-    required_fields = ["user_input", "intent", "query", "download_index", "keyword"]
+    # 필수 필드 검증 (article_ctx 기준)
+    required_fields = ["intent", "keyword"]
     for field in required_fields:
-        if field not in state:
+        if field not in article_ctx:
             return False, f"필수 필드가 누락되었습니다: {field}"
     
     # intent 값 검증
     valid_intents = ["search", "detail", "download", "ask_source", "unknown"]
-    if state.get("intent") not in valid_intents:
-        return False, f"유효하지 않은 intent 값입니다: {state.get('intent')}"
+    if article_ctx.get("intent") not in valid_intents:
+        return False, f"유효하지 않은 intent 값입니다: {article_ctx.get('intent')}"
     
     return True, None
 
