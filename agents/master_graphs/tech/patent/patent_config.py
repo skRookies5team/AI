@@ -46,7 +46,7 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 # KIPRIS API 설정
 KIPRIS_API_KEY = _get_env("KIPRIS_API_KEY")
 OPENAI_API_KEY = _get_env("OPENAI_API_KEY")
-OPENAI_MODEL = _get_env("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = _get_env("OPENAI_MODEL")
 
 # 특허 데이터 디렉토리
 def _get_base_dir() -> Path:

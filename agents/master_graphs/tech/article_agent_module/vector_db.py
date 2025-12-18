@@ -278,6 +278,7 @@ async def get_or_create_paper_collection(collection_name: str) -> Optional[Any]:
     async with lock:
         cached = _collection_cache.get(collection_name)
     if cached is not None:
+        LOGGER.debug(f"[컬렉션 캐시] 기존 컬렉션 캐시 사용: {collection_name}")
         return cached
     
     try:
@@ -287,12 +288,15 @@ async def get_or_create_paper_collection(collection_name: str) -> Optional[Any]:
         if collection_name in utility.list_collections():
             collection = Collection(collection_name)
             collection.load()
+            num_entities = collection.num_entities
+            LOGGER.info(f"[컬렉션 로드] 기존 컬렉션 로드: {collection_name}, 엔티티 수: {num_entities}")
             # 캐시에 저장 (Lock으로 보호)
             async with lock:
                 _collection_cache[collection_name] = collection
             return collection
         
         # 새 컬렉션 생성
+        LOGGER.warning(f"[컬렉션 생성] ⚠️ 새 컬렉션 생성 시작: {collection_name}")
         fields = [
             FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
             FieldSchema(name="identifier", dtype=DataType.VARCHAR, max_length=128),
@@ -314,12 +318,13 @@ async def get_or_create_paper_collection(collection_name: str) -> Optional[Any]:
             }
         )
         collection.load()
+        LOGGER.warning(f"[컬렉션 생성] ⚠️ 새 컬렉션 생성 완료: {collection_name} (현재 엔티티 수: 0)")
         # 새 컬렉션도 캐시에 저장 (Lock으로 보호)
         async with lock:
             _collection_cache[collection_name] = collection
         return collection
     except Exception as e:
-        LOGGER.warning(f"컬렉션 생성/로드 실패: {e}")
+        LOGGER.error(f"[컬렉션 생성/로드 실패] {collection_name}: {e}", exc_info=True)
         return None
 
 
@@ -700,7 +705,10 @@ async def download_and_vectorize_paper(
     keyword: Optional[str] = None,
 ) -> bool:
     """논문을 PDF 다운로드하고 벡터DB에 저장한다 (메모리 처리 방식)."""
+    LOGGER.info(f"[벡터화 시작] download_and_vectorize_paper 호출 - keyword: {keyword}, identifier: {result.get('identifier', 'N/A')}")
+    
     if not VECTOR_DB_AVAILABLE:
+        LOGGER.warning("[벡터화 건너뜀] VECTOR_DB_AVAILABLE=False")
         return False
     
     pdf_link = result.get("pdf_link", "")
@@ -761,11 +769,13 @@ async def download_and_vectorize_paper(
                     )
                 else:
                     collection_keyword = keywords_list[0]
-                    LOGGER.debug(f"[벡터화] 논문 제목에 포함된 키워드 없음, 첫 번째 키워드 사용: {collection_keyword}")
+                    LOGGER.info(f"[벡터화] 논문 제목에 포함된 키워드 없음, 첫 번째 키워드 사용: '{collection_keyword}'")
             else:
                 collection_keyword = keyword
+        else:
+            LOGGER.info(f"[벡터화] keyword가 None이므로 제목에서 키워드 추출 예정")
         
-        LOGGER.debug(f"[벡터화] 벡터DB 저장 시도 (키워드: {paper_keyword}, 컬렉션 키워드: {collection_keyword})")
+        LOGGER.info(f"[벡터화] embed_and_store_paper 호출 - identifier: {identifier}, collection_keyword: {collection_keyword}, paper_keyword: {paper_keyword}")
         
         chunks_count = await embed_and_store_paper(
             identifier=identifier,
@@ -777,10 +787,10 @@ async def download_and_vectorize_paper(
         )
         
         if chunks_count > 0:
-            LOGGER.info(f"[벡터화 완료] ID: {identifier}, 제목: {title[:50]}..., 청크: {chunks_count}개")
+            LOGGER.info(f"[벡터화 완료] ✅ ID: {identifier}, 제목: {title[:50]}..., 청크: {chunks_count}개 저장됨")
             return True
         else:
-            LOGGER.warning(f"[벡터화 실패] 벡터DB 저장 실패 (청크 0개): {title[:50]}...")
+            LOGGER.error(f"[벡터화 실패] ❌ 벡터DB 저장 실패 (청크 0개): {title[:50]}... (컬렉션이 생성되었을 수 있음)")
             return False
             
     except Exception as exc:
@@ -797,7 +807,10 @@ async def embed_and_store_paper(
     pdf_link: Optional[str] = None
 ) -> int:
     """논문을 벡터DB에 임베딩하여 저장한다."""
+    LOGGER.info(f"[저장 시작] embed_and_store_paper 호출 - identifier: {identifier}, collection_keyword: {collection_keyword}, paper_keyword: {paper_keyword}")
+    
     if not VECTOR_DB_AVAILABLE:
+        LOGGER.warning("[저장 건너뜀] VECTOR_DB_AVAILABLE=False")
         return 0
     
     try:
@@ -807,7 +820,7 @@ async def embed_and_store_paper(
         if text:
             text_content = text.strip()
         else:
-            LOGGER.error("text 파라미터는 필수입니다.")
+            LOGGER.error("[저장 실패] text 파라미터는 필수입니다.")
             return 0
         
         if collection_keyword:
@@ -816,26 +829,31 @@ async def embed_and_store_paper(
                 cleaned_keyword = cleaned_keyword[2:]
             
             keywords = [kw.strip() for kw in cleaned_keyword.split(",") if kw.strip()]
+            LOGGER.info(f"[저장] collection_keyword에서 키워드 추출: {keywords}")
         else:
             extracted_keyword = extract_keyword_from_text(title)
             keywords = [extracted_keyword] if extracted_keyword else []
+            LOGGER.info(f"[저장] 제목에서 키워드 추출: {keywords}")
         
         if not keywords:
-            LOGGER.warning(f"컬렉션 키워드가 없어 저장할 수 없습니다: {title[:50]}...")
+            LOGGER.error(f"[저장 실패] ❌ 컬렉션 키워드가 없어 저장할 수 없습니다: {title[:50]}...")
             return 0
         
         splitter = get_text_splitter()
         if splitter is None:
+            LOGGER.error("[저장 실패] text_splitter가 None입니다.")
             return 0
         chunks = splitter.split_text(text_content)
+        LOGGER.info(f"[저장] 텍스트 분할 완료: {len(chunks)}개 청크")
         
         embeddings_result = await encode_texts(chunks)
         if embeddings_result is None:
+            LOGGER.error("[저장 실패] 임베딩 생성 실패")
             return 0
         
         if len(embeddings_result) != len(chunks):
             LOGGER.warning(
-                f"임베딩 길이({len(embeddings_result)})와 청크 길이({len(chunks)})가 불일치합니다. "
+                f"[저장 실패] 임베딩 길이({len(embeddings_result)})와 청크 길이({len(chunks)})가 불일치합니다. "
                 f"논문 ID: {identifier}, 제목: {title[:50]}..."
             )
             return 0
@@ -849,13 +867,24 @@ async def embed_and_store_paper(
         
         for kw in keywords:
             normalized_kw = kw.strip()
+            LOGGER.info(f"[저장] 키워드 처리 시작: '{normalized_kw}'")
             
             collection_name = await get_collection_name(normalized_kw, prefix="papers_embeddings")
+            LOGGER.info(f"[저장] 컬렉션 이름 생성: '{collection_name}' (키워드: '{normalized_kw}')")
+            
             collection = await get_or_create_paper_collection(collection_name)
             
             if not collection:
-                LOGGER.warning(f"컬렉션 생성/로드 실패: {collection_name}")
+                LOGGER.error(f"[저장 실패] ❌ 컬렉션 생성/로드 실패: {collection_name}")
                 continue
+            
+            # 컬렉션 생성 직후 엔티티 수 확인
+            try:
+                num_entities_before = collection.num_entities
+                LOGGER.info(f"[저장] 컬렉션 '{collection_name}' 현재 엔티티 수: {num_entities_before}")
+            except Exception as e:
+                LOGGER.warning(f"[저장] 엔티티 수 확인 실패: {e}")
+                num_entities_before = 0
             
             try:
                 collection.load()
@@ -865,9 +894,10 @@ async def embed_and_store_paper(
                     output_fields=["identifier"]
                 )
                 if existing and len(existing) > 0:
-                    LOGGER.info(f"[벡터화 건너뜀] 이미 컬렉션 '{collection_name}'에 존재: {identifier}")
+                    LOGGER.info(f"[저장 건너뜀] 이미 컬렉션 '{collection_name}'에 존재: {identifier}")
                     continue
-            except Exception:
+            except Exception as e:
+                LOGGER.warning(f"[저장] 중복 확인 중 예외: {e}")
                 pass
             
             if paper_keyword is None:
@@ -892,18 +922,38 @@ async def embed_and_store_paper(
             else:
                 data = [identifiers, titles, chunks, embeddings.tolist()]
             
+            LOGGER.info(f"[저장] 데이터 삽입 시도 - 컬렉션: '{collection_name}', 청크 수: {len(chunks)}")
             try:
                 collection.insert(data)
                 collection.flush()
                 total_stored += len(chunks)
-                LOGGER.info(f"[벡터화 저장] 컬렉션 '{collection_name}': {len(chunks)}개 청크 저장")
+                
+                # 저장 후 엔티티 수 확인
+                try:
+                    num_entities_after = collection.num_entities
+                    LOGGER.info(f"[저장 성공] ✅ 컬렉션 '{collection_name}': {len(chunks)}개 청크 저장 완료 (엔티티 수: {num_entities_before} -> {num_entities_after})")
+                except Exception as e:
+                    LOGGER.warning(f"[저장] 저장 후 엔티티 수 확인 실패: {e}")
+                    LOGGER.info(f"[저장 성공] ✅ 컬렉션 '{collection_name}': {len(chunks)}개 청크 저장 완료")
             except Exception as e:
-                LOGGER.warning(f"[벡터화 저장 실패] 컬렉션 '{collection_name}': {e}")
+                LOGGER.error(f"[저장 실패] ❌ 컬렉션 '{collection_name}'에 데이터 삽입 실패: {e}", exc_info=True)
+                # 저장 실패 시 빈 컬렉션인지 확인
+                try:
+                    num_entities = collection.num_entities
+                    if num_entities == 0:
+                        LOGGER.error(f"[저장 실패] ⚠️ 빈 컬렉션 생성됨: '{collection_name}' (데이터 저장 실패로 인해 빈 컬렉션 남음)")
+                except:
+                    pass
                 continue
+        
+        if total_stored == 0:
+            LOGGER.error(f"[저장 실패] ❌ 모든 키워드에 대해 저장 실패: {keywords}, identifier: {identifier}")
+        else:
+            LOGGER.info(f"[저장 완료] ✅ 총 {total_stored}개 청크 저장됨 (identifier: {identifier})")
         
         return total_stored
         
     except Exception as e:
-        LOGGER.warning(f"논문 벡터DB 저장 오류: {e}")
+        LOGGER.error(f"[저장 실패] 논문 벡터DB 저장 오류: {e}", exc_info=True)
         return 0
 
