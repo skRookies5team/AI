@@ -91,6 +91,13 @@ async def detect_history_check_query(
     is_history_check_query = False
     history_check_result = None
     
+    # 문서 작성 요청 패턴 체크 (가장 먼저, LLM 호출 전에 필터링)
+    document_creation_patterns = ["제목:", "요구사항:", "작성해줘", "만들어줘", "생성해줘"]
+    has_document_pattern = any(pattern in query for pattern in document_creation_patterns)
+    if has_document_pattern:
+        print(f"✅ [문서 작성 요청 패턴 감지] '{query[:50]}...' → 이전 대화 확인 스킵, 일반 요청으로 처리")
+        return False, None
+    
     # 키워드 패턴 매칭 (YAML에서 로드)
     config = load_orchestrator_config()
     keywords_config = config.get("keywords", {})
@@ -153,8 +160,16 @@ async def detect_history_check_query(
                 # check_type 일관성 검증 (오분류 방지)
                 if is_history_check_query and history_check_result.check_type:
                     check_type = history_check_result.check_type
+                    
+                    # 문서 작성 요청 패턴 체크 (가장 우선)
+                    document_creation_patterns = ["제목:", "요구사항:", "작성해줘", "만들어줘", "생성해줘", "작성", "만들어", "생성"]
+                    has_document_pattern = any(pattern in query for pattern in document_creation_patterns)
+                    if has_document_pattern:
+                        print(f"⚠️ [문서 작성 요청 패턴 감지] '{query[:50]}...' → 일반 요청으로 처리")
+                        is_history_check_query = False
+                    
                     # 이메일 관련 질문인데 check_type이 email_search가 아니면 오분류 가능성
-                    if ("이메일" in query or "메일" in query) and check_type != "email_search":
+                    elif ("이메일" in query or "메일" in query) and check_type != "email_search":
                         print(f"⚠️ [check_type 불일치] 이메일 관련 질문인데 check_type={check_type} → 일반 요청으로 처리")
                         is_history_check_query = False
                     # 논문 관련 질문인데 check_type이 article_search가 아니면 오분류 가능성 (단, 이메일 키워드가 없는 경우에만)
@@ -162,6 +177,11 @@ async def detect_history_check_query(
                         if "이메일" not in query and "메일" not in query:
                             print(f"⚠️ [check_type 불일치] 논문 관련 질문인데 check_type={check_type} → 일반 요청으로 처리")
                             is_history_check_query = False
+                    # 연차/휴가 신청서 작성 요청인데 check_type이 leave_request면 오분류 가능성
+                    elif (("연차 신청서" in query or "휴가 신청서" in query or "반차 신청서" in query) and 
+                          ("작성" in query or "만들어" in query or "생성" in query or "제목:" in query or "요구사항:" in query)):
+                        print(f"⚠️ [문서 작성 요청 오분류] 연차/휴가 신청서 작성 요청인데 check_type={check_type} → 일반 요청으로 처리")
+                        is_history_check_query = False
                 
                 # 신뢰도 임계값 검증 (YAML에서 로드)
                 config = load_orchestrator_config()

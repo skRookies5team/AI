@@ -220,6 +220,52 @@ def _fill_general_fields(
                         del element.attrs['placeholder']
                     filled_count += 1
                     print(f"✅ [{filled_count}] {field_id} = '{str(value)[:50]}...'")
+                
+                elif element.name == 'select':
+                    # select 요소 처리
+                    value_str = str(value).strip() if value else ''
+                    if value_str:
+                        # option 요소 중에서 value가 일치하는 것을 찾아서 selected 속성 설정
+                        options = element.find_all('option')
+                        found = False
+                        for option in options:
+                            option_value = option.get('value', '').strip()
+                            option_text = option.string.strip() if option.string else ''
+                            
+                            # value 또는 text가 일치하면 선택
+                            if option_value == value_str or option_text == value_str:
+                                option['selected'] = 'selected'
+                                found = True
+                                break
+                        
+                        if found:
+                            filled_count += 1
+                            print(f"✅ [{filled_count}] {field_id} (select) = '{value_str}'")
+                        else:
+                            print(f"⚠️ {field_id} (select): 값 '{value_str}'에 해당하는 option을 찾을 수 없음")
+                            skipped_fields.append(field_id)
+                    else:
+                        print(f"⚠️ {field_id} (select): 값이 비어있어 건너뜀")
+                        skipped_fields.append(field_id)
+                
+                elif element.name == 'div' and field_id == 'vacationDays':
+                    # 휴가 일수 div 요소 처리
+                    if value is not None:
+                        # 숫자 값에 따라 표시 형식 결정
+                        if isinstance(value, (int, float)):
+                            if value == 0.5:
+                                element.string = '0.5일'
+                            else:
+                                element.string = f'{int(value)}일'
+                            filled_count += 1
+                            print(f"✅ [{filled_count}] {field_id} (div) = '{element.string}'")
+                        else:
+                            # 문자열인 경우 그대로 사용
+                            element.string = str(value)
+                            filled_count += 1
+                            print(f"✅ [{filled_count}] {field_id} (div) = '{element.string}'")
+                    else:
+                        skipped_fields.append(field_id)
                     
             except Exception as e:
                 print(f"⚠️ 필드 채우기 실패: {field_id} - {e}")

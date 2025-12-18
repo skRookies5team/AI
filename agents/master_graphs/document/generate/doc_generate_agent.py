@@ -86,6 +86,7 @@ def doc_generate(
             template_keywords = {
                 # 제품 비교표는 제품개발보다 먼저 체크 (더 구체적인 키워드)
                 "product_comparison_table": ["제품 비교표", "제품 비교", "제품성능 비교", "성능 비교", "비교표", "제품비교", "비교 대상", "비교 목적"],
+                "vacation_request_form": ["휴가 신청서", "휴가 신청", "연차 신청", "반차 신청", "휴가", "연차", "반차", "병가", "경조사", "출산휴가", "육아휴직"],
                 "product_development_plan": ["제품개발", "신제품", "개발계획", "제품개발 계획서"],
                 "purchase_order": ["발주", "구매", "주문", "발주서"],
                 "hr_summary_report": ["인사", "인력", "직원", "인사정보"],
@@ -482,7 +483,36 @@ def doc_generate(
         extractor_func = TEMPLATE_EXTRACTORS.get(template_name)
         if extractor_func:
             # RDB 기반 템플릿의 경우 DB 데이터 전달
-            if template_name == "product_comparison_table":
+            if template_name == "vacation_request_form":
+                # employee_id를 orchestrator_state에서 가져오기 (로그인한 사용자)
+                employee_id = None
+                if orchestrator_state:
+                    # state에서 employee_id 가져오기 (최우선)
+                    employee_id = orchestrator_state.get("employee_id")
+                    print(f"🔍 [vacation_request_form] orchestrator_state에서 employee_id 확인: {employee_id}")
+                    
+                    # employee_id가 없으면 user_id에서 추출 시도
+                    if not employee_id:
+                        user_id = orchestrator_state.get("user_id")
+                        if user_id:
+                            try:
+                                employee_id = int(user_id)
+                                print(f"🔍 [vacation_request_form] user_id에서 employee_id 추출: {employee_id}")
+                            except (ValueError, TypeError):
+                                print(f"⚠️ [vacation_request_form] user_id를 employee_id로 변환 실패: {user_id}")
+                
+                if not employee_id:
+                    print(f"⚠️ [vacation_request_form] employee_id를 찾을 수 없습니다. 로그인 정보가 필요합니다.")
+                
+                # extractor_func 호출 (employee_id 전달)
+                extractor_func(
+                    field_values, 
+                    requirements, 
+                    document_title, 
+                    db_data=db_data,
+                    employee_id=employee_id
+                )
+            elif template_name == "product_comparison_table":
                 # db_product_data가 None이거나 빈 리스트여도 extractor_func 호출 (기본 comparisonTable 생성)
                 extractor_func(field_values, requirements, document_title, db_data=db_product_data if db_product_data else None)
             elif template_name == "monthly_profit_analysis_report":
@@ -696,6 +726,56 @@ def doc_generate(
     doc_context["last_query"] = user_text
     # 생성된 HTML 내용도 Redis에 저장
     doc_context["last_generated_html"] = generated_html
+    
+    # 휴가 신청서인 경우 leave_request 테이블에 저장
+    if template_name == "vacation_request_form":
+        # employee_id 가져오기
+        employee_id = None
+        if orchestrator_state:
+            employee_id = orchestrator_state.get("employee_id")
+            if not employee_id:
+                user_id = orchestrator_state.get("user_id")
+                if user_id:
+                    try:
+                        employee_id = int(user_id)
+                    except (ValueError, TypeError):
+                        pass
+        
+        if employee_id:
+            # field_values에서 휴가 정보 추출
+            leave_type = field_values.get('vacationType', '연차')
+            start_date = field_values.get('startDate')
+            end_date = field_values.get('endDate')
+            reason = field_values.get('reason', '')
+            request_date = field_values.get('requestDate')
+            
+            # 필수 정보가 있으면 저장
+            if start_date and end_date:
+                from .db_connector import save_leave_request
+                
+                # save_leave_request 함수 내부에서 leave_type 정규화를 수행하므로
+                # 원본 leave_type을 그대로 전달
+                saved_id = save_leave_request(
+                    employee_id=employee_id,
+                    leave_type=leave_type,  # 원본 값 전달 (함수 내부에서 정규화)
+                    start_date=start_date,
+                    end_date=end_date,
+                    reason=reason,
+                    request_date=request_date,
+                    status="대기"
+                )
+                
+                if saved_id:
+                    print(f"✅ [vacation_request_form] leave_request 테이블에 저장 완료: id={saved_id}")
+                    # 저장된 id (AUTO_INCREMENT)를 field_values에 추가 (나중에 참조용)
+                    # 참고: request_id는 문자열 컬럼이고, id는 AUTO_INCREMENT PRIMARY KEY입니다.
+                    field_values['leave_request_id'] = saved_id
+                else:
+                    print(f"⚠️ [vacation_request_form] leave_request 테이블 저장 실패")
+            else:
+                print(f"⚠️ [vacation_request_form] 휴가 기간 정보가 없어 leave_request 테이블에 저장하지 않음")
+        else:
+            print(f"⚠️ [vacation_request_form] employee_id를 찾을 수 없어 leave_request 테이블에 저장하지 않음")
     
     print(f"💾 Redis 컨텍스트에 저장 완료:")
     print(f"   - 템플릿: {template_name}")
