@@ -63,9 +63,9 @@ def _initialize_milvus() -> None:
         raise ImportError("pymilvus가 설치되지 않았습니다. pip install pymilvus")
 
     # 공용 서버 주소 (.env 파일에서 환경 변수 읽기)
-    milvus_host = _get_env("HOST") or _get_env("MILVUS_HOST") or "175.114.229.152"
-    milvus_port_str = _get_env("MILVUS_PORT") or "19530"
-    milvus_port = int(milvus_port_str.strip()) if milvus_port_str else 19530
+    milvus_host = _get_env("HOST") or _get_env("MILVUS_HOST")
+    milvus_port_str = _get_env("MILVUS_PORT")
+    milvus_port = int(milvus_port_str.strip()) if milvus_port_str else ""
     
     try:
         connections.connect("default", host=milvus_host, port=milvus_port)
@@ -80,10 +80,9 @@ def extract_keyword_from_text(text: str) -> str:
     """
     try:
         keyword = generate_patent_keyword_from_text(text)
-        return keyword if keyword else "기타"
+        return keyword if keyword else "other"
     except Exception as e:
-        # LLM 실패 시 기본값 반환
-        return "기타"
+        return "other"
 
 
 def _translate_keyword_to_english_with_llm(keyword: str) -> Optional[str]:
@@ -129,12 +128,23 @@ def _translate_keyword_to_english_with_llm(keyword: str) -> Optional[str]:
         return None
 
 
+# 캐시: (원본 키워드) -> (영문 변환 결과)
+_keyword_translation_cache: Dict[str, str] = {}
+_CACHE_MAX_SIZE = 1000
+
 def _sanitize_collection_name(keyword: str) -> str:
     """키워드를 Milvus 컬렉션 이름으로 변환 (한글을 영문으로 변환).
 
     Milvus 컬렉션 이름은 영문자, 숫자, 언더스코어만 허용합니다.
     한글 키워드는 영문으로 변환하거나 해시 기반으로 변환합니다.
+    캐싱을 통해 동일한 키워드는 항상 동일한 컬렉션 이름을 반환합니다.
     """
+    original_keyword = keyword.strip()
+    
+    # 캐시 확인
+    if original_keyword in _keyword_translation_cache:
+        return _keyword_translation_cache[original_keyword]
+    
     # 1. 키워드 맵에서 직접 매핑 확인 (확장된 맵)
     keyword_map = {
         "디스플레이": "display",
@@ -192,17 +202,17 @@ def _sanitize_collection_name(keyword: str) -> str:
     }
     
     # 키워드 맵에서 직접 매핑 확인
-    normalized_keyword = keyword.strip()
+    normalized_keyword = original_keyword
 
     # 정확히 일치하는 키워드가 있으면 반환
     if normalized_keyword in keyword_map:
-        return keyword_map[normalized_keyword]
-
-    # 키워드에 포함된 단어들이 맵에 있는지 확인 (부분 일치)
-    # 예: "배터리 충전" -> "battery" 추출
-    for korean_key, english_value in keyword_map.items():
-        if korean_key in normalized_keyword:
-            return english_value
+        result = keyword_map[normalized_keyword]
+        # 캐시에 저장
+        if len(_keyword_translation_cache) >= _CACHE_MAX_SIZE:
+            oldest_key = next(iter(_keyword_translation_cache))
+            del _keyword_translation_cache[oldest_key]
+        _keyword_translation_cache[original_keyword] = result
+        return result
 
     # 2. 키워드 맵에 없으면 LLM으로 영문명 변환 시도 (하이브리드 방식)
     has_korean = any('가' <= char <= '힣' for char in normalized_keyword)
@@ -211,7 +221,13 @@ def _sanitize_collection_name(keyword: str) -> str:
         # LLM으로 영문명 변환 시도
         llm_translated = _translate_keyword_to_english_with_llm(normalized_keyword)
         if llm_translated:
-            return llm_translated
+            result = llm_translated
+            # 캐시에 저장
+            if len(_keyword_translation_cache) >= _CACHE_MAX_SIZE:
+                oldest_key = next(iter(_keyword_translation_cache))
+                del _keyword_translation_cache[oldest_key]
+            _keyword_translation_cache[original_keyword] = result
+            return result
         
         # LLM 실패 시 최소한의 fallback: 원본 키워드에서 영문자 추출
         english_only = re.sub(r'[^a-zA-Z0-9_]', '_', normalized_keyword)
@@ -221,37 +237,64 @@ def _sanitize_collection_name(keyword: str) -> str:
             # 영문자 부분이 있으면 사용 (길이 제한)
             if len(english_only) > 240:
                 english_only = english_only[:240]
-            return english_only.lower()
+            result = english_only.lower()
+            # 캐시에 저장
+            if len(_keyword_translation_cache) >= _CACHE_MAX_SIZE:
+                oldest_key = next(iter(_keyword_translation_cache))
+                del _keyword_translation_cache[oldest_key]
+            _keyword_translation_cache[original_keyword] = result
+            return result
         
-        # 그래도 없으면 해시값 사용 (거의 발생하지 않음)
         hash_value = hashlib.md5(normalized_keyword.encode('utf-8')).hexdigest()[:12]
-        return f"kw_{hash_value}"
+        result = f"kw_{hash_value}"
+        # 캐시에 저장
+        if len(_keyword_translation_cache) >= _CACHE_MAX_SIZE:
+            oldest_key = next(iter(_keyword_translation_cache))
+            del _keyword_translation_cache[oldest_key]
+        _keyword_translation_cache[original_keyword] = result
+        return result
     
     # 3. 영문자만 있는 경우 그대로 사용 (길이 제한)
     english_only = re.sub(r'[^a-zA-Z0-9_]', '_', normalized_keyword)
     english_only = re.sub(r'_+', '_', english_only).strip('_')
     
     if english_only:
-        if len(english_only) > 240:
-            english_only = english_only[:240]
-        return english_only.lower()
+        if english_only.isdigit():
+            result = "other"
+        else:
+            if len(english_only) > 240:
+                english_only = english_only[:240]
+            result = english_only.lower()
+        if len(_keyword_translation_cache) >= _CACHE_MAX_SIZE:
+            oldest_key = next(iter(_keyword_translation_cache))
+            del _keyword_translation_cache[oldest_key]
+        _keyword_translation_cache[original_keyword] = result
+        return result
     
     # 4. 영문자도 없으면 해시값 사용 (거의 발생하지 않음)
     hash_value = hashlib.md5(normalized_keyword.encode('utf-8')).hexdigest()[:12]
-    return f"kw_{hash_value}"
+    result = f"kw_{hash_value}"
+    # 캐시에 저장
+    if len(_keyword_translation_cache) >= _CACHE_MAX_SIZE:
+        oldest_key = next(iter(_keyword_translation_cache))
+        del _keyword_translation_cache[oldest_key]
+    _keyword_translation_cache[original_keyword] = result
+    return result
 
 
 def get_collection_name(keyword: str) -> str:
     """키워드로 컬렉션 이름 생성 (Milvus 호환).
 
     Args:
-        keyword: 검색 키워드 (한글 가능)
+        keyword: 검색 키워드 (이미 정규화된 영문 키워드)
 
     Returns:
         Milvus 컬렉션 이름 (영문자, 숫자, 언더스코어만 포함)
     """
-    collection_suffix = _sanitize_collection_name(keyword)
-    collection_name = f"patents_embeddings_{collection_suffix}"
+    # 키워드가 이미 정규화되어 있다고 가정
+    # 하지만 혹시 모를 경우를 대비해 한 번 더 정규화
+    normalized_suffix = _sanitize_collection_name(keyword.strip())
+    collection_name = f"patents_embeddings_{normalized_suffix}"
 
     # 최종 검증: 컬렉션 이름이 Milvus 규칙을 준수하는지 확인
     # 영문자, 숫자, 언더스코어만 허용
@@ -323,90 +366,101 @@ def get_or_create_collection(collection_name: str) -> Collection:
 
 def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filter_keyword: Optional[str] = None) -> List[Dict[str, Any]]:
     """벡터DB에서 유사 특허 검색.
+    
+    컬렉션 이름으로만 필터링합니다 (논문 agent 방식).
+    patent_keyword 필드로 필터링하지 않습니다.
 
     Args:
-        query: 검색 쿼리
+        query: 검색 쿼리 (임베딩용)
         limit: 반환할 최대 결과 수
         max_distance: 최대 거리 임계값
-        filter_keyword: 필터링할 키워드 (특허_키워드 형식, None이면 필터링 안 함)
+        filter_keyword: 컬렉션 선택용 키워드 (None이면 query에서 추출)
+            - "특허_" 접두사가 있으면 제거 후 사용
+            - None이면 query에서 자동 추출
     """
     try:
         _initialize_models()
         _initialize_milvus()
         
-        # 구문 기반 검색으로 변경: 키워드 분리 대신 핵심 구문 추출
-        from .patent_keyword import generate_patent_search_phrase
-        search_phrase = generate_patent_search_phrase(query)
+        if filter_keyword:
+            keyword = filter_keyword.strip()
+            LOGGER.info("check_vector_db: filter_keyword에서 키워드 사용: '%s' (정규화된 키워드, 저장 시와 동일)", keyword)
+            # 이미 키워드가 있으면 원본 query를 임베딩용으로 사용
+            embedding_query = query
+        else:
+            # filter_keyword가 없으면 query에서 추출
+            from .patent_keyword import generate_patent_search_phrase
+            search_phrase = generate_patent_search_phrase(query)
+            keyword = extract_keyword_from_text(search_phrase)
+            LOGGER.info("check_vector_db: query에서 키워드 추출: '%s' (query='%s')", keyword, query)
+            # 키워드가 없으면 search_phrase 사용
+            embedding_query = search_phrase
         
-        # 컬렉션 선택: 구문에서 키워드 추출 (하위 호환성 유지)
-        keyword = extract_keyword_from_text(search_phrase)
         collection_name = get_collection_name(keyword)
+        LOGGER.info("check_vector_db: 컬렉션 이름: '%s' (keyword='%s', 저장 시와 동일한 정규화된 키워드)", collection_name, keyword)
         
         try:
             target_collection = Collection(collection_name)
             target_collection.load()
-
+            
             # 컬렉션에 데이터가 있는지 확인
             if not utility.has_collection(collection_name):
                 return []
-
-            # 컬렉션의 엔티티 수 확인 (데이터가 없으면 빈 리스트 반환)
+            
+            # 컬렉션의 엔티티 수 확인
             num_entities = target_collection.num_entities
             if num_entities == 0:
                 return []
         except Exception:
             return []
         
-        # 컬렉션 스키마 확인 (patent_keyword 필드 존재 여부)
+        # 구문 벡터화
+        query_vec = _embedding_model.embed(embedding_query)
+        
+        # 컬렉션 스키마 확인
         schema = target_collection.schema
         field_names = [field.name for field in schema.fields]
         has_patent_keyword = "patent_keyword" in field_names
-
-        # 구문 벡터화 (키워드 분리 대신 구문 전체 사용)
-        query_vec = _embedding_model.embed(search_phrase)
-
-        # 필터링 조건 설정 (patent_keyword 필드가 있을 때만)
-        expr = None
-        if filter_keyword and has_patent_keyword:
-            # 특허_키워드 형식으로 필터링
-            expr = f'patent_keyword == "{filter_keyword}"'
-
-        # output_fields 동적 구성 (필드가 있을 때만 포함)
+        
+        # output_fields 동적 구성
         output_fields = ["app_no", "title", "abstract", "content"]
         if has_patent_keyword:
             output_fields.append("patent_keyword")
-
-        results = target_collection.search(
-            data=[query_vec],
-            anns_field="embedding",
-            param={"metric_type": "L2", "params": {"nprobe": 10}},
-            limit=limit * 5,
-            expr=expr,  # 키워드 필터링 (필드가 있을 때만)
-            output_fields=output_fields
-        )
-
-        # 검색 결과가 비어있는지 확인
-        if not results or len(results) == 0 or len(results[0]) == 0:
-            return []
-
-        found_patents = []
-        seen_app_nos = set()
         
-        # 구문 기반 매칭: search_phrase 사용
+        # 구문 기반 매칭용 search_phrase 생성
+        from .patent_keyword import generate_patent_search_phrase
+        search_phrase = generate_patent_search_phrase(query)
         phrase_lower = search_phrase.lower()
         phrase_words = re.findall(r'[\w가-힣]+', phrase_lower)
         
-        # 핵심 단어 추출 (불필요한 일반 설명 단어만 제거, 기술 용어는 유지)
-        # "배터리" 같은 핵심 기술 용어는 제거하지 않음
+        # 핵심 단어 추출
         stop_words = {
             "특허", "찾아", "검색", "관련", "정보", "자료", 
             "요청", "알려", "줘", "주세요", "patent", "찾아서", "검색해", "검색해줘",
-            "기술", "현황", "동향"  # 일반적인 설명 단어만 제거
+            "기술", "현황", "동향"
         }
         main_keywords = [
             word for word in phrase_words 
             if len(word) > 1 and word not in stop_words
         ]
+        
+        try:
+            results = target_collection.search(
+                data=[query_vec],
+                anns_field="embedding",
+                param={"metric_type": "L2", "params": {"nprobe": 10}},
+                limit=limit * 5,
+                expr=None,
+                output_fields=output_fields
+            )
+        except Exception:
+            return []
+        
+        if not results or len(results) == 0 or len(results[0]) == 0:
+            return []
+        
+        found_patents = []
+        seen_app_nos = set()
         
         for hit in results[0]:
             app_no = hit.entity.get('app_no')
@@ -418,51 +472,47 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
             content = hit.entity.get('content', '').lower()
             full_text = title + " " + abstract + " " + content
             
-            # 구문 전체 매칭 확인 (가장 중요)
-            # 예: "전기차 배터리 기술" → 구문 전체가 포함된 특허 우선
+            # 구문 전체 매칭 확인
             phrase_match = phrase_lower in full_text
             
             # 핵심 단어 매칭 확인
             if main_keywords:
-                # 핵심 단어가 모두 포함된 경우 (구문 의미 보존)
                 keyword_count = sum(
-                    1 for keyword in main_keywords
-                    if keyword in full_text
+                    1 for kw in main_keywords
+                    if kw in full_text
                 )
-                # 구문 전체 매칭이 있거나, 핵심 단어가 모두 포함된 경우만 통과
                 if not phrase_match and keyword_count < len(main_keywords):
-                    continue  # 관련성 낮음
+                    continue
             
-            # 기존 키워드 매칭 로직 (하위 호환성 유지)
+            # 기존 키워드 매칭 로직
             word_match = any(word in full_text for word in phrase_words if len(word) > 1)
             keyword_match = phrase_match or word_match
             
-            # 키워드 매칭이 있으면 거리 임계값을 더 완화
+            # 키워드 매칭이 있으면 거리 임계값 완화
             effective_max_distance = 2.0 if keyword_match else max_distance
-
+            
             if hit.distance > effective_max_distance:
                 continue
             
             seen_app_nos.add(app_no)
             similarity = 1.0 / (1.0 + hit.distance)
-
-            # 전체 텍스트 내용 가져오기 (텍스트 파일에서)
+            
+            # 전체 텍스트 내용 가져오기
             full_content = get_full_text_from_file(app_no)
             if not full_content:
-                # 텍스트 파일이 없으면 벡터DB의 content 사용
                 full_content = hit.entity.get('content', '')
-
-            # PDF 링크 가져오기 (메타데이터에서)
+            
+            # PDF 링크 가져오기
             pdf_link = get_pdf_link_from_metadata(app_no)
 
             found_patents.append({
                 "application_number": app_no,
                 "title": hit.entity.get('title'),
                 "abstract": hit.entity.get('abstract'),
-                "content": full_content,  # 전체 텍스트 내용
+                "content": full_content,
                 "score": hit.distance,
                 "similarity": similarity,
-                "pdf_link": pdf_link  # PDF 다운로드 링크
+                "pdf_link": pdf_link
             })
         
         found_patents.sort(key=lambda x: x["score"])
@@ -480,7 +530,7 @@ def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Pa
         title: 특허 제목
         abstract: 특허 초록
         text_path: 텍스트 파일 경로
-        patent_keyword: 특허_키워드 형식의 키워드 (예: "특허_배터리", None이면 자동 추출)
+        patent_keyword: 특허_키워드 형식의 키워드 (예: "특허_battery", None이면 자동 추출)
 
     Returns:
         저장된 청크 개수
@@ -507,7 +557,7 @@ def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Pa
             patent_keyword = f"특허_{keyword}"
             LOGGER.info(f"[embed_and_store_patent] 제목/초록에서 키워드 추출: '{keyword}'")
 
-        # 키워드가 한글이면 영어로 변환하여 컬렉션 이름 생성
+        # 키워드는 이미 정규화되어 있으므로 바로 컬렉션 이름 생성
         collection_name = get_collection_name(keyword)
         LOGGER.info(f"[embed_and_store_patent] 최종 컬렉션 이름: '{collection_name}' (원본 키워드: '{keyword}')")
         
