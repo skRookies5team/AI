@@ -22,6 +22,7 @@ sub_agents:
       - "월별 손익 분석 보고서 작성"
       - "활동 기준 원가 계산서 작성"
       - "근무 평가서 작성"
+      - "휴가 신청서 작성"
     templates:
       - "hr_summary_report"  # 인사정보 요약 리포트
       - "product_comparison"  # 제품 비교표
@@ -30,6 +31,7 @@ sub_agents:
       - "monthly_profit_analysis"  # 월별 손익 분석
       - "activity_based_costing"  # 활동 기준 원가
       - "work_performance_review"  # 근무 평가서
+      - "vacation_request_form"  # 휴가 신청서
     keywords:
       positive:
         - "문서"
@@ -40,6 +42,10 @@ sub_agents:
         - "만들어"
         - "계획서"
         - "리포트"
+        - "휴가"
+        - "연차"
+        - "반차"
+        - "신청서"
       negative:
         - "이메일 자동응답"  # 이건 email 도메인으로
         - "메일 자동응답"
@@ -47,6 +53,9 @@ sub_agents:
       - "2024년 1분기 인사정보 요약 리포트 작성해줘"
       - "스마트워치 신제품 개발 계획서 만들어줘"
       - "제품 비교표 템플릿 생성"
+      - "휴가 신청서 작성해줘"
+      - "연차 신청서 만들어줘"
+      - "반차 신청서 생성"
   update_document:
     description: "문서 업데이트 (복리후생/식단/메뉴얼/이력서)"
     features: |
