@@ -80,7 +80,8 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = _DEFAULT_
             for word in candidate.strip().split()
             if word.strip()
         ]
-        tokens = [token for token in tokens if token and token not in stop_words]
+        # 숫자만 있는 토큰 필터링 추가
+        tokens = [token for token in tokens if token and token not in stop_words and not token.isdigit()]
         if not tokens:
             continue
         keyword = " ".join(tokens)
@@ -96,7 +97,8 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = _DEFAULT_
     ]
     filtered_fallback: list[str] = []
     for token in fallback_tokens:
-        if token and token not in stop_words and token not in filtered_fallback:
+        # 🔧 숫자만 있는 토큰 필터링 추가
+        if token and token not in stop_words and not token.isdigit() and token not in filtered_fallback:
             filtered_fallback.append(token)
 
     if filtered_fallback:
@@ -105,15 +107,57 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = _DEFAULT_
     return fallback
 
 
+def _normalize_keyword_for_collection(keyword: str) -> str:
+    """키워드를 정규화하여 일관된 컬렉션 이름 생성을 보장.
+    
+    이 함수는 키워드 추출 후 호출되어, 동일한 키워드가 항상 동일한 컬렉션 이름으로 변환되도록 보장합니다.
+    
+    Args:
+        keyword: 정규화할 키워드 (한글 가능, 쉼표로 구분된 여러 키워드 가능)
+        
+    Returns:
+        정규화된 키워드 (첫 번째 키워드만 사용하여 정규화)
+    """
+    if not keyword or not keyword.strip():
+        return "other"
+    
+    # 순환 참조 방지를 위해 lazy import
+    try:
+        # patent_milvus_db 모듈에서 _sanitize_collection_name 함수 import
+        from . import patent_milvus_db
+        
+        # 쉼표로 구분된 키워드가 있으면 첫 번째 키워드만 사용
+        # 예: "배터리, 충전" -> "배터리" -> "battery"
+        first_keyword = keyword.split(",")[0].strip() if keyword else ""
+        if not first_keyword:
+            return "other"
+        
+        # 정규화된 키워드 반환 (영문으로 변환)
+        normalized = patent_milvus_db._sanitize_collection_name(first_keyword)
+        return normalized if normalized else "other"
+    except (ImportError, AttributeError) as e:
+        logging.warning(f"키워드 정규화 실패 (patent_milvus_db 모듈 로드 실패), 원본 사용: {e}")
+        # 정규화 실패 시 원본 키워드의 첫 번째 부분 반환
+        first_keyword = keyword.split(",")[0].strip() if keyword else "other"
+        return first_keyword
+    except Exception as e:
+        logging.warning(f"키워드 정규화 실패, 원본 사용: {e}")
+        # 정규화 실패 시 원본 키워드의 첫 번째 부분 반환
+        first_keyword = keyword.split(",")[0].strip() if keyword else "other"
+        return first_keyword
+
+
 def generate_patent_keyword(user_input: str, max_tokens: int = 32) -> str:
     """사용자 질의를 특허 검색 키워드로 변환한다.
+    
+    키워드 추출 후 자동으로 정규화하여 일관된 컬렉션 이름 생성을 보장합니다.
 
     Args:
         user_input (str): 사용자의 자연어 질의.
         max_tokens (int): 생성할 키워드의 최대 토큰 수.
 
     Returns:
-        str: 검색에 활용할 간결한 키워드. OpenAI API를 사용할 수 없으면 원본 질의를 반환.
+        str: 검색에 활용할 간결한 키워드 (정규화됨). OpenAI API를 사용할 수 없으면 원본 질의를 반환.
     """
     # YAML에서 프롬프트 및 설정 로드
     patent_config = _load_patent_keyword_prompts()
@@ -126,11 +170,13 @@ def generate_patent_keyword(user_input: str, max_tokens: int = 32) -> str:
         prompt_template = (
             "다음 사용자 질의를 특허 검색용 핵심 키워드로 요약해줘.\n"
             "- 출력 형식: 쉼표로 구분된 최대 3개의 키워드만 반환해.\n"
+            "- ⚠️ 중요: 붙어있는 키워드는 절대 분리하지 마세요. 공백으로 구분된 키워드만 쉼표로 구분하세요.\n"
             "- 모든 키워드는 무조건 사용자 입력에 존재하는 단어로만 선택해.\n"
             "- 각 키워드는 1~2개의 핵심 단어로 구성하고, 질문에 등장한 핵심 개념에서만 선택해.\n"
             "- '특허', 'Patent', '검색', '찾아', '알려', '줘', '주세요', '관련', '정보' 같은 일반 단어와 조사는 모두 제거해.\n"
             "- 번호, 설명, 불릿, 접두어 같은 추가 문장은 절대 포함하지 마.\n"
-            "- 예시 입력: '배터리 충전 관련 특허 찾아줘' -> 예시 출력: 배터리, 충전\n"
+            "- 예시 입력: '배터리 충전 관련 특허 찾아줘' -> 예시 출력: 배터리, 충전 (공백으로 구분되어 있음)\n"
+            "- 예시 입력: '전기차베터리 특허 좀 찾아줘' -> 예시 출력: 전기차베터리 (붙어있으므로 분리하지 않음)\n"
             "- 예시 입력: 'AI 딥러닝 특허' -> 예시 출력: 인공지능, 딥러닝\n"
             "입력: {user_input}\n출력:"
         )
@@ -144,31 +190,38 @@ def generate_patent_keyword(user_input: str, max_tokens: int = 32) -> str:
     prompt = prompt_template.replace("{user_input}", user_input)
     
     if CLIENT is None:
-        return _clean_keyword_output(user_input, user_input, limit=keyword_limit, stop_words=stop_words)
-
-    try:
-        response = CLIENT.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0,
-        )
-        raw_output = response.choices[0].message.content.strip()
-        return _clean_keyword_output(raw_output, user_input, limit=keyword_limit, stop_words=stop_words)
-    except Exception:
-        logging.exception("OpenAI patent keyword generation failed.")
-        return _clean_keyword_output(user_input, user_input, limit=keyword_limit, stop_words=stop_words)
+        raw_keyword = _clean_keyword_output(user_input, user_input, limit=keyword_limit, stop_words=stop_words)
+    else:
+        try:
+            response = CLIENT.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0,
+            )
+            raw_output = response.choices[0].message.content.strip()
+            raw_keyword = _clean_keyword_output(raw_output, user_input, limit=keyword_limit, stop_words=stop_words)
+        except Exception:
+            logging.exception("OpenAI patent keyword generation failed.")
+            raw_keyword = _clean_keyword_output(user_input, user_input, limit=keyword_limit, stop_words=stop_words)
+    
+    # 🔧 키워드 정규화: 일관된 컬렉션 이름 생성을 위해 정규화 수행
+    normalized_keyword = _normalize_keyword_for_collection(raw_keyword)
+    
+    return normalized_keyword
 
 
 def generate_patent_keyword_from_text(text: str, max_tokens: int = 32) -> str:
     """특허 제목/초록 텍스트에서 주요 키워드를 추출한다.
+    
+    키워드 추출 후 자동으로 정규화하여 일관된 컬렉션 이름 생성을 보장합니다.
     
     Args:
         text (str): 특허 제목 또는 초록 텍스트.
         max_tokens (int): 생성할 키워드의 최대 토큰 수.
         
     Returns:
-        str: 추출된 핵심 키워드.
+        str: 추출된 핵심 키워드 (정규화됨).
     """
     # YAML에서 프롬프트 및 설정 로드
     patent_config = _load_patent_keyword_prompts()
@@ -199,22 +252,27 @@ def generate_patent_keyword_from_text(text: str, max_tokens: int = 32) -> str:
         words = re.findall(r'\b\w+\b', text)
         # 한글과 영문 단어만 선택, stop words 제거
         keywords = [w for w in words if len(w) > 1 and w not in stop_words]
-        return ", ".join(keywords[:keyword_limit]) if keywords else "기타"
+        raw_keyword = ", ".join(keywords[:keyword_limit]) if keywords else "기타"
+    else:
+        try:
+            response = CLIENT.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0,
+            )
+            raw_output = response.choices[0].message.content.strip()
+            raw_keyword = _clean_keyword_output(raw_output, text, limit=keyword_limit, stop_words=stop_words)
+        except Exception:
+            logging.exception("OpenAI patent keyword extraction from text failed.")
+            words = re.findall(r'\b\w+\b', text)
+            keywords = [w for w in words if len(w) > 1 and w not in stop_words]
+            raw_keyword = ", ".join(keywords[:keyword_limit]) if keywords else "기타"
     
-    try:
-        response = CLIENT.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0,
-        )
-        raw_output = response.choices[0].message.content.strip()
-        return _clean_keyword_output(raw_output, text, limit=keyword_limit, stop_words=stop_words)
-    except Exception:
-        logging.exception("OpenAI patent keyword extraction from text failed.")
-        words = re.findall(r'\b\w+\b', text)
-        keywords = [w for w in words if len(w) > 1 and w not in stop_words]
-        return ", ".join(keywords[:keyword_limit]) if keywords else "기타"
+    # 🔧 키워드 정규화: 일관된 컬렉션 이름 생성을 위해 정규화 수행
+    normalized_keyword = _normalize_keyword_for_collection(raw_keyword)
+    
+    return normalized_keyword
 
 
 def generate_patent_search_phrase(user_input: str, max_tokens: int = 50) -> str:
