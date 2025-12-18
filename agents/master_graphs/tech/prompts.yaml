@@ -219,3 +219,4 @@ classification_criteria: |
 output_format: '{"intent": "patent|article"}'
 
 
+

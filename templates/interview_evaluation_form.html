@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>면접 평가표</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #a8edea;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header-left {
+            display: flex;
+            gap: 15px;
+            font-size: 14px;
+            color: #495057;
+            align-items: center;
+        }
+
+        .header-left input {
+            padding: 6px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 120px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #495057;
+        }
+
+        .header-right input {
+            padding: 6px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 100px;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            border-left: 4px solid #a8edea;
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .info-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .info-input,
+        .info-select {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            width: 100%;
+            font-family: inherit;
+        }
+
+        .info-input:focus,
+        .info-select:focus {
+            outline: none;
+            border-color: #a8edea;
+            box-shadow: 0 0 0 3px rgba(168, 237, 234, 0.1);
+        }
+
+        .info-select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a8edea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 35px;
+        }
+
+        .evaluation-section {
+            margin-bottom: 30px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:first-child {
+            font-weight: 600;
+            color: #2c3e50;
+            background: #f0f9f8;
+            text-align: left;
+            padding-left: 20px;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .evaluation-item {
+            font-weight: 500;
+            color: #495057;
+        }
+
+        .score-input {
+            width: 80px;
+            padding: 8px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .score-input:focus {
+            outline: none;
+            border-color: #a8edea;
+            box-shadow: 0 0 0 3px rgba(168, 237, 234, 0.1);
+        }
+
+        .score-display {
+            font-weight: 700;
+            color: #a8edea;
+            font-size: 16px;
+        }
+
+        .total-row {
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            font-weight: 700;
+        }
+
+        .total-row td {
+            font-size: 16px;
+            color: #2c3e50;
+        }
+
+        .comments-section {
+            margin-top: 30px;
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            border-left: 4px solid #a8edea;
+        }
+
+        .comment-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .comment-textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: all 0.3s;
+        }
+
+        .comment-textarea:focus {
+            outline: none;
+            border-color: #a8edea;
+            box-shadow: 0 0 0 3px rgba(168, 237, 234, 0.1);
+        }
+
+        .result-section {
+            margin-top: 30px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .result-card {
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            padding: 25px;
+            border-radius: 8px;
+            border-left: 4px solid #a8edea;
+        }
+
+        .result-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .result-select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #a8edea;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a8edea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 35px;
+        }
+
+        .result-select:focus {
+            outline: none;
+            border-color: #fed6e3;
+            box-shadow: 0 0 0 3px rgba(168, 237, 234, 0.1);
+        }
+
+        .result-select.pass {
+            background-color: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+
+        .result-select.fail {
+            background-color: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+
+        .interviewer-section {
+            margin-top: 30px;
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            border-left: 4px solid #a8edea;
+        }
+
+        .interviewer-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .stats-section {
+            margin-top: 30px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            color: white;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .actions {
+            margin-top: 40px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(168, 237, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions {
+                display: none;
+            }
+        }
+
+        @media (max-width: 968px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .result-section {
+                grid-template-columns: 1fr;
+            }
+
+            .interviewer-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-section {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-top {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+
+            .stats-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <div class="header-left">
+                    <span>면접 일자:</span>
+                    <input type="date" id="interviewDate">
+                    <span>면접 시간:</span>
+                    <input type="time" id="interviewTime">
+                </div>
+                <div class="header-right">
+                    <span>면접 유형:</span>
+                    <select id="interviewType" style="padding: 6px 12px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 14px;">
+                        <option value="1차면접">1차면접</option>
+                        <option value="2차면접">2차면접</option>
+                        <option value="최종면접">최종면접</option>
+                        <option value="기타">기타</option>
+                    </select>
+                </div>
+            </div>
+            <h1>면접 평가표</h1>
+        </div>
+
+        <div class="info-section">
+            <h2 class="section-title">지원자 정보</h2>
+            <div class="info-grid">
+                <div class="info-row">
+                    <label class="info-label">성명</label>
+                    <input type="text" class="info-input" id="applicantName" placeholder="지원자 성명">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">지원 직무</label>
+                    <input type="text" class="info-input" id="position" placeholder="지원 직무">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">연락처</label>
+                    <input type="text" class="info-input" id="phone" placeholder="연락처">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">이메일</label>
+                    <input type="email" class="info-input" id="email" placeholder="이메일">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">경력</label>
+                    <select class="info-select" id="experience">
+                        <option value="">선택</option>
+                        <option value="신입">신입</option>
+                        <option value="1-3년">1-3년</option>
+                        <option value="3-5년">3-5년</option>
+                        <option value="5-10년">5-10년</option>
+                        <option value="10년 이상">10년 이상</option>
+                    </select>
+                </div>
+                <div class="info-row">
+                    <label class="info-label">학력</label>
+                    <select class="info-select" id="education">
+                        <option value="">선택</option>
+                        <option value="고졸">고졸</option>
+                        <option value="전문대졸">전문대졸</option>
+                        <option value="대졸">대졸</option>
+                        <option value="석사">석사</option>
+                        <option value="박사">박사</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="evaluation-section">
+            <h2 class="section-title">평가 항목</h2>
+            <div class="table-container">
+                <table id="evaluationTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 200px;">평가 항목</th>
+                            <th style="width: 300px;">평가 기준</th>
+                            <th style="width: 100px;">점수 (100점 만점)</th>
+                            <th style="width: 100px;">가중치</th>
+                            <th style="width: 100px;">가중 점수</th>
+                        </tr>
+                    </thead>
+                    <tbody id="evaluationBody">
+                        <!-- 행이 동적으로 추가됩니다 -->
+                    </tbody>
+                    <tfoot>
+                        <tr class="total-row">
+                            <td colspan="2">합계</td>
+                            <td class="score-display" id="totalScore">0</td>
+                            <td class="score-display" id="totalWeight">100%</td>
+                            <td class="score-display" id="totalWeightedScore">0</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td colspan="2">평균</td>
+                            <td class="score-display" id="averageScore">0</td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+
+        <div class="comments-section">
+            <label class="comment-label">종합 평가 및 의견</label>
+            <textarea class="comment-textarea" id="overallComment" placeholder="지원자의 종합적인 평가와 의견을 작성해주세요."></textarea>
+        </div>
+
+        <div class="result-section">
+            <div class="result-card">
+                <label class="result-label">면접 결과</label>
+                <select class="result-select" id="interviewResult">
+                    <option value="">선택하세요</option>
+                    <option value="합격">합격</option>
+                    <option value="불합격">불합격</option>
+                    <option value="보류">보류</option>
+                    <option value="추가면접">추가면접</option>
+                </select>
+            </div>
+            <div class="result-card">
+                <label class="result-label">추천도</label>
+                <select class="result-select" id="recommendation">
+                    <option value="">선택하세요</option>
+                    <option value="강력 추천">강력 추천</option>
+                    <option value="추천">추천</option>
+                    <option value="보통">보통</option>
+                    <option value="비추천">비추천</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="interviewer-section">
+            <h2 class="section-title">면접관 정보</h2>
+            <div class="interviewer-grid">
+                <div class="info-row">
+                    <label class="info-label">면접관 성명</label>
+                    <input type="text" class="info-input" id="interviewerName" placeholder="면접관 성명">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">소속 부서</label>
+                    <input type="text" class="info-input" id="interviewerDepartment" placeholder="소속 부서">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">직급</label>
+                    <input type="text" class="info-input" id="interviewerPosition" placeholder="직급">
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-section">
+            <div class="stat-card">
+                <div class="stat-label">총점</div>
+                <div class="stat-value" id="statTotalScore">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">평균 점수</div>
+                <div class="stat-value" id="statAverageScore">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">가중 총점</div>
+                <div class="stat-value" id="statWeightedScore">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">평가 항목 수</div>
+                <div class="stat-value" id="statItemCount">0</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" onclick="resetForm()">초기화</button>
+            <button class="btn btn-success" onclick="calculateScores()">점수 계산</button>
+            <button class="btn btn-primary" onclick="printForm()">인쇄</button>
+            <button class="btn btn-primary" onclick="exportData()">내보내기</button>
+        </div>
+    </div>
+
+    <script>
+        // 평가 항목 데이터
+        const evaluationItems = [
+            { item: '전문성 및 업무능력', criteria: '지원 직무에 대한 전문 지식과 업무 수행 능력', weight: 25 },
+            { item: '의사소통 능력', criteria: '명확한 의사 전달 및 경청 능력', weight: 20 },
+            { item: '협업 및 팀워크', criteria: '팀원과의 협업 능력 및 소통', weight: 15 },
+            { item: '문제해결 능력', criteria: '문제 분석 및 해결 접근 방법', weight: 20 },
+            { item: '창의성 및 혁신', criteria: '새로운 아이디어 제시 및 창의적 사고', weight: 10 },
+            { item: '태도 및 인성', criteria: '직업 윤리, 책임감, 긍정적 태도', weight: 10 }
+        ];
+
+        // 초기 테이블 생성
+        function initializeTable() {
+            const tbody = document.getElementById('evaluationBody');
+            tbody.innerHTML = '';
+
+            evaluationItems.forEach((item, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="evaluation-item">${item.item}</td>
+                    <td style="text-align: left; padding-left: 20px; font-size: 13px; color: #6c757d;">${item.criteria}</td>
+                    <td>
+                        <input type="number" class="score-input" 
+                               data-index="${index}" 
+                               min="0" max="100" 
+                               placeholder="0" 
+                               oninput="calculateScores()">
+                    </td>
+                    <td class="weight-display">${item.weight}%</td>
+                    <td class="weighted-score-display">0</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            calculateScores();
+        }
+
+        // 점수 계산
+        function calculateScores() {
+            const rows = document.querySelectorAll('#evaluationBody tr');
+            let totalScore = 0;
+            let totalWeightedScore = 0;
+            let totalWeight = 0;
+            let validScores = 0;
+
+            rows.forEach((row, index) => {
+                const scoreInput = row.querySelector('.score-input');
+                const score = parseFloat(scoreInput.value) || 0;
+                const weight = evaluationItems[index].weight;
+                const weightedScore = (score * weight) / 100;
+
+                // 가중 점수 표시
+                const weightedScoreCell = row.querySelector('.weighted-score-display');
+                weightedScoreCell.textContent = weightedScore.toFixed(1);
+
+                if (score > 0) {
+                    totalScore += score;
+                    totalWeightedScore += weightedScore;
+                    validScores++;
+                }
+                totalWeight += weight;
+            });
+
+            // 합계 및 평균 계산
+            const averageScore = validScores > 0 ? totalScore / validScores : 0;
+            const averageWeightedScore = totalWeightedScore;
+
+            // 표시 업데이트
+            document.getElementById('totalScore').textContent = totalScore.toFixed(1);
+            document.getElementById('totalWeight').textContent = totalWeight + '%';
+            document.getElementById('totalWeightedScore').textContent = averageWeightedScore.toFixed(1);
+            document.getElementById('averageScore').textContent = averageScore.toFixed(1);
+
+            // 통계 카드 업데이트
+            document.getElementById('statTotalScore').textContent = totalScore.toFixed(1);
+            document.getElementById('statAverageScore').textContent = averageScore.toFixed(1);
+            document.getElementById('statWeightedScore').textContent = averageWeightedScore.toFixed(1);
+            document.getElementById('statItemCount').textContent = validScores;
+        }
+
+        // 면접 결과에 따른 스타일 변경
+        document.getElementById('interviewResult').addEventListener('change', function() {
+            const result = this.value;
+            this.className = 'result-select';
+            if (result === '합격') {
+                this.classList.add('pass');
+            } else if (result === '불합격') {
+                this.classList.add('fail');
+            }
+        });
+
+        // 날짜 자동 설정
+        function setDefaultDate() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            document.getElementById('interviewDate').value = `${year}-${month}-${day}`;
+            
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('interviewTime').value = `${hours}:${minutes}`;
+        }
+
+        // 폼 초기화
+        function resetForm() {
+            if (confirm('입력한 모든 내용이 삭제됩니다. 정말 초기화하시겠습니까?')) {
+                document.querySelectorAll('input[type="text"], input[type="email"], input[type="number"], select, textarea').forEach(input => {
+                    if (input.id !== 'interviewDate' && input.id !== 'interviewTime') {
+                        input.value = '';
+                    }
+                });
+                initializeTable();
+                setDefaultDate();
+            }
+        }
+
+        // 인쇄
+        function printForm() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const formData = {
+                interviewDate: document.getElementById('interviewDate').value,
+                interviewTime: document.getElementById('interviewTime').value,
+                interviewType: document.getElementById('interviewType').value,
+                applicantName: document.getElementById('applicantName').value,
+                position: document.getElementById('position').value,
+                phone: document.getElementById('phone').value,
+                email: document.getElementById('email').value,
+                experience: document.getElementById('experience').value,
+                education: document.getElementById('education').value,
+                overallComment: document.getElementById('overallComment').value,
+                interviewResult: document.getElementById('interviewResult').value,
+                recommendation: document.getElementById('recommendation').value,
+                interviewerName: document.getElementById('interviewerName').value,
+                interviewerDepartment: document.getElementById('interviewerDepartment').value,
+                interviewerPosition: document.getElementById('interviewerPosition').value,
+                totalScore: document.getElementById('totalScore').textContent,
+                averageScore: document.getElementById('averageScore').textContent,
+                totalWeightedScore: document.getElementById('totalWeightedScore').textContent
+            };
+
+            let csv = '면접 평가표\n\n';
+            csv += `면접 일자,${formData.interviewDate}\n`;
+            csv += `면접 시간,${formData.interviewTime}\n`;
+            csv += `면접 유형,${formData.interviewType}\n\n`;
+            csv += '지원자 정보\n';
+            csv += `성명,${formData.applicantName}\n`;
+            csv += `지원 직무,${formData.position}\n`;
+            csv += `연락처,${formData.phone}\n`;
+            csv += `이메일,${formData.email}\n`;
+            csv += `경력,${formData.experience}\n`;
+            csv += `학력,${formData.education}\n\n`;
+            csv += '평가 항목\n';
+            csv += '항목,평가 기준,점수,가중치,가중 점수\n';
+
+            const rows = document.querySelectorAll('#evaluationBody tr');
+            rows.forEach(row => {
+                const item = row.querySelector('.evaluation-item')?.textContent || '';
+                const criteria = row.cells[1]?.textContent || '';
+                const score = row.querySelector('.score-input')?.value || '0';
+                const weight = row.cells[3]?.textContent || '';
+                const weightedScore = row.cells[4]?.textContent || '0';
+                csv += `"${item}","${criteria}",${score},${weight},${weightedScore}\n`;
+            });
+
+            csv += `\n합계,,${formData.totalScore},100%,${formData.totalWeightedScore}\n`;
+            csv += `평균,,${formData.averageScore},,\n\n`;
+            csv += `종합 평가 및 의견,"${formData.overallComment}"\n`;
+            csv += `면접 결과,${formData.interviewResult}\n`;
+            csv += `추천도,${formData.recommendation}\n\n`;
+            csv += '면접관 정보\n';
+            csv += `면접관 성명,${formData.interviewerName}\n`;
+            csv += `소속 부서,${formData.interviewerDepartment}\n`;
+            csv += `직급,${formData.interviewerPosition}\n`;
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const applicantName = formData.applicantName || '면접평가표';
+            link.setAttribute('download', `${applicantName}_면접평가표.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setDefaultDate();
+            initializeTable();
+        });
+    </script>
+</body>
+</html>
+
+

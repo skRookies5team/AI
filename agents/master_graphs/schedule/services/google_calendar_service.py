@@ -60,10 +60,10 @@ class GoogleCalendarService:
             print(f"⚠️ user_id가 숫자가 아닙니다. 그대로 사용: {user_id}")
             employee_id = None
         
-        # DB에서 OAuth Client 설정 가져오기
+        # DB에서 OAuth Client 설정 가져오기 (해당 employee_id의 설정 우선 조회)
         from .google_token_service import get_token_service
         token_service = get_token_service()
-        client_config = await token_service.get_oauth_client_config()
+        client_config = await token_service.get_oauth_client_config(employee_id=employee_id)
         
         if not client_config:
             raise ValueError("Google OAuth 클라이언트 정보를 DB 또는 환경 변수에서 찾을 수 없습니다.")

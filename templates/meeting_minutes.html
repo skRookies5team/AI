@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>회의 자료</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .header-left {
+            display: flex;
+            gap: 15px;
+            font-size: 14px;
+            color: #495057;
+            align-items: center;
+        }
+
+        .header-left input {
+            padding: 6px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 120px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #495057;
+        }
+
+        .header-right input {
+            padding: 6px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 150px;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .meeting-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 30px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .meeting-title input {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            font-size: 24px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .meeting-title input:focus {
+            outline: none;
+        }
+
+        .info-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .info-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .info-input,
+        .info-select {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            width: 100%;
+            font-family: inherit;
+        }
+
+        .info-input:focus,
+        .info-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .info-select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23667eea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 35px;
+        }
+
+        .participants-section {
+            margin-bottom: 30px;
+        }
+
+        .participants-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .participant-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .participant-input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .participant-input-group input {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .participant-input-group button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .participant-input-group button:hover {
+            background: #5568d3;
+            transform: translateY(-1px);
+        }
+
+        .agenda-section {
+            margin-bottom: 30px;
+        }
+
+        .agenda-item {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 15px;
+        }
+
+        .agenda-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .agenda-number {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .agenda-title-input {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .agenda-title-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .agenda-content {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: all 0.3s;
+        }
+
+        .agenda-content:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .discussion-section {
+            margin-bottom: 30px;
+        }
+
+        .discussion-item {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 15px;
+        }
+
+        .discussion-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .discussion-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .discussion-content {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        .discussion-content:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .decisions-section {
+            margin-bottom: 30px;
+        }
+
+        .decision-item {
+            display: grid;
+            grid-template-columns: 1fr 150px;
+            gap: 15px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .decision-content {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .decision-content:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .decision-responsible {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .decision-responsible:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .action-items-section {
+            margin-bottom: 30px;
+        }
+
+        .action-item {
+            display: grid;
+            grid-template-columns: 1fr 150px 120px;
+            gap: 15px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .action-content {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .action-content:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .action-responsible,
+        .action-deadline {
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .action-responsible:focus,
+        .action-deadline:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .notes-section {
+            margin-bottom: 30px;
+        }
+
+        .notes-textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: all 0.3s;
+        }
+
+        .notes-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-add {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-add:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+        }
+
+        .section-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .actions {
+            margin-top: 40px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn-primary {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions,
+            .section-actions,
+            .participant-input-group button,
+            .btn {
+                display: none;
+            }
+        }
+
+        @media (max-width: 968px) {
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .decision-item,
+            .action-item {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-top {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <div class="header-left">
+                    <span>회의 일자:</span>
+                    <input type="date" id="meetingDate">
+                    <span>회의 시간:</span>
+                    <input type="time" id="meetingTime">
+                </div>
+                <div class="header-right">
+                    <span>회의 유형:</span>
+                    <select id="meetingType" style="padding: 6px 12px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 14px;">
+                        <option value="정기회의">정기회의</option>
+                        <option value="임시회의">임시회의</option>
+                        <option value="프로젝트회의">프로젝트회의</option>
+                        <option value="부서회의">부서회의</option>
+                        <option value="기타">기타</option>
+                    </select>
+                </div>
+            </div>
+            <h1>회의 자료</h1>
+            <div class="meeting-title">
+                <input type="text" id="meetingTitle" placeholder="회의 제목을 입력하세요">
+            </div>
+        </div>
+
+        <div class="info-section">
+            <h2 class="section-title">회의 정보</h2>
+            <div class="info-grid">
+                <div class="info-row">
+                    <label class="info-label">회의 장소</label>
+                    <input type="text" class="info-input" id="meetingLocation" placeholder="회의 장소">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">회의 주관</label>
+                    <input type="text" class="info-input" id="meetingOrganizer" placeholder="회의 주관자">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">회의 진행자</label>
+                    <input type="text" class="info-input" id="meetingFacilitator" placeholder="회의 진행자">
+                </div>
+                <div class="info-row">
+                    <label class="info-label">회의 기록자</label>
+                    <input type="text" class="info-input" id="meetingRecorder" placeholder="회의 기록자">
+                </div>
+            </div>
+        </div>
+
+        <div class="participants-section">
+            <h2 class="section-title">참석자</h2>
+            <div class="participants-list" id="participantsList">
+                <!-- 참석자가 동적으로 추가됩니다 -->
+            </div>
+            <div class="participant-input-group">
+                <input type="text" id="participantInput" placeholder="참석자 이름을 입력하세요">
+                <button class="btn btn-add" onclick="addParticipant()">추가</button>
+            </div>
+        </div>
+
+        <div class="agenda-section">
+            <h2 class="section-title">회의 안건</h2>
+            <div id="agendaList">
+                <!-- 안건이 동적으로 추가됩니다 -->
+            </div>
+            <div class="section-actions">
+                <button class="btn btn-add" onclick="addAgenda()">안건 추가</button>
+            </div>
+        </div>
+
+        <div class="discussion-section">
+            <h2 class="section-title">논의 사항</h2>
+            <div id="discussionList">
+                <!-- 논의 사항이 동적으로 추가됩니다 -->
+            </div>
+            <div class="section-actions">
+                <button class="btn btn-add" onclick="addDiscussion()">논의 사항 추가</button>
+            </div>
+        </div>
+
+        <div class="decisions-section">
+            <h2 class="section-title">결정 사항</h2>
+            <div id="decisionsList">
+                <!-- 결정 사항이 동적으로 추가됩니다 -->
+            </div>
+            <div class="section-actions">
+                <button class="btn btn-add" onclick="addDecision()">결정 사항 추가</button>
+            </div>
+        </div>
+
+        <div class="action-items-section">
+            <h2 class="section-title">향후 일정 및 액션 아이템</h2>
+            <div id="actionItemsList">
+                <!-- 액션 아이템이 동적으로 추가됩니다 -->
+            </div>
+            <div class="section-actions">
+                <button class="btn btn-add" onclick="addActionItem()">액션 아이템 추가</button>
+            </div>
+        </div>
+
+        <div class="notes-section">
+            <h2 class="section-title">비고</h2>
+            <textarea class="notes-textarea" id="notes" placeholder="기타 참고사항을 입력하세요"></textarea>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" onclick="resetForm()">초기화</button>
+            <button class="btn btn-success" onclick="exportData()">내보내기</button>
+            <button class="btn btn-primary" onclick="printForm()">인쇄</button>
+        </div>
+    </div>
+
+    <script>
+        let agendaCounter = 0;
+        let discussionCounter = 0;
+        let decisionCounter = 0;
+        let actionItemCounter = 0;
+        let participants = [];
+
+        // 날짜 자동 설정
+        function setDefaultDate() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            document.getElementById('meetingDate').value = `${year}-${month}-${day}`;
+            
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('meetingTime').value = `${hours}:${minutes}`;
+        }
+
+        // 참석자 추가
+        function addParticipant() {
+            const input = document.getElementById('participantInput');
+            const name = input.value.trim();
+            
+            if (name && !participants.includes(name)) {
+                participants.push(name);
+                renderParticipants();
+                input.value = '';
+            } else if (participants.includes(name)) {
+                alert('이미 추가된 참석자입니다.');
+            }
+        }
+
+        // 참석자 목록 렌더링
+        function renderParticipants() {
+            const list = document.getElementById('participantsList');
+            list.innerHTML = '';
+            
+            participants.forEach((name, index) => {
+                const tag = document.createElement('div');
+                tag.className = 'participant-tag';
+                tag.innerHTML = `
+                    <span>${name}</span>
+                    <button onclick="removeParticipant(${index})" style="background: none; border: none; color: white; cursor: pointer; font-size: 18px; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">×</button>
+                `;
+                list.appendChild(tag);
+            });
+        }
+
+        // 참석자 제거
+        function removeParticipant(index) {
+            participants.splice(index, 1);
+            renderParticipants();
+        }
+
+        // 안건 추가
+        function addAgenda() {
+            agendaCounter++;
+            const list = document.getElementById('agendaList');
+            const item = document.createElement('div');
+            item.className = 'agenda-item';
+            item.id = `agenda-${agendaCounter}`;
+            item.innerHTML = `
+                <div class="agenda-header">
+                    <div class="agenda-number">${agendaCounter}</div>
+                    <input type="text" class="agenda-title-input" placeholder="안건 제목을 입력하세요">
+                </div>
+                <textarea class="agenda-content" placeholder="안건 내용을 입력하세요"></textarea>
+                <div class="section-actions">
+                    <button class="btn btn-remove" onclick="removeAgenda(${agendaCounter})">삭제</button>
+                </div>
+            `;
+            list.appendChild(item);
+        }
+
+        // 안건 제거
+        function removeAgenda(id) {
+            const item = document.getElementById(`agenda-${id}`);
+            if (item) {
+                item.remove();
+            }
+        }
+
+        // 논의 사항 추가
+        function addDiscussion() {
+            discussionCounter++;
+            const list = document.getElementById('discussionList');
+            const item = document.createElement('div');
+            item.className = 'discussion-item';
+            item.id = `discussion-${discussionCounter}`;
+            item.innerHTML = `
+                <div class="discussion-header">
+                    <span class="discussion-label">논의 사항 ${discussionCounter}</span>
+                </div>
+                <textarea class="discussion-content" placeholder="논의 사항을 입력하세요"></textarea>
+                <div class="section-actions">
+                    <button class="btn btn-remove" onclick="removeDiscussion(${discussionCounter})">삭제</button>
+                </div>
+            `;
+            list.appendChild(item);
+        }
+
+        // 논의 사항 제거
+        function removeDiscussion(id) {
+            const item = document.getElementById(`discussion-${id}`);
+            if (item) {
+                item.remove();
+            }
+        }
+
+        // 결정 사항 추가
+        function addDecision() {
+            decisionCounter++;
+            const list = document.getElementById('decisionsList');
+            const item = document.createElement('div');
+            item.className = 'decision-item';
+            item.id = `decision-${decisionCounter}`;
+            item.innerHTML = `
+                <input type="text" class="decision-content" placeholder="결정 사항을 입력하세요">
+                <input type="text" class="decision-responsible" placeholder="담당자">
+                <div class="section-actions">
+                    <button class="btn btn-remove" onclick="removeDecision(${decisionCounter})">삭제</button>
+                </div>
+            `;
+            list.appendChild(item);
+        }
+
+        // 결정 사항 제거
+        function removeDecision(id) {
+            const item = document.getElementById(`decision-${id}`);
+            if (item) {
+                item.remove();
+            }
+        }
+
+        // 액션 아이템 추가
+        function addActionItem() {
+            actionItemCounter++;
+            const list = document.getElementById('actionItemsList');
+            const item = document.createElement('div');
+            item.className = 'action-item';
+            item.id = `action-${actionItemCounter}`;
+            item.innerHTML = `
+                <input type="text" class="action-content" placeholder="액션 아이템을 입력하세요">
+                <input type="text" class="action-responsible" placeholder="담당자">
+                <input type="date" class="action-deadline" placeholder="마감일">
+                <div class="section-actions">
+                    <button class="btn btn-remove" onclick="removeActionItem(${actionItemCounter})">삭제</button>
+                </div>
+            `;
+            list.appendChild(item);
+        }
+
+        // 액션 아이템 제거
+        function removeActionItem(id) {
+            const item = document.getElementById(`action-${id}`);
+            if (item) {
+                item.remove();
+            }
+        }
+
+        // Enter 키로 참석자 추가
+        document.getElementById('participantInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                addParticipant();
+            }
+        });
+
+        // 폼 초기화
+        function resetForm() {
+            if (confirm('입력한 모든 내용이 삭제됩니다. 정말 초기화하시겠습니까?')) {
+                document.querySelectorAll('input[type="text"], input[type="email"], input[type="date"], input[type="time"], select, textarea').forEach(input => {
+                    if (input.id !== 'meetingDate' && input.id !== 'meetingTime') {
+                        input.value = '';
+                    }
+                });
+                participants = [];
+                renderParticipants();
+                document.getElementById('agendaList').innerHTML = '';
+                document.getElementById('discussionList').innerHTML = '';
+                document.getElementById('decisionsList').innerHTML = '';
+                document.getElementById('actionItemsList').innerHTML = '';
+                agendaCounter = 0;
+                discussionCounter = 0;
+                decisionCounter = 0;
+                actionItemCounter = 0;
+                setDefaultDate();
+            }
+        }
+
+        // 인쇄
+        function printForm() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            const formData = {
+                meetingDate: document.getElementById('meetingDate').value,
+                meetingTime: document.getElementById('meetingTime').value,
+                meetingType: document.getElementById('meetingType').value,
+                meetingTitle: document.getElementById('meetingTitle').value,
+                meetingLocation: document.getElementById('meetingLocation').value,
+                meetingOrganizer: document.getElementById('meetingOrganizer').value,
+                meetingFacilitator: document.getElementById('meetingFacilitator').value,
+                meetingRecorder: document.getElementById('meetingRecorder').value,
+                participants: participants.join(', '),
+                notes: document.getElementById('notes').value
+            };
+
+            let csv = '회의 자료\n\n';
+            csv += `회의 일자,${formData.meetingDate}\n`;
+            csv += `회의 시간,${formData.meetingTime}\n`;
+            csv += `회의 유형,${formData.meetingType}\n`;
+            csv += `회의 제목,${formData.meetingTitle}\n`;
+            csv += `회의 장소,${formData.meetingLocation}\n`;
+            csv += `회의 주관,${formData.meetingOrganizer}\n`;
+            csv += `회의 진행자,${formData.meetingFacilitator}\n`;
+            csv += `회의 기록자,${formData.meetingRecorder}\n`;
+            csv += `참석자,${formData.participants}\n\n`;
+
+            // 안건
+            csv += '회의 안건\n';
+            csv += '번호,제목,내용\n';
+            const agendaItems = document.querySelectorAll('.agenda-item');
+            agendaItems.forEach((item, index) => {
+                const title = item.querySelector('.agenda-title-input')?.value || '';
+                const content = item.querySelector('.agenda-content')?.value || '';
+                csv += `${index + 1},"${title}","${content.replace(/"/g, '""')}"\n`;
+            });
+
+            // 논의 사항
+            csv += '\n논의 사항\n';
+            const discussionItems = document.querySelectorAll('.discussion-item');
+            discussionItems.forEach((item, index) => {
+                const content = item.querySelector('.discussion-content')?.value || '';
+                csv += `${index + 1},"${content.replace(/"/g, '""')}"\n`;
+            });
+
+            // 결정 사항
+            csv += '\n결정 사항\n';
+            csv += '내용,담당자\n';
+            const decisionItems = document.querySelectorAll('.decision-item');
+            decisionItems.forEach(item => {
+                const content = item.querySelector('.decision-content')?.value || '';
+                const responsible = item.querySelector('.decision-responsible')?.value || '';
+                csv += `"${content.replace(/"/g, '""')}","${responsible}"\n`;
+            });
+
+            // 액션 아이템
+            csv += '\n향후 일정 및 액션 아이템\n';
+            csv += '내용,담당자,마감일\n';
+            const actionItems = document.querySelectorAll('.action-item');
+            actionItems.forEach(item => {
+                const content = item.querySelector('.action-content')?.value || '';
+                const responsible = item.querySelector('.action-responsible')?.value || '';
+                const deadline = item.querySelector('.action-deadline')?.value || '';
+                csv += `"${content.replace(/"/g, '""')}","${responsible}","${deadline}"\n`;
+            });
+
+            csv += `\n비고,"${formData.notes.replace(/"/g, '""')}"\n`;
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const title = formData.meetingTitle || '회의자료';
+            const date = formData.meetingDate || new Date().toISOString().split('T')[0];
+            link.setAttribute('download', `${title}_${date}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setDefaultDate();
+            // 초기 안건 1개 추가
+            addAgenda();
+        });
+    </script>
+</body>
+</html>
+
+
