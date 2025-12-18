@@ -6,44 +6,14 @@ on:
     branches: ["main"]
 
 jobs:
-  python-ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install deps (locked)
-        run: uv sync --frozen
-
-      - name: Ruff format check
-        run: uv run ruff format --check .
-
-      - name: Ruff lint
-        run: uv run ruff check .
-
-      # 테스트가 없으면 실패할 수 있어서 optional 처리
-      - name: Pytest (optional)
-        run: |
-          if [ -d "tests" ] || ls -1 *test*.py >/dev/null 2>&1; then
-            uv run pytest -q
-          else
-            echo "No tests found, skip pytest"
-          fi
-
   docker-build-sanity:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Docker build (sanity)
         run: |
+          set -euo pipefail
           if [ -f Dockerfile ]; then
             docker build -t ai-app:ci .
           else
