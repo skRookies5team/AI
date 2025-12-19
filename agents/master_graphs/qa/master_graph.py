@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import asyncio
+import time
 
 from langgraph.graph import StateGraph, END
 
@@ -66,6 +67,7 @@ class QAMasterGraph(BaseMasterGraph):
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """Q&A 도메인 내부 의도 분류."""
         print("--- [QA Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
         
@@ -73,14 +75,16 @@ class QAMasterGraph(BaseMasterGraph):
         has_manual_keyword = any(k in query for k in ["메뉴얼", "매뉴얼", "manual", "사용 방법", "가이드", "안내", "Q&A", "FAQ"])
         
         if has_manual_keyword:
-            print(f"✅ [최우선순위 검증] '메뉴얼' 키워드 감지 - manual로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ [최우선순위 검증] '메뉴얼' 키워드 감지 - manual로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "manual"}
         
         # 우선순위 검증: "복리후생" 키워드가 있고 "메뉴얼" 키워드가 없으면 benefit으로 강제 라우팅
         has_benefit_keyword = "복리후생" in query
         
         if has_benefit_keyword:
-            print(f"✅ [우선순위 검증] '복리후생' 키워드 감지 - benefit으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ [우선순위 검증] '복리후생' 키워드 감지 - benefit으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "benefit"}
         
         # llm_router를 사용한 LLM 기반 분류
@@ -111,7 +115,8 @@ class QAMasterGraph(BaseMasterGraph):
             else:
                 intent = "manual"  # 기본값
         
-        print(f"✅ QA 의도 결정: {intent}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ QA 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:
