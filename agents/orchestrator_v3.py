@@ -98,6 +98,7 @@ _routing_logger = _setup_routing_logger()
 _orchestrator_prompts = None
 _orchestrator_config = None
 _workflows_config: Optional[Dict[str, Any]] = None
+_workflow_classification_config: Optional[Dict[str, Any]] = None
 
 def _load_orchestrator_prompts_sync() -> Dict[str, Any]:
     """오케스트레이터 프롬프트를 YAML 파일에서 동기적으로 로드합니다.
@@ -216,8 +217,79 @@ def load_workflows_config() -> Dict[str, Any]:
     return _workflows_config
 
 
+def load_workflow_classification_config() -> Dict[str, Any]:
+    """워크플로우 분류 설정을 YAML 파일에서 로드합니다.
+    
+    Returns:
+        워크플로우 분류 설정 딕셔너리
+    """
+    global _workflow_classification_config
+    
+    if _workflow_classification_config is not None:
+        return _workflow_classification_config
+    
+    current_dir = Path(__file__).parent
+    yaml_path = current_dir / "workflow_classification.yaml"
+    
+    if not yaml_path.exists():
+        print(f"⚠️ 워크플로우 분류 파일을 찾을 수 없습니다: {yaml_path}")
+        return {}
+    
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        _workflow_classification_config = yaml.safe_load(f)
+    
+    return _workflow_classification_config
+
+
 # 키워드 기반 워크플로우 감지는 더 이상 사용하지 않음 (LLM 기반만 사용)
 # 이전에 사용하던 detect_workflow_type_keyword 함수는 제거되었습니다.
+
+
+async def classify_request_type(query: str) -> Dict[str, Any]:
+    """1단계: 사용자 요청을 워크플로우 요청과 일반 요청으로 분류합니다.
+    
+    Args:
+        query: 사용자 쿼리
+        
+    Returns:
+        {'is_workflow_request': bool, 'confidence': float}
+    """
+    step_start = time.time()
+    classification_config = load_workflow_classification_config()
+    request_classification = classification_config.get("request_classification", {})
+    
+    if not request_classification:
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"⚠️ 워크플로우 분류 설정을 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        return {"is_workflow_request": False, "confidence": 0.5}
+    
+    system_prompt_template = request_classification.get("system_prompt", "")
+    if not system_prompt_template:
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"⚠️ 워크플로우 분류 프롬프트를 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        return {"is_workflow_request": False, "confidence": 0.5}
+    
+    # 프롬프트에 query 삽입
+    system_prompt = system_prompt_template.format(query=query)
+    
+    try:
+        result = await extract_structured_output(
+            query=query,
+            model_class=WorkflowDetectionResult,
+            system_prompt=system_prompt,
+            temperature=0.0
+        )
+        
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ 1단계 분류: {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
+        return {
+            "is_workflow_request": result.is_workflow_request,
+            "confidence": result.confidence
+        }
+    except Exception as e:
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        return {"is_workflow_request": False, "confidence": 0.5}
 
 
 async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:
@@ -229,6 +301,7 @@ async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:
     Returns:
         {'workflow_type': str, 'confidence': float} 또는 None
     """
+    step_start = time.time()
     workflows = load_workflows_config()
     
     for workflow_type, workflow_config in workflows.get("workflows", {}).items():
@@ -248,7 +321,8 @@ async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:
             )
             
             if result.is_workflow_request and result.workflow_type == workflow_type and result.confidence >= 0.8:
-                print(f"✅ LLM 기반 워크플로우 감지: {workflow_type} (신뢰도: {result.confidence:.2f})")
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ LLM 기반 워크플로우 감지: {workflow_type} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
                 return {
                     "workflow_type": workflow_type,
                     "confidence": result.confidence
@@ -257,6 +331,8 @@ async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:
             print(f"⚠️ 워크플로우 감지 중 오류 발생 ({workflow_type}): {e}")
             continue
     
+    step_elapsed = (time.time() - step_start) * 1000
+    print(f"⚠️ 워크플로우 타입 감지 실패 ({step_elapsed/1000:.2f}초)")
     return None
 
 
@@ -708,6 +784,23 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         cancel_keywords = ["취소", "중단", "그만", "stop", "cancel"]
         if any(kw in query.lower() for kw in cancel_keywords):
             print(f"⚠️ 워크플로우 취소 요청 감지: {workflow_type}")
+            
+            # 출장 관련 워크플로우이고 "출장 취소" 요청이면 출장 취소 처리
+            if workflow_type == "business_trip" and any(kw in query for kw in ["출장", "business_trip"]):
+                print(f"✅ 출장 취소 요청 - 워크플로우 중단 후 출장 취소 처리")
+                return {
+                    "workflow_type": None,
+                    "workflow_steps": None,
+                    "current_workflow_step_index": None,
+                    "workflow_completed_steps": None,
+                    "workflow_in_progress": False,
+                    "next_domain": None,
+                    "domain": "schedule",  # schedule 도메인으로 라우팅하여 출장 취소 처리
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+            
+            # 일반 워크플로우 취소
             return {
                 "workflow_type": None,
                 "workflow_steps": None,
@@ -749,44 +842,69 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 **current_date_info
             }
     
-    # 새로운 워크플로우 감지 시도
+    # ============================================
+    # 1단계: 워크플로우 vs 일반 요청 분류
+    # ============================================
+    print("--- [Orchestrator] 1단계: 워크플로우 vs 일반 요청 분류 ---")
     step_start = time.time()
-    workflow_detection_result = await detect_workflow_type(query)
+    request_classification_result = await classify_request_type(query)
     step_elapsed = (time.time() - step_start) * 1000
-    _routing_logger.info(f"[워크플로우 감지] {step_elapsed:.2f}ms")
+    _routing_logger.info(f"[1단계 분류] {step_elapsed:.2f}ms")
     
-    # LLM 기반 감지만 사용 (detect_workflow_type_with_llm에서 이미 0.8 이상만 반환)
-    if workflow_detection_result and workflow_detection_result.get("confidence", 0) >= 0.8:
-        workflow_type = workflow_detection_result["workflow_type"]
-        workflows = load_workflows_config()
-        workflow_config = workflows.get("workflows", {}).get(workflow_type)
+    is_workflow_request = request_classification_result.get("is_workflow_request", False)
+    classification_confidence = request_classification_result.get("confidence", 0.0)
+    
+    # ============================================
+    # 2단계: 분류 결과에 따라 라우팅
+    # ============================================
+    
+    # 2-1. 워크플로우 요청인 경우
+    if is_workflow_request and classification_confidence >= 0.7:
+        print(f"--- [Orchestrator] 2단계: 워크플로우 감지 및 처리 ---")
+        step_start = time.time()
+        workflow_detection_result = await detect_workflow_type(query)
+        step_elapsed = (time.time() - step_start) * 1000
+        _routing_logger.info(f"[2단계 워크플로우 감지] {step_elapsed:.2f}ms")
         
-        if workflow_config:
-            steps = workflow_config.get("steps", [])
-            workflow_domains = [step.get("domain") for step in steps if step.get("domain")]
+        # 워크플로우 타입 감지 (workflows.yaml 사용)
+        if workflow_detection_result and workflow_detection_result.get("confidence", 0) >= 0.8:
+            workflow_type = workflow_detection_result["workflow_type"]
+            workflows = load_workflows_config()
+            workflow_config = workflows.get("workflows", {}).get(workflow_type)
             
-            if workflow_domains:
-                # 워크플로우 데이터 추출
-                workflow_data = await extract_workflow_data(query, workflow_type)
+            if workflow_config:
+                steps = workflow_config.get("steps", [])
+                workflow_domains = [step.get("domain") for step in steps if step.get("domain")]
                 
-                # 첫 번째 단계 도메인 설정
-                first_domain = workflow_domains[0]
-                
-                print(f"✅ 워크플로우 감지: {workflow_type} (단계 수: {len(workflow_domains)})")
-                print(f"✅ 첫 번째 단계 도메인: {first_domain}")
-                
-                return {
-                    "workflow_type": workflow_type,
-                    "workflow_steps": workflow_domains,
-                    "current_workflow_step_index": 0,
-                    "workflow_completed_steps": [],
-                    "workflow_in_progress": True,
-                    "next_domain": None,
-                    "domain": first_domain,
-                    "conversation_history": [user_message],
-                    **workflow_data,  # start_date, end_date, destination, reason 등
-                    **current_date_info
-                }
+                if workflow_domains:
+                    # 워크플로우 데이터 추출
+                    workflow_data = await extract_workflow_data(query, workflow_type)
+                    
+                    # 첫 번째 단계 도메인 설정
+                    first_domain = workflow_domains[0]
+                    
+                    print(f"✅ 워크플로우 감지: {workflow_type} (단계 수: {len(workflow_domains)})")
+                    print(f"✅ 첫 번째 단계 도메인: {first_domain}")
+                    
+                    return {
+                        "workflow_type": workflow_type,
+                        "workflow_steps": workflow_domains,
+                        "current_workflow_step_index": 0,
+                        "workflow_completed_steps": [],
+                        "workflow_in_progress": True,
+                        "next_domain": None,
+                        "domain": first_domain,
+                        "conversation_history": [user_message],
+                        **workflow_data,  # start_date, end_date, destination, reason 등
+                        **current_date_info
+                    }
+        
+        # 워크플로우 감지 실패 시 일반 라우팅으로 fallback
+        print(f"⚠️ 워크플로우 감지 실패, 일반 라우팅으로 fallback")
+        _routing_logger.info(f"[워크플로우 감지 실패] 일반 라우팅으로 fallback")
+    
+    # 2-2. 일반 요청인 경우 (common_prompts.yaml 사용)
+    print(f"--- [Orchestrator] 2단계: 일반 요청 도메인 분류 ---")
     
     # Tech 도메인 ask_source 상태 확인 (최우선 처리)
     step_start = time.time()

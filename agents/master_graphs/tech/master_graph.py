@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict
 import asyncio
 import re
+import time
 
 from langgraph.graph import StateGraph, END
 
@@ -81,6 +82,7 @@ class TechMasterGraph(BaseMasterGraph):
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """기술 도메인 내부 의도 분류."""
         print("--- [Tech Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
         tech_search_context = state.get("tech_search_context", {})
@@ -105,36 +107,36 @@ class TechMasterGraph(BaseMasterGraph):
         # 2. 특수 상태 확인 (사용자가 선택을 기다리는 상태)
         patent_ctx = None
         article_ctx = None
-        
+
         if tech_search_context:
             if "patent" in tech_search_context:
                 patent_ctx = tech_search_context.get("patent")
                 if not isinstance(patent_ctx, dict):
                     patent_ctx = None
-            
+
             if "article" in tech_search_context:
                 article_ctx = tech_search_context.get("article")
                 if not isinstance(article_ctx, dict):
                     article_ctx = None
-        
+
         last_active_agent = None
         if tech_search_context:
             last_active_subagent = tech_search_context.get("last_active_subagent")
             if last_active_subagent in ["patent", "article"]:
                 last_active_agent = last_active_subagent
-        
+
         patent_has_results = patent_ctx and bool(patent_ctx.get("results"))
         article_has_results = article_ctx and bool(article_ctx.get("results"))
-        
+
         patent_has_vector_results = patent_ctx and bool(patent_ctx.get("vector_db_results"))
         article_has_vector_results = article_ctx and bool(article_ctx.get("vector_db_results"))
-        
+
         # 논문: ask_source (최근 활성 agent가 논문이면 우선 확인)
         if last_active_agent == "article" and article_ctx:
             if article_ctx.get("intent") == "ask_source":
                 print(f"✅ 이전 컨텍스트(ask_source, last_active=article)에 따라 라우팅 유지: article")
                 return {"intent": "article"}
-        
+
         # 특허: ask_search_mode, ask_web_search (최근 활성 agent가 특허이면 우선 확인)
         if last_active_agent == "patent" and patent_ctx:
             patent_intent = patent_ctx.get("intent")
@@ -154,12 +156,12 @@ class TechMasterGraph(BaseMasterGraph):
             # 특허 results 또는 vector_db_results가 있으면 특허로 라우팅
             last_active_agent = "patent"
             print(f"✅ 특허 results/vector_db_results 있음, 특허로 라우팅")
-        
+
         # 번호 선택 요청 확인 (연속 대화)
         selection_keywords = ["번", "자세히", "상세", "선택", "알려", "보여", "알려줘", "보여줘"]
         has_selection_keyword = any(k in query for k in selection_keywords)
         has_number_pattern = bool(re.match(r'^\d+', query.strip()))
-        
+
         if last_active_agent and (has_number_pattern or has_selection_keyword):
             print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent}")
             return {"intent": last_active_agent}
@@ -196,13 +198,13 @@ class TechMasterGraph(BaseMasterGraph):
         print("--- [Tech Master] Searching Patent ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-        
+
         result = await patent_search(query, session_id=session_id, orchestrator_state=state)
         
         if "tech_search_context" not in state or state["tech_search_context"] is None:
             state["tech_search_context"] = {}
         state["tech_search_context"]["last_active_subagent"] = "patent"
-        
+
         message = result.get("message") or result.get("error") or "특허 검색 결과를 찾을 수 없습니다."
         return {
             "final_response": message,
@@ -236,13 +238,13 @@ class TechMasterGraph(BaseMasterGraph):
         print("--- [Tech Master] Searching Article ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-        
+
         result = await article_master(query, session_id=session_id, orchestrator_state=state)
         
         if "tech_search_context" not in state or state["tech_search_context"] is None:
             state["tech_search_context"] = {}
         state["tech_search_context"]["last_active_subagent"] = "article"
-        
+
         return {
             "final_response": result.get("message", "논문 검색 결과를 찾을 수 없습니다."),
             "search_results": result.get("items", []),

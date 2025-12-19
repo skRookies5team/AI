@@ -6,6 +6,7 @@ from typing import Any, Dict
 import asyncio
 import re
 import logging
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -112,6 +113,7 @@ class EmailMasterGraph(BaseMasterGraph):
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """이메일 도메인 내부 의도 분류."""
         print("--- [Email Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
         
@@ -141,7 +143,8 @@ class EmailMasterGraph(BaseMasterGraph):
             else:
                 intent = "search"  # 기본값
         
-        print(f"✅ Email 의도 결정: {intent}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ Email 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:

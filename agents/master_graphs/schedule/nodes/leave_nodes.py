@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional, Literal, List
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from sqlalchemy import text
 
 from agents.state import OrchestratorState
@@ -539,7 +540,41 @@ async def _handle_apply(
             leave_data=leave_data
         )
         
-        # 4. 잔여 연차 차감 (승인된 것으로 간주)
+        # 4. Google Calendar에 연차 일정 등록
+        try:
+            from zoneinfo import ZoneInfo
+            from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
+            
+            start_date_obj = datetime.strptime(parsed.start_date, "%Y-%m-%d")
+            end_date_obj = datetime.strptime(parsed.end_date, "%Y-%m-%d")
+            
+            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+            # 종료일 포함 (하루 종일 이벤트)
+            start_aware = start_date_obj.replace(tzinfo=local_tz)
+            end_aware = (end_date_obj + timedelta(days=1)).replace(tzinfo=local_tz)
+            
+            event_data = {
+                "title": f"{parsed.leave_type}",
+                "description": f"사유: {parsed.reason}",
+                "start_time": start_aware.isoformat(),
+                "end_time": end_aware.isoformat(),
+                "schedule_type": "leave",
+                "employee_id": parsed.employee_id,
+            }
+            
+            created_event = await scheduler.create_event(
+                user_id=user_id,
+                event_data=event_data
+            )
+            
+            if created_event:
+                print(f"✅ 연차 일정이 Google Calendar에 등록되었습니다: {created_event.get('gcal_event', {}).get('id')}")
+        except GoogleAuthRequired as auth_error:
+            print(f"⚠️ Google Calendar 인증 필요 (연차는 DB에 저장됨): {auth_error}")
+        except Exception as e:
+            print(f"⚠️ Google Calendar 등록 실패 (연차는 DB에 저장됨): {e}")
+        
+        # 5. 잔여 연차 차감 (승인된 것으로 간주)
         if parsed.leave_type in ["연차", "반차"]:
             new_remaining = remaining - total_days
             current_used = balance.get('used_days', 0)

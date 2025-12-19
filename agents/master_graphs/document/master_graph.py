@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 import asyncio
+import time
 from datetime import datetime
 
 from langgraph.graph import StateGraph, END
@@ -73,6 +74,7 @@ class DocumentMasterGraph(BaseMasterGraph):
         - convert: 문서 변환 (PDF 등 형식 변환)
         """
         print("--- [AI-011] Document Routing: 작업 유형 분류 및 템플릿 매핑 ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
         
@@ -149,7 +151,8 @@ class DocumentMasterGraph(BaseMasterGraph):
             
             print(f"📋 [route_intent] 템플릿 매핑 완료: {template_name}")
         
-        print(f"✅ 작업 유형 결정: {operation_type}, 템플릿: {template_name or 'N/A'}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ 작업 유형 결정: {operation_type}, 템플릿: {template_name or 'N/A'} ({step_elapsed/1000:.2f}초)")
         
         return {
             "intent": operation_type,

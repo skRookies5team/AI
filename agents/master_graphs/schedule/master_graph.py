@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import asyncio
+import time
 
 from langgraph.graph import StateGraph, END
 
@@ -39,6 +40,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
         workflow.add_node("handle_leave", self.handle_leave)
         workflow.add_node("handle_schedule", self.handle_schedule)
         workflow.add_node("handle_meeting_room", self.handle_meeting_room)
+        workflow.add_node("handle_business_trip", self.handle_business_trip)
         
         # 엣지 설정
         workflow.set_entry_point("route_intent")
@@ -51,6 +53,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
                 "leave": "handle_leave",
                 "schedule": "handle_schedule",
                 "meeting": "handle_meeting_room",
+                "business_trip": "handle_business_trip",
             }
         )
         
@@ -58,12 +61,14 @@ class ScheduleMasterGraph(BaseMasterGraph):
         workflow.add_edge("handle_leave", END)
         workflow.add_edge("handle_schedule", END)
         workflow.add_edge("handle_meeting_room", END)
+        workflow.add_edge("handle_business_trip", END)
         
         return workflow.compile()
     
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """스케줄 도메인 내부 의도 분류."""
         print("--- [Schedule Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
 
@@ -73,15 +78,18 @@ class ScheduleMasterGraph(BaseMasterGraph):
         awaiting_slots = meeting_context.get("awaiting_slots") or []
         missing_slots = meeting_slot_state.get("missing_slots") or []
         if awaiting_slots:
-            print("✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "meeting"}
         if missing_slots:
-            print("✅ 회의실 슬롯이 아직 남아 있음 - meeting으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 슬롯이 아직 남아 있음 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "meeting"}
         pending_reservation = meeting_context.get("pending_reservation")
         awaiting_field = meeting_context.get("awaiting_field")
         if pending_reservation and awaiting_field:
-            print("✅ 회의실 예약 슬롯 채우기 진행 중 - meeting으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 예약 슬롯 채우기 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "meeting"}
         
         # llm_router를 사용한 LLM 기반 분류
@@ -93,11 +101,12 @@ class ScheduleMasterGraph(BaseMasterGraph):
             session_id=session_id
         )
         
-        # intent 검증: "leave", "schedule", "meeting" 중 하나
-        if intent not in ["leave", "schedule", "meeting"]:
+        # intent 검증: "leave", "schedule", "meeting", "business_trip" 중 하나
+        if intent not in ["leave", "schedule", "meeting", "business_trip"]:
             intent = "schedule"  # 기본값
         
-        print(f"✅ Schedule 의도 결정: {intent}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ Schedule 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:
@@ -143,6 +152,20 @@ class ScheduleMasterGraph(BaseMasterGraph):
         from agents.master_graphs.schedule.nodes.meeting_room_nodes import process_meeting_room_request
         
         result = await process_meeting_room_request(state)
+        return result
+    
+    async def handle_business_trip(self, state: OrchestratorState) -> Dict[str, Any]:
+        """출장 관리.
+        
+        Redis 기반 숏텀메모리를 사용하여 이전 대화 컨텍스트를 유지합니다.
+        일정 조회, 출장 신청, 캘린더 등록, 팀원 알림을 처리합니다.
+        """
+        print("--- [Schedule Master] Handling Business Trip ---")
+        
+        # nodes/business_trip_nodes.py에서 처리
+        from agents.master_graphs.schedule.nodes.business_trip_nodes import process_business_trip_request
+        
+        result = await process_business_trip_request(state)
         return result
 
 
