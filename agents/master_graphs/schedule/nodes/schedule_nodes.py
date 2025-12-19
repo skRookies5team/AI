@@ -645,6 +645,14 @@ async def _handle_create(
     start_time = parsed.start_time or (datetime.now() + timedelta(days=1)).replace(hour=14, minute=0)
     end_time = parsed.end_time or (start_time + timedelta(hours=1))
     
+    # employee_id 추출 (state에서 가져오거나 user_id에서 변환)
+    employee_id = state.get("employee_id")
+    if not employee_id and parsed.user_id:
+        try:
+            employee_id = int(parsed.user_id)
+        except (ValueError, TypeError):
+            employee_id = None
+    
     event_data = {
         'title': parsed.title or '새 일정',
         'description': parsed.description or '',
@@ -652,6 +660,8 @@ async def _handle_create(
         'end_time': end_time.isoformat(),
         'location': parsed.location or '',
         'attendees': [],
+        'schedule_type': 'general',
+        'employee_id': employee_id,
     }
     
     try:

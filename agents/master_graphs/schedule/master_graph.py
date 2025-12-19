@@ -39,6 +39,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
         workflow.add_node("handle_leave", self.handle_leave)
         workflow.add_node("handle_schedule", self.handle_schedule)
         workflow.add_node("handle_meeting_room", self.handle_meeting_room)
+        workflow.add_node("handle_business_trip", self.handle_business_trip)
         
         # 엣지 설정
         workflow.set_entry_point("route_intent")
@@ -51,6 +52,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
                 "leave": "handle_leave",
                 "schedule": "handle_schedule",
                 "meeting": "handle_meeting_room",
+                "business_trip": "handle_business_trip",
             }
         )
         
@@ -58,6 +60,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
         workflow.add_edge("handle_leave", END)
         workflow.add_edge("handle_schedule", END)
         workflow.add_edge("handle_meeting_room", END)
+        workflow.add_edge("handle_business_trip", END)
         
         return workflow.compile()
     
@@ -93,8 +96,8 @@ class ScheduleMasterGraph(BaseMasterGraph):
             session_id=session_id
         )
         
-        # intent 검증: "leave", "schedule", "meeting" 중 하나
-        if intent not in ["leave", "schedule", "meeting"]:
+        # intent 검증: "leave", "schedule", "meeting", "business_trip" 중 하나
+        if intent not in ["leave", "schedule", "meeting", "business_trip"]:
             intent = "schedule"  # 기본값
         
         print(f"✅ Schedule 의도 결정: {intent}")
@@ -143,6 +146,20 @@ class ScheduleMasterGraph(BaseMasterGraph):
         from agents.master_graphs.schedule.nodes.meeting_room_nodes import process_meeting_room_request
         
         result = await process_meeting_room_request(state)
+        return result
+    
+    async def handle_business_trip(self, state: OrchestratorState) -> Dict[str, Any]:
+        """출장 관리.
+        
+        Redis 기반 숏텀메모리를 사용하여 이전 대화 컨텍스트를 유지합니다.
+        일정 조회, 출장 신청, 캘린더 등록, 팀원 알림을 처리합니다.
+        """
+        print("--- [Schedule Master] Handling Business Trip ---")
+        
+        # nodes/business_trip_nodes.py에서 처리
+        from agents.master_graphs.schedule.nodes.business_trip_nodes import process_business_trip_request
+        
+        result = await process_business_trip_request(state)
         return result
 
 
