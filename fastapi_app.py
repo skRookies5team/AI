@@ -288,6 +288,7 @@ class SessionResponse(BaseModel):
     message_count: int = Field(default=0, description="대화 히스토리 메시지 개수")
     message: Optional[str] = Field(default=None, description="응답 메시지")
     conversation_history: Optional[List[Dict[str, Any]]] = Field(default=None, description="대화 히스토리 (메시지 리스트)")
+    last_domain: Optional[str] = Field(default=None, description="마지막 도메인 (schedule, document, qa, email, tech)")
 
 
 class SessionMetadata(BaseModel):
@@ -1610,24 +1611,27 @@ async def get_session_info(
         current_user: 인증된 사용자 정보
         
     Returns:
-        세션 정보 (대화 히스토리 개수 등)
+        세션 정보 (대화 히스토리 개수, last_domain 포함)
     """
     employee_id = current_user["employee_id"]
     session_manager = await get_session_manager()
     message_count = 0
     conversation_history = []
+    last_domain = None
     
     if session_manager:
         session_data = await session_manager.load_session_data(session_id, employee_id)
         conversation_history = session_data.get("conversation_history", [])
         message_count = len(conversation_history)
+        last_domain = session_data.get("last_domain")  # last_domain 추출
     
     return SessionResponse(
         ok=True,
         session_id=session_id,
         message_count=message_count,
         message=f"현재 세션: {session_id} (대화 {message_count}개)",
-        conversation_history=conversation_history
+        conversation_history=conversation_history,
+        last_domain=last_domain  # last_domain 반환
     )
 
 
