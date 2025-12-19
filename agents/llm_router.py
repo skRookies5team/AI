@@ -284,7 +284,6 @@ def classify_intent_with_llm(
 					context_info = "\n\n[Redis 기반 이전 대화 컨텍스트]\n"
 					context_info += "시스템은 Redis를 통해 이전 대화 내용을 기억하고 있습니다.\n"
 					if has_email:
-						context_info += "- 이전에 이메일 검색을 수행했습니다. 숫자로 시작하는 질문은 이메일 상세 요청일 가능성이 매우 높습니다.\n"
 						context_info += "- '더 찾아줘' 같은 요청은 이전 검색의 연속 검색으로 처리해야 합니다.\n"
 					if has_patent:
 						context_info += "- 이전에 특허 검색을 수행했습니다. '웹 검색', '사내 검색' 같은 단순 응답은 이전 검색의 연속으로 처리해야 합니다.\n"
