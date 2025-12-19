@@ -1,0 +1,1629 @@
+{
+  "metadata": {
+    "created_at": "2025-12-19T09:34:00.322615",
+    "total_samples": 201,
+    "workflow_samples": 143,
+    "regular_task_samples": 58,
+    "workflow_types": [
+      "business_trip"
+    ],
+    "domains": [
+      "tech",
+      "schedule",
+      "recruitment",
+      "document",
+      "qa",
+      "email"
+    ]
+  },
+  "samples": [
+    {
+      "query": "다음 주 3일간 제주도로 워크샵 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 22일까지 부산 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 3일간 휴가 신청하고 싶어",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 월요일부터 수요일까지 서울 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 25일부터 27일까지 제주도 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "1월 5일부터 7일까지 대전 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 5일간 부산 워크샵 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 달 1일부터 3일까지 제주도 휴가 신청하고 싶어",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 준비해줘",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 신청해줘",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청하고 싶어",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "여행 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "여행 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 휴가 신청해줘",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 말에 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 달 초에 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "이번 주 금요일부터 월요일까지 휴가 신청하고 싶어",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "3일간 제주도로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "일주일간 부산 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "2박 3일 제주도 휴가 신청해줘",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 제주도로 워크샵 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 22일까지 부산 출장 갈게 (고객 미팅)",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 3일간 휴가 신청하고 싶어 (가족 여행)",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 월요일부터 수요일까지 서울 출장 갈게 (세미나 참석)",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 25일부터 27일까지 제주도 휴가 다녀올게 (크리스마스 휴가)",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 가야 해서 준비해줘",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청하려고 해",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 다녀와야 해",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "휴가 갈 예정이야",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 준비 부탁해",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 도와줘",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법은?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "출장 관련 정책 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "출장 신청서 양식 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "출장 신청 절차 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "출장 신청하려면 어떻게 해야 해?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "휴가 신청하려면 어떻게 하나요?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "연차 신청 방법 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "회의실 예약 방법은?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "일정 조회해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "내 일정 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "이번 달 연차 사용 내역 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "다음 주 회의실 예약 가능한 시간 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "schedule",
+      "label": 0
+    },
+    {
+      "query": "문서 작성해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "보고서 작성해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "제품개발 계획서 작성해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "발주서 템플릿 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "문서 양식 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "문서 목록 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "문서 검토 일정 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "문서 확인 일정은 언제야?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "문서 관련 일정 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "document",
+      "label": 0
+    },
+    {
+      "query": "메뉴얼에서 연차 정보 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "우리 회사 메뉴얼에서 연차사용 정보 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "매뉴얼 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "오늘 식단 뭐야?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "내일 점심 메뉴 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "다이어트 중인데 내일 식단을 어떻게 먹어야해?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "구내식당 메뉴 조회",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "복리후생 정책 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "급여 외 혜택에 대해 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "휴가규정 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "근무제도에 대해 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "이메일에서 육아휴직 관련 내용 찾아줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "email",
+      "label": 0
+    },
+    {
+      "query": "메일에서 특정 키워드 검색해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "email",
+      "label": 0
+    },
+    {
+      "query": "이메일 검색해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "email",
+      "label": 0
+    },
+    {
+      "query": "메일함에서 최근 메일 보여줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "email",
+      "label": 0
+    },
+    {
+      "query": "이메일 답장문 생성해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "email",
+      "label": 0
+    },
+    {
+      "query": "메일 자동응답 설정해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "email",
+      "label": 0
+    },
+    {
+      "query": "특허 검색해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "논문 찾아줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "바이러스 관련 특허 검색해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "KISTI에서 논문 검색해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "ScienceON에서 자료 찾아줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "특허 정보 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "논문 다운로드해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "tech",
+      "label": 0
+    },
+    {
+      "query": "인재 추천해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "recruitment",
+      "label": 0
+    },
+    {
+      "query": "Python 개발자 추천해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "recruitment",
+      "label": 0
+    },
+    {
+      "query": "이력서 검색해줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "recruitment",
+      "label": 0
+    },
+    {
+      "query": "지원자 찾아줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "recruitment",
+      "label": 0
+    },
+    {
+      "query": "채용 관련 정보 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "recruitment",
+      "label": 0
+    },
+    {
+      "query": "인재 채용 프로세스 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.95,
+      "domain": "recruitment",
+      "label": 0
+    },
+    {
+      "query": "출장 신청하려면 어떻게 해야 해?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.9,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "휴가 신청하려면 어떻게 하나요?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.9,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "출장 준비는 어떻게 하나요?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.9,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 절차 알려줘",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.9,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "출장 가려면 뭐가 필요한가요?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.9,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "휴가 다니려면 어떻게 해야 하나요?",
+      "is_workflow": false,
+      "workflow_type": null,
+      "confidence": 0.9,
+      "domain": "qa",
+      "label": 0
+    },
+    {
+      "query": "다음 주 제주도로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울로 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울로 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울로 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울로 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 제주도 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 부산 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다음 주 서울 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 제주도 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 부산 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "내일부터 서울 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 제주도 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 부산 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울 출장 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울 출장 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울 휴가 갈게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 서울 휴가 다녀올게",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 다음 주 제주도 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 다음 주 제주도 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 다음 주 제주도 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 다음 주 제주도 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 다음 주 부산 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 다음 주 부산 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 다음 주 부산 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 다음 주 부산 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 다음 주 서울 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 다음 주 서울 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 다음 주 서울 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 다음 주 서울 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 내일부터 제주도 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 내일부터 제주도 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 내일부터 제주도 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 내일부터 제주도 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 내일부터 부산 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 내일부터 부산 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 내일부터 부산 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 내일부터 부산 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 내일부터 서울 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 내일부터 서울 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 내일부터 서울 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 내일부터 서울 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 12월 20일부터 제주도 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 12월 20일부터 제주도 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 12월 20일부터 제주도 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 12월 20일부터 제주도 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 12월 20일부터 부산 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 12월 20일부터 부산 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 12월 20일부터 부산 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 12월 20일부터 부산 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 12월 20일부터 서울 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 12월 20일부터 서울 출장",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "갈게 12월 20일부터 서울 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    },
+    {
+      "query": "다녀올게 12월 20일부터 서울 휴가",
+      "is_workflow": true,
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "domain": null,
+      "label": 1
+    }
+  ]
+}
