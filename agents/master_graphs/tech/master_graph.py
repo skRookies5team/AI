@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict
 import asyncio
 import re
+import time
 
 from langgraph.graph import StateGraph, END
 
@@ -81,6 +82,7 @@ class TechMasterGraph(BaseMasterGraph):
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """기술 도메인 내부 의도 분류."""
         print("--- [Tech Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
         tech_search_context = state.get("tech_search_context", {})
@@ -101,7 +103,8 @@ class TechMasterGraph(BaseMasterGraph):
                 
                 # ask_search_mode 또는 ask_web_search 상태라면 무조건 patent로 라우팅 (우선순위 최상)
                 if patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search:
-                    print(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search})에 따라 라우팅 유지: patent")
+                    step_elapsed = (time.time() - step_start) * 1000
+                    print(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search})에 따라 라우팅 유지: patent ({step_elapsed/1000:.2f}초)")
                     return {"intent": "patent"}
                 
                 # 최근 검색 결과나 진행 중인 상태가 있는지 확인
@@ -133,7 +136,8 @@ class TechMasterGraph(BaseMasterGraph):
         query_lower = query.lower()
         for keyword, intent_type in explicit_keywords.items():
             if keyword.lower() in query_lower:
-                print(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅")
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅 ({step_elapsed/1000:.2f}초)")
                 return {"intent": intent_type}
         
         # 3. 선택지 답변이거나 연속된 대화인 경우 이전 에이전트 유지
@@ -149,14 +153,16 @@ class TechMasterGraph(BaseMasterGraph):
         # 이전 검색 결과가 있고, 번호 선택 요청인 경우 우선 처리
         if last_active_agent and (has_number_pattern or has_selection_keyword):
             # 숫자로 시작하거나 번호 선택 키워드가 있으면 연속 대화로 판단
-            print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent}")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent} ({step_elapsed/1000:.2f}초)")
             return {"intent": last_active_agent}
         
         # 기존 continuation 로직 (웹 검색 선택 등)
         is_continuation = any(k in query for k in ["웹", "사내", "1", "2", "3", "더"]) or query.isdigit()
         
         if is_continuation and last_active_agent:
-            print(f"✅ 이전 컨텍스트에 따라 라우팅 유지: {last_active_agent}")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 이전 컨텍스트에 따라 라우팅 유지: {last_active_agent} ({step_elapsed/1000:.2f}초)")
             return {"intent": last_active_agent}
 
         # 4. llm_router를 사용한 LLM 기반 분류 (새로운 요청인 경우)
@@ -178,7 +184,8 @@ class TechMasterGraph(BaseMasterGraph):
             else:
                 intent = "patent"  # 기본값
         
-        print(f"✅ Tech 의도 결정: {intent}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ Tech 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:

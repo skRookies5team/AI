@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import asyncio
+import time
 
 from langgraph.graph import StateGraph, END
 
@@ -67,6 +68,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """스케줄 도메인 내부 의도 분류."""
         print("--- [Schedule Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
 
@@ -76,15 +78,18 @@ class ScheduleMasterGraph(BaseMasterGraph):
         awaiting_slots = meeting_context.get("awaiting_slots") or []
         missing_slots = meeting_slot_state.get("missing_slots") or []
         if awaiting_slots:
-            print("✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "meeting"}
         if missing_slots:
-            print("✅ 회의실 슬롯이 아직 남아 있음 - meeting으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 슬롯이 아직 남아 있음 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "meeting"}
         pending_reservation = meeting_context.get("pending_reservation")
         awaiting_field = meeting_context.get("awaiting_field")
         if pending_reservation and awaiting_field:
-            print("✅ 회의실 예약 슬롯 채우기 진행 중 - meeting으로 강제 라우팅")
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 예약 슬롯 채우기 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
             return {"intent": "meeting"}
         
         # llm_router를 사용한 LLM 기반 분류
@@ -100,7 +105,8 @@ class ScheduleMasterGraph(BaseMasterGraph):
         if intent not in ["leave", "schedule", "meeting", "business_trip"]:
             intent = "schedule"  # 기본값
         
-        print(f"✅ Schedule 의도 결정: {intent}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ Schedule 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:

@@ -6,6 +6,7 @@ from typing import Any, Dict
 import asyncio
 import re
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +63,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """채용 도메인 내부 의도 분류."""
         print("--- [Recruitment Master] Routing Intent ---")
+        step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
         recruitment_context = state.get("recruitment_context", {})
@@ -71,8 +73,6 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         is_summarize_request = re.match(r"^\d+\.?\s*", query.strip()) or re.search(r"\d+\s*번", query)
         
         if is_summarize_request:
-            print(f"✅ 이력서 상세 요약 요청 감지: '{query}'")
-            
             # 번호 추출
             selection_index = None
             try:
@@ -88,7 +88,8 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             last_results = resume_search.get("last_results", [])
             
             if selection_index and last_results:
-                print(f"✅ 선택된 인재 번호: {selection_index}")
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ 이력서 상세 요약 요청 감지: '{query}' - 선택된 인재 번호: {selection_index} ({step_elapsed/1000:.2f}초)")
                 return {
                     "intent": "summarize",
                     "selected_resume_index": selection_index,
@@ -112,7 +113,8 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             else:
                 intent = "search"  # 기본값
         
-        print(f"✅ Recruitment 의도 결정: {intent}")
+        step_elapsed = (time.time() - step_start) * 1000
+        print(f"✅ Recruitment 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:
