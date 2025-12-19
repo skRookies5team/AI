@@ -124,6 +124,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                 template_keywords = [
                     # 구체적인 키워드 우선 (순서 중요!)
                     ("work_performance_review", ["업무 성과 평가", "근무 평가", "성과 평가서", "업무 평가서", "업무 성과", "성과 평가"]),
+                    ("vacation_request_form", ["휴가 신청서", "휴가 신청", "연차 신청", "반차 신청", "휴가", "연차", "반차", "병가", "경조사"]),
                     # 제품 비교표는 제품개발보다 먼저 체크 (더 구체적인 키워드)
                     ("product_comparison_table", ["제품 비교표", "제품 비교", "제품성능 비교", "성능 비교", "비교표", "제품비교", "비교 대상", "비교 목적"]),
                     ("product_development_plan", ["제품개발", "신제품", "개발계획", "제품개발 계획서"]),
@@ -203,6 +204,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                 template_keywords = [
                     # 구체적인 키워드 우선 (순서 중요!)
                     ("work_performance_review", ["업무 성과 평가", "근무 평가", "성과 평가서", "업무 평가서", "성과", "평가서"]),
+                    ("vacation_request_form", ["휴가 신청서", "휴가 신청", "연차 신청", "반차 신청", "휴가", "연차", "반차", "병가", "경조사"]),
                     ("product_development_plan", ["제품개발", "신제품", "개발계획", "제품개발 계획서"]),
                     ("purchase_order", ["발주", "구매", "주문", "발주서"]),
                     ("monthly_profit_analysis_report", ["수익", "매출", "분석", "수익 분석 리포트"]),

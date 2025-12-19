@@ -10,6 +10,7 @@ def _extract_keyword(user_text: str) -> str:
     """사용자 질문에서 키워드 추출 (LLM 기반).
     
     특허 전용 키워드 생성 모듈을 사용하여 동적으로 키워드를 생성합니다.
+    키워드는 자동으로 정규화되어 일관된 컬렉션 이름 생성을 보장합니다.
     """
     try:
         keyword = generate_patent_keyword(user_text)
@@ -22,7 +23,12 @@ def _extract_keyword(user_text: str) -> str:
         if "관련" in t:
             keyword = t.split("관련")[0].strip()
             keyword = re.sub(r"\s*(검색|찾아|찾아줘|검색해줘|검색해|찾아서).*$", "", keyword).strip()
-            return keyword
+            try:
+                from .patent_keyword import _normalize_keyword_for_collection
+                normalized_keyword = _normalize_keyword_for_collection(keyword)
+                return normalized_keyword if normalized_keyword else keyword
+            except Exception:
+                return keyword
         
         # 따옴표 안 내용 추출
         for quote in ['"', "'"]:
@@ -30,13 +36,26 @@ def _extract_keyword(user_text: str) -> str:
                 first = t.find(quote) + 1
                 second = t.find(quote, first)
                 if second > first:
-                    return t[first:second].strip()
+                    keyword = t[first:second].strip()
+                    # 🔧 fallback 키워드도 정규화하여 일관성 보장
+                    try:
+                        from .patent_keyword import _normalize_keyword_for_collection
+                        normalized_keyword = _normalize_keyword_for_collection(keyword)
+                        return normalized_keyword if normalized_keyword else keyword
+                    except Exception:
+                        return keyword
         
         # 기본: "특허" 키워드 제거 후 나머지
         keyword = re.sub(r"(특허|patent|Patent)\s*", "", t, flags=re.IGNORECASE).strip()
         keyword = re.sub(r"\s*(검색|찾아|찾아줘|검색해줘|검색해|찾아서).*$", "", keyword).strip()
-        
-        return keyword if keyword else t
+        keyword = keyword if keyword else t
+        # 🔧 fallback 키워드도 정규화하여 일관성 보장
+        try:
+            from .patent_keyword import _normalize_keyword_for_collection
+            normalized_keyword = _normalize_keyword_for_collection(keyword)
+            return normalized_keyword if normalized_keyword else keyword
+        except Exception:
+            return keyword
 
 
 def _parse_selection_number(user_text: str) -> Optional[int]:
