@@ -148,28 +148,54 @@ def process_domain_node_result(
             
             print(f"✅ 워크플로우 단계 완료: {domain_name} (step {current_step_index + 1}/{len(workflow_steps)}), 다음 단계: {next_domain}")
         else:
-            # 모든 단계 완료
-            result["current_workflow_step_index"] = next_step_index
-            result["next_domain"] = None
-            result["workflow_completed_steps"] = workflow_completed_steps
-            result["workflow_in_progress"] = False
+            # 모든 단계 완료 여부 확인
+            # 실제로 모든 단계가 완료되었는지 확인 (슬롯 채우기 질문 등이 있는 경우는 완료가 아님)
+            existing_response = result.get("final_response", default_message)
             
-            # 워크플로우 완료 메시지 추가
-            try:
-                from agents.orchestrator_v3 import load_workflows_config
-                workflows = load_workflows_config()
-                workflow_type = state.get("workflow_type")
-                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
-                completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
+            # 슬롯 채우기 질문 패턴 확인 (워크플로우가 아직 완료되지 않았음을 의미)
+            slot_filling_keywords = [
+                "다음 정보를 알려주세요",
+                "알려주세요",
+                "입력해주세요",
+                "필요합니다",
+                "필요해요",
+                "필요한 정보",
+                "다음 정보",
+                "다음과 같은 정보",
+                "다음 항목",
+            ]
+            
+            is_slot_filling = any(keyword in existing_response for keyword in slot_filling_keywords)
+            
+            if is_slot_filling:
+                # 슬롯 채우기 질문이 있으면 워크플로우가 아직 완료되지 않음
+                # 다음 단계 인덱스를 유지하고 워크플로우 진행 상태 유지
+                result["current_workflow_step_index"] = current_step_index  # 인덱스 유지
+                result["next_domain"] = None  # 사용자 입력 대기
+                result["workflow_completed_steps"] = workflow_completed_steps
+                result["workflow_in_progress"] = True  # 진행 중 유지
+                print(f"⚠️ 워크플로우 진행 중 - 슬롯 채우기 질문 감지, 사용자 입력 대기 (step {current_step_index + 1}/{len(workflow_steps)})")
+            else:
+                # 실제로 모든 단계가 완료된 경우
+                result["current_workflow_step_index"] = next_step_index
+                result["next_domain"] = None
+                result["workflow_completed_steps"] = workflow_completed_steps
+                result["workflow_in_progress"] = False
                 
-                existing_response = result.get("final_response", default_message)
-                result["final_response"] = f"{existing_response}\n\n{completion_message}"
-            except Exception as e:
-                # 완료 메시지 로드 실패는 치명적이지 않으므로 기본 메시지 사용
-                existing_response = result.get("final_response", default_message)
-                result["final_response"] = f"{existing_response}\n\n워크플로우가 완료되었습니다."
-            
-            print(f"✅ 워크플로우 완료: 모든 단계 완료 ({len(workflow_steps)}/{len(workflow_steps)})")
+                # 워크플로우 완료 메시지 추가
+                try:
+                    from agents.orchestrator_v3 import load_workflows_config
+                    workflows = load_workflows_config()
+                    workflow_type = state.get("workflow_type")
+                    workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                    completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
+                    
+                    result["final_response"] = f"{existing_response}\n\n{completion_message}"
+                except Exception as e:
+                    # 완료 메시지 로드 실패는 치명적이지 않으므로 기본 메시지 사용
+                    result["final_response"] = f"{existing_response}\n\n워크플로우가 완료되었습니다."
+                
+                print(f"✅ 워크플로우 완료: 모든 단계 완료 ({len(workflow_steps)}/{len(workflow_steps)})")
     
     # 2. 도메인 전환 시 이전 도메인 정보 정리 (빠른 작업)
     cleanup_previous_domain_info(state, result, domain_name)
