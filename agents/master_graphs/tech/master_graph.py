@@ -87,42 +87,7 @@ class TechMasterGraph(BaseMasterGraph):
         session_id = state.get("session_id")
         tech_search_context = state.get("tech_search_context", {})
         
-        # 1. 이전 대화 컨텍스트 확인 (Redis 숏텀 메모리)
-        # "웹 검색", "사내 검색", "1", "2" 등 모호한 답변이 들어올 경우
-        # 이전에 활성화된 서브 에이전트(patent 또는 article)로 라우팅
-        
-        last_active_agent = None
-        last_timestamp = 0
-        
-        # 특허 검색 컨텍스트 확인
-        if tech_search_context and "patent" in tech_search_context:
-            patent_ctx = tech_search_context.get("patent")
-            if patent_ctx and isinstance(patent_ctx, dict):
-                patent_intent = patent_ctx.get("intent")
-                waiting_for_web_search = patent_ctx.get("waiting_for_web_search", False)
-                
-                # ask_search_mode 또는 ask_web_search 상태라면 무조건 patent로 라우팅 (우선순위 최상)
-                if patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search:
-                    step_elapsed = (time.time() - step_start) * 1000
-                    print(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search})에 따라 라우팅 유지: patent ({step_elapsed/1000:.2f}초)")
-                    return {"intent": "patent"}
-                
-                # 최근 검색 결과나 진행 중인 상태가 있는지 확인
-                if patent_ctx.get("results"):
-                    last_active_agent = "patent"
-                    # 타임스탬프가 있다면 비교 로직 추가 가능 (현재는 단순 우선순위나 플래그로 처리)
-        
-        # 논문 검색 컨텍스트 확인 (특허보다 우선순위가 낮음 - 특허가 이미 설정되었으면 무시)
-        # 특허 검색이 활성화되어 있으면 논문으로 덮어쓰지 않음
-        if tech_search_context and "article" in tech_search_context and not last_active_agent:
-            article_ctx = tech_search_context.get("article")
-            if article_ctx and isinstance(article_ctx, dict):
-                if article_ctx.get("intent") == "ask_source":
-                    last_active_agent = "article"
-                elif article_ctx.get("results"):
-                    last_active_agent = "article"
-                
-        # 2. 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우 이전 컨텍스트보다 우선
+        # 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우 최우선 처리
         explicit_keywords = {
             "논문": "article",
             "paper": "article",
@@ -136,36 +101,72 @@ class TechMasterGraph(BaseMasterGraph):
         query_lower = query.lower()
         for keyword, intent_type in explicit_keywords.items():
             if keyword.lower() in query_lower:
-                step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅 ({step_elapsed/1000:.2f}초)")
+                print(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅")
                 return {"intent": intent_type}
         
-        # 3. 선택지 답변이거나 연속된 대화인 경우 이전 에이전트 유지
-        # 단, "찾아"는 제외 (명시적 요청일 수 있음)
+        # 2. 특수 상태 확인 (사용자가 선택을 기다리는 상태)
+        patent_ctx = None
+        article_ctx = None
+
+        if tech_search_context:
+            if "patent" in tech_search_context:
+                patent_ctx = tech_search_context.get("patent")
+                if not isinstance(patent_ctx, dict):
+                    patent_ctx = None
+
+            if "article" in tech_search_context:
+                article_ctx = tech_search_context.get("article")
+                if not isinstance(article_ctx, dict):
+                    article_ctx = None
+
+        last_active_agent = None
+        if tech_search_context:
+            last_active_subagent = tech_search_context.get("last_active_subagent")
+            if last_active_subagent in ["patent", "article"]:
+                last_active_agent = last_active_subagent
+
+        patent_has_results = patent_ctx and bool(patent_ctx.get("results"))
+        article_has_results = article_ctx and bool(article_ctx.get("results"))
+
+        patent_has_vector_results = patent_ctx and bool(patent_ctx.get("vector_db_results"))
+        article_has_vector_results = article_ctx and bool(article_ctx.get("vector_db_results"))
+
+        # 논문: ask_source (최근 활성 agent가 논문이면 우선 확인)
+        if last_active_agent == "article" and article_ctx:
+            if article_ctx.get("intent") == "ask_source":
+                print(f"✅ 이전 컨텍스트(ask_source, last_active=article)에 따라 라우팅 유지: article")
+                return {"intent": "article"}
+
+        # 특허: ask_search_mode, ask_web_search (최근 활성 agent가 특허이면 우선 확인)
+        if last_active_agent == "patent" and patent_ctx:
+            patent_intent = patent_ctx.get("intent")
+            waiting_for_web_search = patent_ctx.get("waiting_for_web_search", False)
+            if patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search:
+                print(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search}, last_active=patent)에 따라 라우팅 유지: patent")
+                return {"intent": "patent"}
         
-        # 번호 선택 관련 키워드 (예: "10번 자세히 알려줘", "1번 상세", "2번 선택")
+        if (patent_has_results or patent_has_vector_results) and (article_has_results or article_has_vector_results):
+            # 둘 다 results가 있으면 last_active_subagent 우선
+            pass
+        elif article_has_results or article_has_vector_results:
+            # 논문 results 또는 vector_db_results가 있으면 논문으로 라우팅
+            last_active_agent = "article"
+            print(f"✅ 논문 results/vector_db_results 있음, 논문으로 라우팅")
+        elif patent_has_results or patent_has_vector_results:
+            # 특허 results 또는 vector_db_results가 있으면 특허로 라우팅
+            last_active_agent = "patent"
+            print(f"✅ 특허 results/vector_db_results 있음, 특허로 라우팅")
+
+        # 번호 선택 요청 확인 (연속 대화)
         selection_keywords = ["번", "자세히", "상세", "선택", "알려", "보여", "알려줘", "보여줘"]
         has_selection_keyword = any(k in query for k in selection_keywords)
-        
-        # 숫자 패턴 감지 (예: "10번", "1번", "2번 자세히", "10")
         has_number_pattern = bool(re.match(r'^\d+', query.strip()))
-        
-        # 이전 검색 결과가 있고, 번호 선택 요청인 경우 우선 처리
-        if last_active_agent and (has_number_pattern or has_selection_keyword):
-            # 숫자로 시작하거나 번호 선택 키워드가 있으면 연속 대화로 판단
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent} ({step_elapsed/1000:.2f}초)")
-            return {"intent": last_active_agent}
-        
-        # 기존 continuation 로직 (웹 검색 선택 등)
-        is_continuation = any(k in query for k in ["웹", "사내", "1", "2", "3", "더"]) or query.isdigit()
-        
-        if is_continuation and last_active_agent:
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 이전 컨텍스트에 따라 라우팅 유지: {last_active_agent} ({step_elapsed/1000:.2f}초)")
-            return {"intent": last_active_agent}
 
-        # 4. llm_router를 사용한 LLM 기반 분류 (새로운 요청인 경우)
+        if last_active_agent and (has_number_pattern or has_selection_keyword):
+            print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent}")
+            return {"intent": last_active_agent}
+        
+        # LLM 기반 분류 (새로운 요청인 경우)
         intent = await asyncio.to_thread(
             classify_intent_with_llm,
             query=query,
@@ -184,8 +185,7 @@ class TechMasterGraph(BaseMasterGraph):
             else:
                 intent = "patent"  # 기본값
         
-        step_elapsed = (time.time() - step_start) * 1000
-        print(f"✅ Tech 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
+        print(f"✅ Tech 의도 결정: {intent}")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:
@@ -198,13 +198,13 @@ class TechMasterGraph(BaseMasterGraph):
         print("--- [Tech Master] Searching Patent ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-        
-        # patent 서브 에이전트 사용 (Redis 숏텀 메모리 state 전달)
-        # patent_search 함수는 비동기 함수이므로 await 사용
+
         result = await patent_search(query, session_id=session_id, orchestrator_state=state)
         
-        # patent_search에서 업데이트된 state를 반영하여 Redis에 저장
-        # message가 비어있으면 error 필드 확인
+        if "tech_search_context" not in state or state["tech_search_context"] is None:
+            state["tech_search_context"] = {}
+        state["tech_search_context"]["last_active_subagent"] = "patent"
+
         message = result.get("message") or result.get("error") or "특허 검색 결과를 찾을 수 없습니다."
         return {
             "final_response": message,
@@ -238,19 +238,17 @@ class TechMasterGraph(BaseMasterGraph):
         print("--- [Tech Master] Searching Article ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-        
-        # 기존 tech_article_agent 사용 (Redis 숏텀 메모리 state 전달)
-        # article_master 함수는 이제 비동기 함수이므로 await 사용
+
         result = await article_master(query, session_id=session_id, orchestrator_state=state)
         
-        # article_master에서 이미 orchestrator_state에 tech_search_context를 저장했으므로
-        # 불필요한 딕셔너리 복사 제거 (성능 최적화)
+        if "tech_search_context" not in state or state["tech_search_context"] is None:
+            state["tech_search_context"] = {}
+        state["tech_search_context"]["last_active_subagent"] = "article"
+
         return {
             "final_response": result.get("message", "논문 검색 결과를 찾을 수 없습니다."),
             "search_results": result.get("items", []),
             "messages": [result.get("message", "")],
-            # tech_search_context는 이미 state에 저장되어 있으므로 명시적으로 반환하지 않아도 됨
-            # LangGraph가 state를 자동으로 병합하므로 불필요한 복사 제거
         }
     
     async def vectorize_article(self, state: OrchestratorState) -> Dict[str, Any]:

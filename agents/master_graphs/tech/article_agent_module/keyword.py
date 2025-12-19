@@ -125,16 +125,19 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
         "- 입력에 오타나 맞춤법 오류가 있으면 자동으로 올바른 단어로 수정한 후 키워드를 추출해줘.\n"
         "- 예: '베터리' -> '배터리', '인공지능' -> '인공지능' (이미 올바름)\n"
         "- 출력 형식: 사용자가 명시한 각 핵심 키워드를 쉼표로 구분해서 반환해.\n"
-        "  * 사용자가 여러 키워드를 명시했으면 ('배터리랑 디스플레이', '제어 자동화 시스템' 등) → 각각을 쉼표로 구분\n"
-        "  * 사용자가 단일 키워드만 명시했으면 → 관련 키워드 1개를 추가로 확장해서 총 2개만 반환 (정확한 검색을 위해)\n"
+        "  * 사용자가 조사(예시: '랑', '와', '과', '하고', ',')로 여러 키워드를 명시했으면 → 각각을 쉼표로 구분해서 반환\n"
+        "    예: '배터리랑 디스플레이' -> '배터리, 디스플레이'\n"
+        "    예: '배터리, 디스플레이' -> '배터리, 디스플레이'\n"
+        "  * 사용자가 단순히 띄어쓰기만 있는 경우(예: '전기차 배터리') → 하나의 키워드로 합쳐서 반환\n"
+        "    예: '전기차 배터리' -> '전기차배터리'\n"
         "- 오타가 수정된 키워드를 반환해도 됩니다 (사용자 입력에 정확히 존재하지 않아도 수정된 올바른 단어 사용).\n"
         "- 각 키워드는 1~2개의 핵심 단어로 구성하고, 질문에 등장한 핵심 개념에서만 선택해.\n"
         "- '논문', '연구', '관련', '자료', '웹', '사내', '서버' 같은 일반 단어와 조사는 모두 제거해.\n"
         "- 번호, 설명, 불릿, 접두어 같은 추가 문장은 절대 포함하지 마.\n"
-        "- 번호, 설명, 불릿, 접두어 같은 추가 문장은 절대 포함하지 마.\n"
-        "- 예시 입력: '배터리 관련 논문 필요해' -> 예시 출력: 배터리, 전지, 충전\n"
+        "- 예시 입력: '배터리 관련 논문 필요해' -> 예시 출력: 배터리\n"
         "- 예시 입력: '배터리랑 디스플레이 관련 논문 필요해' -> 예시 출력: 배터리, 디스플레이\n"
-        "- 예시 입력: '인공지능 관련 논문' -> 예시 출력: 인공지능, 머신러닝, 딥러닝\n"
+        "- 예시 입력: '전기차 배터리 관련 논문' -> 예시 출력: 전기차배터리\n"
+        "- 예시 입력: '전기차배터리 관련 논문' -> 예시 출력: 전기차배터리\n"
         f"입력: {cleaned_input}\n출력:"
     )
 
@@ -352,16 +355,11 @@ async def normalize_and_translate_keyword(
         english_keyword = keyword_map[normalized_no_space]
         normalized_korean = normalized_no_space
     else:
-        # 부분 일치 시도
         english_keyword = None
-        for korean_key, english_value in keyword_map.items():
-            if korean_key in original_keyword:
-                english_keyword = english_value
-                normalized_korean = korean_key
-                break
+        normalized_korean = original_keyword
         
-        # 2단계: LLM으로 오타 수정 + 영문 변환 (keyword_map에 없을 때만)
-        if english_keyword is None and use_llm and CLIENT:
+        # 2단계: LLM으로 오타 수정 + 영문 변환 (keyword_map에 정확히 일치하는 항목이 없을 때)
+        if use_llm and CLIENT:
             try:
                 # 한 번의 LLM 호출로 오타 수정 + 영문 변환 동시 수행
                 prompt = (
@@ -371,7 +369,7 @@ async def normalize_and_translate_keyword(
                     "출력 형식:\n"
                     "한글: [수정된 한글 키워드]\n"
                     "영문: [영문 키워드]\n\n"
-                    "- 복합어는 언더스코어로 연결 (예: machine_learning)\n"
+                    "- 복합어는 언더스코어로 연결 (예: machine_learning, electric_vehicle)\n"
                     "- 소문자로 변환\n"
                     "- 설명 없이 형식만 지켜줘\n\n"
                     f"입력: {original_keyword}\n출력:"

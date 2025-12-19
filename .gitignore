@@ -7,7 +7,6 @@ __pycache__
 volumes/
 env.example.txt
 docker-compose.yml
-uv.lock
 
 # 개발/디버깅용 테스트 스크립트
 test_*.py
