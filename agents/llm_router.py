@@ -336,7 +336,7 @@ def classify_intent_with_llm(
 					return route
 		else:
 			# intent 추출
-			for intent in ["email", "benefit", "cafeteria", "manual", "leave", "meeting", "calendar", "email_auto_reply", "doc_generate", "patent", "article", "search", "auto_reply"]:
+			for intent in ["email", "benefit", "cafeteria", "manual", "leave", "meeting", "schedule", "business_trip", "calendar", "email_auto_reply", "doc_generate", "patent", "article", "search", "auto_reply"]:
 				if f'"intent": "{intent}"' in content or f'"intent":"{intent}"' in content:
 					return intent
 		

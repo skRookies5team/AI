@@ -492,6 +492,8 @@ async def _handle_reservation(
         "meeting_room_id": room["id"],
         "participant_count": participant_count,
         "attendees": parsed.attendees,
+        "schedule_type": "meeting_room",
+        "employee_id": parsed.employee_id,
     }
 
     try:
