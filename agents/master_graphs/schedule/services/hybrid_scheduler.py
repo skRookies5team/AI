@@ -86,32 +86,62 @@ class HybridScheduler:
                     'start_time': '2024-12-10T14:00:00',
                     'end_time': '2024-12-10T15:00:00',
                     'attendees': ['user1@example.com'],
-                    'meeting_room_id': 1  # 선택사항
+                    'meeting_room_id': 1,  # 선택사항
+                    'schedule_type': 'general',  # 'meeting_room', 'general', 'business_trip', 'leave'
+                    'employee_id': 4003,  # schedule 테이블 저장용
                 }
                 
         Returns:
             생성된 이벤트 정보
         """
         async with self.db.transaction():
+            # 1. Google Calendar에 이벤트 생성
             gcal_event = await self.gcal.create_event(user_id=user_id, event_data=event_data)
 
             if not gcal_event:
                 raise Exception("Google Calendar 이벤트 생성 실패")  # noqa: TRY002
 
+            gcal_event_id = gcal_event["id"]
+            
+            # 2. event_metadata 저장
+            schedule_type = event_data.get("schedule_type", "general")
             await self.db.save_event_metadata({
-                "gcal_event_id": gcal_event["id"],
+                "gcal_event_id": gcal_event_id,
                 "user_id": user_id,
                 "meeting_room_id": event_data.get("meeting_room_id"),
+                "schedule_type": schedule_type,
                 "created_at": datetime.now(),
             })
 
+            # 3. schedule 테이블에 저장 (모든 일정)
+            employee_id = event_data.get("employee_id")
+            
+            schedule_id: Optional[int] = None
+            if employee_id:
+                try:
+                    schedule_id = await self.db.create_schedule({
+                        "employee_id": employee_id,
+                        "title": event_data.get("title", ""),
+                        "description": event_data.get("description"),
+                        "start_time": datetime.fromisoformat(event_data["start_time"]),
+                        "end_time": datetime.fromisoformat(event_data["end_time"]),
+                        "schedule_type": schedule_type,
+                        "location": event_data.get("location"),
+                        "gcal_event_id": gcal_event_id,
+                        "alert_time": None,
+                        "status": "active",
+                    })
+                except Exception as e:
+                    print(f"⚠️ schedule 테이블 저장 실패 (계속 진행): {e}")
+
+            # 4. 회의실 예약 저장 (meeting_room_id가 있는 경우)
             reservation_id: Optional[int] = None
             if event_data.get("meeting_room_id"):
                 reservation_id = await self.db.create_room_reservation({
                     "room_id": event_data["meeting_room_id"],
                     "employee_id": int(user_id),
-                    "schedule_id": event_data.get("schedule_id"),
-                    "gcal_event_id": gcal_event["id"],
+                    "schedule_id": schedule_id,
+                    "gcal_event_id": gcal_event_id,
                     "title": event_data.get("title"),
                     "description": event_data.get("description"),
                     "start_time": datetime.fromisoformat(event_data["start_time"]),
@@ -122,6 +152,7 @@ class HybridScheduler:
 
             return {
                 "gcal_event": gcal_event,
+                "schedule_id": schedule_id,
                 "reservation_id": reservation_id,
             }
     
@@ -190,7 +221,11 @@ class HybridScheduler:
         )
         
         if success:
+            # meeting_room_reservation 삭제
             await self.db.delete_room_reservation_by_event(event_id)
+            # schedule 테이블에서 일정 삭제
+            await self.db.delete_schedule_by_gcal_event_id(event_id)
+            # event_metadata 삭제 (선택사항, 나중에 추가 가능)
         
         return success
     

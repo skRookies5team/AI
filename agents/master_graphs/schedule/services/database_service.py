@@ -222,6 +222,77 @@ class DatabaseService:
             result = await session.execute(text(sql), params)
             return [dict(row) for row in result.mappings().all()]
 
+    async def create_schedule(
+        self,
+        schedule_data: Dict[str, Any]
+    ) -> int:
+        """일정을 `schedule` 테이블에 생성한다.
+        
+        Args:
+            schedule_data: 일정 데이터
+                - employee_id: int (필수)
+                - title: str
+                - description: Optional[str]
+                - start_time: datetime (필수)
+                - end_time: datetime (필수)
+                - schedule_type: str (필수) - 'meeting_room', 'general', 'business_trip', 'leave'
+                - location: Optional[str]
+                - gcal_event_id: Optional[str] - Google Calendar 이벤트 ID
+                - alert_time: Optional[datetime]
+                - status: Optional[str] (기본값: 'active')
+        
+        Returns:
+            생성된 schedule_id
+        """
+        insert_sql = """
+        INSERT INTO schedule (
+            employee_id,
+            title,
+            description,
+            start_time,
+            end_time,
+            schedule_type,
+            location,
+            gcal_event_id,
+            alert_time,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            :employee_id,
+            :title,
+            :description,
+            :start_time,
+            :end_time,
+            :schedule_type,
+            :location,
+            :gcal_event_id,
+            :alert_time,
+            :status,
+            NOW(),
+            NOW()
+        );
+        """
+        
+        payload = {
+            "employee_id": schedule_data["employee_id"],
+            "title": schedule_data.get("title", ""),
+            "description": schedule_data.get("description"),
+            "start_time": schedule_data["start_time"],
+            "end_time": schedule_data["end_time"],
+            "schedule_type": schedule_data["schedule_type"],
+            "location": schedule_data.get("location"),
+            "gcal_event_id": schedule_data.get("gcal_event_id"),
+            "alert_time": schedule_data.get("alert_time"),
+            "status": schedule_data.get("status", "active"),
+        }
+        
+        async with self._session(transactional=True) as session:
+            result = await session.execute(text(insert_sql), payload)
+            inserted_id = result.lastrowid
+        
+        return int(inserted_id)
+
     async def get_event_metadata(self, event_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
         """Google Calendar 이벤트 ID별 메타데이터를 조회한다."""
         ids = list(event_ids)
@@ -251,17 +322,19 @@ class DatabaseService:
             raise ValueError("gcal_event_id와 user_id는 필수입니다.")
 
         meeting_room_id = metadata.get("meeting_room_id")
+        schedule_type = metadata.get("schedule_type")
         created_at = metadata.get("created_at") or datetime.utcnow()
         updated_at = datetime.utcnow()
 
         await self._ensure_event_metadata_table()
 
         sql = """
-        INSERT INTO event_metadata (gcal_event_id, user_id, meeting_room_id, created_at, updated_at)
-        VALUES (:gcal_event_id, :user_id, :meeting_room_id, :created_at, :updated_at)
+        INSERT INTO event_metadata (gcal_event_id, user_id, meeting_room_id, schedule_type, created_at, updated_at)
+        VALUES (:gcal_event_id, :user_id, :meeting_room_id, :schedule_type, :created_at, :updated_at)
         ON DUPLICATE KEY UPDATE
             user_id = VALUES(user_id),
             meeting_room_id = VALUES(meeting_room_id),
+            schedule_type = VALUES(schedule_type),
             updated_at = VALUES(updated_at);
         """
 
@@ -273,6 +346,7 @@ class DatabaseService:
                         "gcal_event_id": gcal_id,
                         "user_id": str(user_id),
                         "meeting_room_id": meeting_room_id,
+                        "schedule_type": schedule_type,
                         "created_at": created_at,
                         "updated_at": updated_at,
                     },
@@ -918,6 +992,359 @@ class DatabaseService:
         async with self._session(transactional=True) as session:
             result = await session.execute(text(sql), {"gcal_event_id": gcal_event_id})
             return result.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # 출장 관련
+    # ------------------------------------------------------------------
+
+    async def create_business_trip_request(
+        self,
+        trip_data: Dict[str, Any]
+    ) -> int:
+        """출장 신청을 `business_trip` 테이블에 생성한다.
+        
+        Args:
+            trip_data: 출장 데이터 딕셔너리
+                - employee_id: int (필수)
+                - trip_title: Optional[str]
+                - trip_purpose: Optional[str]
+                - destination: Optional[str]
+                - start_time: datetime (필수)
+                - end_time: datetime (필수)
+                - document_id: Optional[int]
+                - alert_time: Optional[datetime]
+        
+        Returns:
+            생성된 trip_id
+        """
+        insert_sql = """
+        INSERT INTO business_trip (
+            document_id,
+            employee_id,
+            trip_title,
+            trip_purpose,
+            destination,
+            start_time,
+            end_time,
+            alert_time,
+            created_at
+        ) VALUES (
+            :document_id,
+            :employee_id,
+            :trip_title,
+            :trip_purpose,
+            :destination,
+            :start_time,
+            :end_time,
+            :alert_time,
+            NOW()
+        );
+        """
+        
+        payload = {
+            "document_id": trip_data.get("document_id"),
+            "employee_id": trip_data["employee_id"],
+            "trip_title": trip_data.get("trip_title"),
+            "trip_purpose": trip_data.get("trip_purpose"),
+            "destination": trip_data.get("destination"),
+            "start_time": trip_data["start_time"],
+            "end_time": trip_data["end_time"],
+            "alert_time": trip_data.get("alert_time"),
+        }
+        
+        async with self._session(transactional=True) as session:
+            result = await session.execute(text(insert_sql), payload)
+            inserted_id = result.lastrowid
+        
+        return int(inserted_id)
+    
+    async def get_business_trip_list(
+        self,
+        employee_id: int,
+        include_past: bool = True
+    ) -> List[Dict[str, Any]]:
+        """`business_trip` 테이블에서 출장 내역을 조회한다.
+        
+        Args:
+            employee_id: 사원 ID
+            include_past: 과거 출장 포함 여부
+        
+        Returns:
+            출장 내역 리스트
+        """
+        clauses = ["employee_id = :employee_id"]
+        params: Dict[str, Any] = {"employee_id": employee_id}
+        
+        if not include_past:
+            clauses.append("start_time >= NOW()")
+        
+        where_sql = " AND ".join(clauses)
+        sql = f"""
+        SELECT
+            trip_id,
+            document_id,
+            employee_id,
+            trip_title,
+            trip_purpose,
+            destination,
+            start_time,
+            end_time,
+            alert_time,
+            created_at
+        FROM business_trip
+        WHERE {where_sql}
+        ORDER BY start_time DESC, trip_id DESC;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(sql), params)
+            return [dict(row) for row in result.mappings().all()]
+    
+    async def get_business_trip_by_id(self, trip_id: int, employee_id: int) -> Optional[Dict[str, Any]]:
+        """출장 ID로 출장 정보를 조회한다.
+        
+        Args:
+            trip_id: 출장 ID
+            employee_id: 사원 ID (본인 확인용)
+        
+        Returns:
+            출장 정보 또는 None
+        """
+        sql = """
+        SELECT
+            trip_id,
+            document_id,
+            employee_id,
+            trip_title,
+            trip_purpose,
+            destination,
+            start_time,
+            end_time,
+            alert_time,
+            created_at
+        FROM business_trip
+        WHERE trip_id = :trip_id AND employee_id = :employee_id;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(sql), {"trip_id": trip_id, "employee_id": employee_id})
+            row = result.mappings().first()
+            return dict(row) if row else None
+    
+    async def find_business_trip_by_date(
+        self,
+        employee_id: int,
+        start_time: datetime,
+        end_time: datetime,
+        destination: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """날짜 범위와 목적지로 출장을 찾는다.
+        
+        Args:
+            employee_id: 사원 ID
+            start_time: 시작 시간
+            end_time: 종료 시간
+            destination: 목적지 (선택)
+        
+        Returns:
+            출장 정보 또는 None
+        """
+        clauses = [
+            "employee_id = :employee_id",
+            "start_time >= :start_time",
+            "end_time <= :end_time"
+        ]
+        params: Dict[str, Any] = {
+            "employee_id": employee_id,
+            "start_time": start_time,
+            "end_time": end_time
+        }
+        
+        if destination:
+            clauses.append("destination = :destination")
+            params["destination"] = destination
+        
+        where_sql = " AND ".join(clauses)
+        sql = f"""
+        SELECT
+            trip_id,
+            document_id,
+            employee_id,
+            trip_title,
+            trip_purpose,
+            destination,
+            start_time,
+            end_time,
+            alert_time,
+            created_at
+        FROM business_trip
+        WHERE {where_sql}
+        ORDER BY start_time DESC
+        LIMIT 1;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(sql), params)
+            row = result.mappings().first()
+            return dict(row) if row else None
+    
+    async def cancel_business_trip(self, trip_id: int, employee_id: int) -> bool:
+        """출장을 취소한다 (status를 '취소'로 변경하거나 삭제).
+        
+        Args:
+            trip_id: 출장 ID
+            employee_id: 사원 ID (본인 확인용)
+        
+        Returns:
+            취소 성공 여부
+        """
+        # 먼저 출장이 존재하고 본인 것인지 확인
+        trip = await self.get_business_trip_by_id(trip_id, employee_id)
+        if not trip:
+            return False
+        
+        # status 컬럼이 있으면 업데이트, 없으면 삭제
+        # 일단 삭제로 처리 (나중에 status 컬럼이 추가되면 수정 가능)
+        sql = """
+        DELETE FROM business_trip
+        WHERE trip_id = :trip_id AND employee_id = :employee_id;
+        """
+        
+        try:
+            async with self._session(transactional=True) as session:
+                await session.execute(text(sql), {"trip_id": trip_id, "employee_id": employee_id})
+            return True
+        except Exception as e:
+            print(f"❌ 출장 취소 실패: {e}")
+            return False
+    
+    async def get_gcal_event_id_by_trip_id(self, trip_id: int) -> Optional[str]:
+        """출장 ID로 Google Calendar 이벤트 ID를 조회한다.
+        
+        Args:
+            trip_id: 출장 ID
+        
+        Returns:
+            Google Calendar 이벤트 ID 또는 None
+        """
+        # schedule 테이블에서 schedule_type='business_trip'이고 gcal_event_id가 있는 것 찾기
+        # 또는 event_metadata에서 reference_id=trip_id인 것 찾기
+        # 일단 schedule 테이블에서 찾기 (더 확실함)
+        sql = """
+        SELECT s.gcal_event_id
+        FROM schedule s
+        INNER JOIN business_trip bt ON (
+            s.employee_id = bt.employee_id
+            AND s.start_time = bt.start_time
+            AND s.end_time = bt.end_time
+            AND s.schedule_type = 'business_trip'
+        )
+        WHERE bt.trip_id = :trip_id
+        LIMIT 1;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(sql), {"trip_id": trip_id})
+            row = result.mappings().first()
+            return row["gcal_event_id"] if row and row.get("gcal_event_id") else None
+    
+    async def delete_schedule_by_gcal_event_id(self, gcal_event_id: str) -> bool:
+        """gcal_event_id로 schedule 테이블에서 일정을 삭제한다.
+        
+        Args:
+            gcal_event_id: Google Calendar 이벤트 ID
+        
+        Returns:
+            삭제 성공 여부
+        """
+        sql = """
+        DELETE FROM schedule
+        WHERE gcal_event_id = :gcal_event_id;
+        """
+        
+        try:
+            async with self._session(transactional=True) as session:
+                await session.execute(text(sql), {"gcal_event_id": gcal_event_id})
+            return True
+        except Exception as e:
+            print(f"⚠️ schedule 테이블 삭제 실패: {e}")
+            return False
+    
+    async def get_team_member_emails(
+        self,
+        employee_id: int
+    ) -> List[str]:
+        """같은 부서 계열의 팀원 이메일 목록을 조회한다.
+        
+        부서명에서 기본 부서명을 추출하여 같은 부서 계열의 모든 팀원에게 알림을 보냅니다.
+        예: "경영지원팀1팀" → "경영지원팀본부", "경영지원팀1팀", "경영지원팀2팀" 모두 조회
+        
+        Args:
+            employee_id: 사원 ID
+        
+        Returns:
+            팀원 이메일 리스트 (본인 제외)
+        """
+        import re
+        
+        # 먼저 해당 사원의 부서 조회
+        dept_sql = """
+        SELECT dept
+        FROM employee
+        WHERE employee_id = :employee_id
+        LIMIT 1;
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(dept_sql), {"employee_id": employee_id})
+            row = result.mappings().first()
+            
+            if not row:
+                return []
+            
+            dept = row.get("dept")
+            if not dept:
+                return []
+            
+            # 기본 부서명 추출 (패턴 매칭)
+            # 예: "경영지원팀1팀" → "경영지원팀", "경영지원팀본부" → "경영지원팀"
+            base_dept = dept
+            
+            # 숫자 + "팀" 패턴 제거 (예: "1팀", "2팀", "10팀")
+            base_dept = re.sub(r'\d+팀$', '', base_dept)
+            
+            # "본부" 제거
+            base_dept = re.sub(r'본부$', '', base_dept)
+            
+            # 공백 제거
+            base_dept = base_dept.strip()
+            
+            if not base_dept:
+                # 기본 부서명 추출 실패 시 원본 부서명 사용
+                base_dept = dept
+            
+            # 같은 부서 계열의 다른 사원 이메일 조회 (LIKE 패턴 사용)
+            email_sql = """
+            SELECT email
+            FROM employee
+            WHERE dept LIKE :dept_pattern
+              AND employee_id != :employee_id
+              AND email IS NOT NULL
+              AND email != ''
+            ORDER BY employee_id;
+            """
+            
+            # LIKE 패턴: "경영지원팀%" 형태
+            dept_pattern = f"{base_dept}%"
+            
+            result = await session.execute(
+                text(email_sql),
+                {"dept_pattern": dept_pattern, "employee_id": employee_id}
+            )
+            rows = result.mappings().all()
+            
+            emails = [row.get("email") for row in rows if row.get("email")]
+            return emails
 
     # ------------------------------------------------------------------
     # 트랜잭션
