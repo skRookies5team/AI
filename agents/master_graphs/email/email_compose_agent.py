@@ -114,16 +114,16 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 #
 # 회사 서명 생성 함수 (AI_test/emailai.py 참고)
 #
-def get_company_signature_html(*, embed_logo_mode: str = "cid") -> str:
+def get_company_signature_html() -> str:
 	"""회사 로고, 정보를 포함한 HTML 서명을 생성합니다."""
 	department = _get_env("EMAIL_DEPARTMENT", "인사팀")
 	name = _get_env("EMAIL_NAME", "관리자")
 	address = _get_env("EMAIL_ADDRESS_FULL", "서울특별시 중구 필동로 1길 30")
 	phone = _get_env("EMAIL_PHONE", "02-2260-3114")
 	
-	# 로고 이미지 로드
+	# 로고 이미지를 base64로 인코딩
 	logo_path = Path(__file__).parent.parent.parent.parent / "data" / "logo.png"
-	logo_bytes: Optional[bytes] = None
+	logo_base64 = ""
 	logo_mime_type = "image/png"
 	
 	if logo_path.exists():
@@ -131,7 +131,7 @@ def get_company_signature_html(*, embed_logo_mode: str = "cid") -> str:
 			with open(logo_path, "rb") as f:
 				logo_data = f.read()
 				if len(logo_data) <= 5 * 1024 * 1024:  # 5MB 제한
-					logo_bytes = logo_data
+					logo_base64 = base64.b64encode(logo_data).decode('utf-8')
 					if logo_path.suffix.lower() in ['.jpg', '.jpeg']:
 						logo_mime_type = "image/jpeg"
 					elif logo_path.suffix.lower() == '.png':
@@ -145,13 +145,8 @@ def get_company_signature_html(*, embed_logo_mode: str = "cid") -> str:
 	
 	signature_html = """<table style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e0e0e0; font-family: 'Malgun Gothic', '맑은 고딕', Arial, sans-serif; font-size: 12px; color: #333333; line-height: 1.8; width: 100%; max-width: 600px;">"""
 	
-	if logo_bytes:
-		# Gmail 등에서 data URI 이미지가 sanitize/차단될 수 있어 CID 모드를 기본으로 사용합니다.
-		if (embed_logo_mode or "cid").lower() == "data":
-			logo_base64 = base64.b64encode(logo_bytes).decode("utf-8")
-			signature_html += f"""<tr><td style="padding-bottom: 15px;"><img src="data:{logo_mime_type};base64,{logo_base64}" alt="깐부전자 로고" style="max-width: 200px; height: auto; display: block; border: none;" /></td></tr>"""
-		else:
-			signature_html += """<tr><td style="padding-bottom: 15px;"><img src="cid:company_logo" alt="깐부전자 로고" style="max-width: 200px; height: auto; display: block; border: none;" /></td></tr>"""
+	if logo_base64:
+		signature_html += f"""<tr><td style="padding-bottom: 15px;"><img src="data:{logo_mime_type};base64,{logo_base64}" alt="깐부전자 로고" style="max-width: 200px; height: auto; display: block; border: none;" /></td></tr>"""
 	
 	signature_html += f"""<tr><td style="padding-bottom: 8px;"><strong style="font-size: 15px; color: #000000;">깐부전자</strong> / <span style="font-size: 13px;">{department}</span></td></tr>"""
 	signature_html += f"""<tr><td style="padding-bottom: 8px; font-size: 13px;">{name}</td></tr>"""
@@ -169,8 +164,7 @@ def get_company_signature_html(*, embed_logo_mode: str = "cid") -> str:
 
 def add_company_signature(body: str) -> str:
 	"""이메일 본문에 회사 서명을 추가합니다."""
-	# data URI(base64)로 로고 포함 (일부 클라이언트/서비스는 차단할 수 있음)
-	signature = get_company_signature_html(embed_logo_mode="data")
+	signature = get_company_signature_html()
 	
 	if body.strip().endswith('</div>'):
 		body = body.rstrip()
@@ -450,33 +444,21 @@ def send_email_via_smtp(
 		if not to_emails:
 			return False, "수신자 이메일 주소가 없습니다."
 		
-		# HTML/Plain 멀티파트 메시지
-		msg = MIMEMultipart("mixed")
-		msg["From"] = email_user
-		msg["To"] = ", ".join(to_emails)
-		msg["Subject"] = subject
+		msg = MIMEMultipart('alternative')
+		msg['From'] = email_user
+		msg['To'] = ', '.join(to_emails)
+		msg['Subject'] = subject
 		
 		if cc:
 			msg['Cc'] = cc
 		
 		if is_html:
-			alt = MIMEMultipart("alternative")
-
-			# (1) plain 먼저 (RFC 권장 / 일부 클라이언트 선택 안정화)
-			text_body = re.sub(r"<[^>]+>", "", body)
-			text_body = (
-				text_body.replace("&nbsp;", " ")
-				.replace("&amp;", "&")
-				.replace("&lt;", "<")
-				.replace("&gt;", ">")
-			)
-			alt.attach(MIMEText(text_body, "plain", "utf-8"))
-
-			# (2) html (서명에 data URI(base64) 로고 포함)
-			alt.attach(MIMEText(body, "html", "utf-8"))
-			msg.attach(alt)
+			msg.attach(MIMEText(body, 'html', 'utf-8'))
+			text_body = re.sub(r'<[^>]+>', '', body)
+			text_body = text_body.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+			msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
 		else:
-			msg.attach(MIMEText(body, "plain", "utf-8"))
+			msg.attach(MIMEText(body, 'plain', 'utf-8'))
 		
 		with smtplib.SMTP(smtp_server, smtp_port) as server:
 			server.starttls()

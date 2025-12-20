@@ -9,7 +9,6 @@ import logging
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, List
 
 from langgraph.graph import StateGraph, END
 
@@ -19,145 +18,6 @@ from agents.master_graphs.base import BaseMasterGraph
 from agents.master_graphs.email.email_search_agent import email_search, _extract_recipient_info_with_llm
 from agents.master_graphs.email.email_compose_agent import compose_and_send_email
 from agents.structured_output import extract_structured_output, EmailSearchParams, AgentResponse
-
-# Email search param extraction prompt (YAML) cache
-_EMAIL_SEARCH_PARAMS_YAML_CACHE: Optional[Dict[str, Any]] = None
-
-
-def _load_email_search_params_yaml() -> Dict[str, Any]:
-    """Load YAML config for email search param extraction (cached)."""
-    global _EMAIL_SEARCH_PARAMS_YAML_CACHE
-    if _EMAIL_SEARCH_PARAMS_YAML_CACHE is not None:
-        return _EMAIL_SEARCH_PARAMS_YAML_CACHE
-
-    try:
-        import yaml  # type: ignore
-    except Exception:
-        _EMAIL_SEARCH_PARAMS_YAML_CACHE = {}
-        return _EMAIL_SEARCH_PARAMS_YAML_CACHE
-
-    try:
-        yaml_path = Path(__file__).parent / "search_params.yaml"
-        if not yaml_path.exists():
-            _EMAIL_SEARCH_PARAMS_YAML_CACHE = {}
-            return _EMAIL_SEARCH_PARAMS_YAML_CACHE
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            _EMAIL_SEARCH_PARAMS_YAML_CACHE = yaml.safe_load(f) or {}
-        return _EMAIL_SEARCH_PARAMS_YAML_CACHE
-    except Exception:
-        _EMAIL_SEARCH_PARAMS_YAML_CACHE = {}
-        return _EMAIL_SEARCH_PARAMS_YAML_CACHE
-
-
-def _token_replace(s: str, mapping: Dict[str, str]) -> str:
-    """Replace token placeholders like __CURRENT_DATE_ISO__ without interfering with braces."""
-    out = s
-    for k, v in mapping.items():
-        out = out.replace(k, v)
-    return out
-
-
-def _build_email_search_params_system_prompt(
-    *,
-    context: str,
-    current_date: str,
-    current_date_iso: str,
-    current_weekday: str,
-    current_datetime: str,
-    yesterday_iso: str,
-    last_week_start_iso: str,
-    last_week_end_iso: str,
-) -> str:
-    cfg = _load_email_search_params_yaml()
-    template = (cfg.get("system_prompt_template") or "").strip()
-
-    # Fallback to existing minimal prompt if YAML is missing
-    if not template:
-        return f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
-- keywords: 검색할 핵심 키워드 리스트 (불용어 제거)
-- from_address: 특정 발신자 주소 (있는 경우)
-- date_range: 날짜 범위 (시작일, 종료일이 있는 경우)
-
-현재 날짜: {current_date} ({current_date_iso})
-현재 요일: {current_weekday}
-현재 날짜/시간 (ISO): {current_datetime}
-
-{context}"""
-
-    mapping = {
-        "__CURRENT_DATE__": current_date,
-        "__CURRENT_DATE_ISO__": current_date_iso,
-        "__CURRENT_WEEKDAY__": current_weekday,
-        "__CURRENT_DATETIME_ISO__": current_datetime,
-        "__YESTERDAY_ISO__": yesterday_iso,
-        "__LAST_WEEK_START_ISO__": last_week_start_iso,
-        "__LAST_WEEK_END_ISO__": last_week_end_iso,
-    }
-    prompt = _token_replace(template, mapping)
-
-    examples = cfg.get("few_shot_examples") or []
-    if isinstance(examples, list) and examples:
-        lines: List[str] = []
-        lines.append("\n\n[예시]\n")
-        for ex in examples:
-            if not isinstance(ex, dict):
-                continue
-            inp = str(ex.get("input") or "").strip()
-            out = ex.get("output")
-            if not inp or not out:
-                continue
-            # Render output in a predictable, copyable format
-            if isinstance(out, dict):
-                # keep order-ish: keywords/from_address/date_range
-                keywords = out.get("keywords")
-                from_address = out.get("from_address")
-                date_range = out.get("date_range")
-                rendered = (
-                    "keywords: " + str(keywords) + "\n"
-                    "from_address: " + str(from_address) + "\n"
-                    "date_range: " + str(date_range)
-                )
-            else:
-                rendered = str(out)
-
-            rendered = _token_replace(rendered, mapping)
-            lines.append(f'- 입력: "{inp}"')
-            lines.append("  기대 출력:")
-            lines.append(rendered)
-            lines.append("")
-
-        prompt = prompt + "\n" + "\n".join(lines).strip()
-
-    # Attach conversation context at the end (keeps rules/examples stable)
-    if context:
-        prompt = prompt + "\n\n" + context
-    return prompt
-
-
-def _filter_email_search_keywords(keywords: List[str], stopwords: List[str]) -> List[str]:
-    """Server-side safety net to remove stopwords / very short tokens from extracted keywords."""
-    sw = {s.strip().lower() for s in stopwords if isinstance(s, str) and s.strip()}
-    cleaned: List[str] = []
-    seen = set()
-    for k in keywords or []:
-        if not isinstance(k, str):
-            continue
-        token = k.strip()
-        if not token:
-            continue
-        token_l = token.lower()
-        # drop exact stopwords
-        if token_l in sw:
-            continue
-        # drop 1-char korean tokens and very short noise
-        # keep email-like / alnum keywords
-        if len(token) < 2 and not re.search(r"[A-Za-z0-9]", token):
-            continue
-        if token_l in seen:
-            continue
-        seen.add(token_l)
-        cleaned.append(token)
-    return cleaned
 
 # Email 전용 로거 설정 (email_compose_agent와 동일한 로그 파일 사용)
 # email_compose_agent에서 이미 로거를 설정했으므로, 여기서는 같은 로거를 가져와서 사용
@@ -392,22 +252,30 @@ class EmailMasterGraph(BaseMasterGraph):
                 current_month = now_dt.month
                 current_day = now_dt.day
 
-                # YAML 기반 프롬프트(캐시) 사용: 예시/불용어 규칙은 search_params.yaml에서 관리
-                yesterday_iso = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
-                # 지난주(월~일) 계산
-                last_week_start = (now_dt - timedelta(days=now_dt.weekday() + 7)).strftime("%Y-%m-%d")
-                last_week_end = (now_dt - timedelta(days=now_dt.weekday() + 1)).strftime("%Y-%m-%d")
+                system_prompt = f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
+- keywords: 검색할 핵심 키워드 리스트 (불용어 제거)
+- from_address: 특정 발신자 주소 (있는 경우)
+- date_range: 날짜 범위 (시작일, 종료일이 있는 경우)
 
-                system_prompt = _build_email_search_params_system_prompt(
-                    context=context,
-                    current_date=current_date,
-                    current_date_iso=current_date_iso,
-                    current_weekday=current_weekday,
-                    current_datetime=current_datetime,
-                    yesterday_iso=yesterday_iso,
-                    last_week_start_iso=last_week_start,
-                    last_week_end_iso=last_week_end,
-                )
+**중요: 현재 날짜 정보를 반드시 참조하세요!**
+- 현재 날짜: {current_date} ({current_date_iso})
+- 현재 요일: {current_weekday}
+- 현재 날짜/시간 (ISO): {current_datetime}
+- 현재 연도: {current_year}년
+- 현재 월: {current_month}월
+- 현재 일: {current_day}일
+
+"오늘", "어제", "저번주", "지난주" 같은 상대적 날짜 표현은 반드시 위의 현재 날짜 정보를 기준으로 계산하세요.
+예시 (현재 날짜가 {current_date_iso}인 경우):
+- "오늘 온 메일" → date_range: {{"start": "{current_date_iso}", "end": "{current_date_iso}"}}
+- "어제 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}"}}
+- "저번주에 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=now_dt.weekday() + 7)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=now_dt.weekday() + 1)).strftime('%Y-%m-%d')}"}}
+
+날짜 범위 형식: {{"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
+날짜 정보가 없으면 date_range는 null로 반환하세요.
+절대로 2023년이나 과거의 잘못된 날짜를 사용하지 마세요. 반드시 현재 날짜({current_date_iso})를 기준으로 계산하세요.
+
+{context}"""
                 
                 params = await extract_structured_output(
                     query=query,
@@ -416,22 +284,14 @@ class EmailMasterGraph(BaseMasterGraph):
                 )
                 
                 print(f"✅ 구조화된 검색 파라미터 추출 완료:")
-                # 서버 후처리: 불용어 제거(LLM이 실수해도 방어)
-                cfg = _load_email_search_params_yaml()
-                stopwords = cfg.get("stopwords") or []
-                filtered_keywords = _filter_email_search_keywords(
-                    keywords=list(params.keywords or []),
-                    stopwords=list(stopwords) if isinstance(stopwords, list) else [],
-                )
-                print(f"   - 키워드(원본): {params.keywords}")
-                print(f"   - 키워드(필터): {filtered_keywords}")
+                print(f"   - 키워드: {params.keywords}")
                 print(f"   - 발신자: {params.from_address}")
                 print(f"   - 날짜 범위: {params.date_range}")
                 
                 # 추출된 파라미터로 검색
                 # - email_search는 마스터가 준 파라미터(from/date/keywords)만 사용해 검색합니다.
                 # - keywords가 비어있으면 user_text는 빈 문자열로 전달(원문 query를 SEARCH에 섞지 않음: 한글 ASCII 인코딩 오류 방지)
-                search_query = " ".join(filtered_keywords) if filtered_keywords else ""
+                search_query = " ".join(params.keywords) if params.keywords else ""
                 
                 # 기존 email_search_agent 사용 (Redis 숏텀 메모리 state 전달)
                 # email_search는 이제 비동기 함수이므로 await 사용
@@ -442,7 +302,7 @@ class EmailMasterGraph(BaseMasterGraph):
                     state=state,
                     from_address=params.from_address,  # 추출한 발신자 주소 전달
                     date_range=params.date_range,  # 추출한 날짜 범위 전달
-                    keywords=filtered_keywords,  # 추출한 키워드 리스트 전달 (불용어 필터 적용)
+                    keywords=params.keywords,  # 추출한 키워드 리스트 전달 (마스터 값만 사용)
                 )
                 
                 # Structured Output을 사용한 응답 생성
@@ -450,7 +310,7 @@ class EmailMasterGraph(BaseMasterGraph):
                     success=True,
                     message=result.get("message", "이메일 검색 결과를 찾을 수 없습니다."),
                     data={
-                        "keywords": filtered_keywords,
+                        "keywords": params.keywords,
                         "from_address": params.from_address,
                         "date_range": params.date_range,
                         "search_results": result.get("rows", [])
