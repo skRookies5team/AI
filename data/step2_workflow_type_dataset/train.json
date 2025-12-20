@@ -1,0 +1,2102 @@
+{
+  "metadata": {
+    "created_at": "2025-12-19T15:42:10.781096",
+    "total_samples": 347,
+    "business_trip_samples": 161,
+    "none_samples": 186,
+    "description": "2단계 워크플로우 타입 분류 데이터셋 (KLUE-RoBERTa/SetFit 최적화)",
+    "classification_type": "multiclass",
+    "models": [
+      "KLUE-RoBERTa",
+      "SetFit"
+    ],
+    "classes": {
+      "0": "business_trip",
+      "1": "none"
+    }
+  },
+  "samples": [
+    {
+      "query": "출장 신청 절차 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "제품개발 계획서 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 식단 뭐야?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 취소",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 취소해주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "보험 정보 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "복리후생 정책 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 부산로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "업무 성과 평가서 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "label": 0
+    },
+    {
+      "query": "일정 취소해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청서 양식 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 취소해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 수정",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 부산로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일부터 3일간 휴가 신청하고 싶어",
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "label": 0
+    },
+    {
+      "query": "내일 일주일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 일주일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "연차 사용 내역 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청서 양식 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 방법 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 방법 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 부산로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 절차 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 절차 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청서 양식 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 방법 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주부터 3일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "인사정보 요약 리포트 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이력서 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 제거해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 서울로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 일정 변경해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청하려면 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 절차 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "보험 정보 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주부터 3일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 지워줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 취소해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "급여 외 혜택 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 절차 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 일정 취소해주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 서울로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 일주일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "구내식당 메뉴 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청서 양식 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주부터 3일간 부산로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 대구로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 일주일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 규정 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 대구로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 규정 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "보고서 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주부터 3일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "특허 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 일정 제거해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "일정 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "일정 취소",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "수당 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "논문 검색해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 일정 지워줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주부터 3일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 일주일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청서 양식 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 서울로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 삭제해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 일주일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 대구로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "특허 검색해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 일정 삭제",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 부산로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 부산로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 절차 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "발주서 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 방법 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 규정 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 대구로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 대구로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 대구로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 지워줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "회의실 예약 가능한 시간 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 변경",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 고쳐줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 서울로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 수정",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 방법 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "월별 수익 분석 리포트 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가규정 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청하고 싶어",
+      "workflow_type": "business_trip",
+      "confidence": 0.85,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 대구로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 수정해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 일정 변경",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "보험 정보 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "업무 성과 평가서 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "회의실 예약 가능한 시간 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청서 양식 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이력서 검색해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "인재 검색해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 취소해주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 취소하고 싶어",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 절차 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 대구로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 규정 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "특허 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가규정 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 식단 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "인사정보 요약 리포트 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "논문 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 일정 고쳐줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 삭제",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 절차 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 고쳐줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 변경해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 대구로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 규정 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이메일 검색해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 삭제해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 절차 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 변경해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 일정 삭제해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 절차 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 부산로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 취소하고 싶어",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 수정해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 취소하고 싶어",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "회의실 예약 가능한 시간 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청서 양식 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "회의실 예약해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 절차 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 취소해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 절차 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "근무제도 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 방법 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청서 양식 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "제품개발 계획서 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 절차 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 점심 메뉴 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이메일 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "회의실 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "메일 검색해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "문서 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "보고서 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청서 양식 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청하려면 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "월별 수익 분석 리포트 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 부산로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "일정 취소하고 싶어",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "인사정보 요약 리포트 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청 방법은?",
+      "workflow_type": null,
+      "confidence": 0.85,
+      "label": 1
+    },
+    {
+      "query": "출장 일정 변경",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 대구로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 일정 수정해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "제품개발 계획서 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주부터 3일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청서 양식 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청서 양식 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 일정 취소",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 일주일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "구내식당 메뉴 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 대구로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 절차 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 방법 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 수정",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "label": 0
+    },
+    {
+      "query": "내일 일주일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 일주일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "근무제도 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "복리후생 정책 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 방법 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 고쳐줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 서울로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 수정해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "12월 20일부터 22일까지 부산 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "label": 0
+    },
+    {
+      "query": "이메일 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "일정 취소해주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "업무 성과 평가서 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청하고 싶어",
+      "workflow_type": "business_trip",
+      "confidence": 0.85,
+      "label": 0
+    },
+    {
+      "query": "이력서 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "문서 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "연차 사용 내역 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 방법 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 제거해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 대구로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주부터 3일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "인재 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "구내식당 메뉴 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 제주도로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 대구로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 변경",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 규정 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청서 양식 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "발주서 만들어줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 일정 취소",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 방법 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 취소하고 싶어",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 방법 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "급여 외 혜택 보여줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 일주일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "일정 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "공급업체 평가서 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 대구로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 지워줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주부터 3일간 부산로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 수정",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청서 양식 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청서 양식 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 방법 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 일정 취소해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 3일간 서울로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 식단 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 서울로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "이번 주 3일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "연차 사용 내역 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 방법 어떻게 하나요?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 준비해줘",
+      "workflow_type": "business_trip",
+      "confidence": 0.85,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 식단 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 삭제",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "복리후생 정책 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청하려면 어떻게 해야 해?",
+      "workflow_type": null,
+      "confidence": 0.85,
+      "label": 1
+    },
+    {
+      "query": "휴가 규정 규정은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 부산로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "보고서 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청 절차 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 신청서 양식 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    }
+  ]
+}
