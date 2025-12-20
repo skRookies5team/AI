@@ -693,6 +693,41 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "conversation_history": [user_message],
                     **current_date_info
                 }
+
+    # ───────────────────────────────────────────────────────────
+    # Email HITL 우선 라우팅: 이메일 초안이 세션에 남아있고 "수정/발송" 같은 후속 명령이면
+    # LLM 분류 전에 무조건 email로 강제 라우팅하여 잘못된 도메인(문서/기술 등)으로 새는 것을 방지합니다.
+    # ───────────────────────────────────────────────────────────
+    try:
+        ql = query.lower()
+        # "수정:" 같은 접두어를 포함한 후속 명령 키워드
+        hitl_keywords = ["수정", "다시", "revision", "추가", "변경", "발송", "보내", "전송", "승인", "거부", "안 보내", "취소", "cancel", "reject"]
+        is_email_hitl_cmd = any(k in ql for k in hitl_keywords)
+
+        # 사용자가 문서/파일 업데이트를 명시한 경우는 예외로 둡니다(문서 도메인 의도일 가능성).
+        doc_intent_keywords = ["문서", "파일", "업로드", "pdf", "엑셀", "워드", "ppt", "pptx", "docx", "xlsx"]
+        is_explicit_doc_intent = any(k in ql for k in doc_intent_keywords)
+
+        if is_email_hitl_cmd and not is_explicit_doc_intent and session_id and state.get("employee_id"):
+            from agents.session_manager import get_session_manager
+            session_manager = await get_session_manager()
+            if session_manager:
+                employee_id = state.get("employee_id")
+                session_data = await session_manager.load_session_data(session_id, employee_id)
+                email_compose_context = (session_data or {}).get("email_compose_context") or {}
+                has_draft = bool(email_compose_context.get("email_draft_subject") and email_compose_context.get("email_draft_body"))
+
+                if has_draft:
+                    print(f"✅ Email 초안 존재 + HITL 명령 감지: '{query}' → email 도메인으로 강제 라우팅")
+                    _routing_logger.info(f"[라우팅 완료] Email draft HITL 기반: email (요청: {query})")
+                    return {
+                        "domain": "email",
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+    except Exception as e:
+        # 라우팅 안전성: 실패 시 기존 분류 로직을 그대로 진행
+        print(f"⚠️ Email draft HITL 우선 라우팅 처리 실패: {e}")
     
     # 워크플로우 진행 중인지 확인
     workflow_in_progress = state.get("workflow_in_progress", False)
