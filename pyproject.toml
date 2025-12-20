@@ -43,6 +43,8 @@ dependencies = [
     "google-api-python-client>=2.187.0",
     "pdf2image>=1.17.0",
     "pillow>=12.0.0",
+    "transformers>=4.57.3",
+    "torch>=2.9.1",
 ]
 
 [tool.uv]

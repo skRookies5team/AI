@@ -31,6 +31,7 @@ from agents.redis_optimizer import optimize_state_before_save
 from agents.domain_node_handler import process_domain_node_result
 from agents.utils import check_detailed_response_in_history, get_clarification_message
 from agents.history_check_handler import detect_history_check_query, handle_history_check_query
+from agents.ml_classifier import classify_workflow_request, is_model_available
 from agents.master_graphs import (
     get_schedule_master_graph,
     get_document_master_graph,
@@ -248,26 +249,50 @@ def load_workflow_classification_config() -> Dict[str, Any]:
 async def classify_request_type(query: str) -> Dict[str, Any]:
     """1단계: 사용자 요청을 워크플로우 요청과 일반 요청으로 분류합니다.
     
+    ML 모델을 먼저 시도하고 (10-50ms), 실패하면 LLM fallback을 사용합니다 (500-1000ms).
+    
     Args:
         query: 사용자 쿼리
         
     Returns:
-        {'is_workflow_request': bool, 'confidence': float}
+        {'is_workflow_request': bool, 'confidence': float, 'method': 'ml' or 'llm'}
     """
     step_start = time.time()
+    
+    # 1. ML 모델 시도 (빠름: 10-50ms)
+    try:
+        ml_result = classify_workflow_request(query)
+        
+        if ml_result.get('method') == 'ml':
+            # ML 모델이 성공적으로 사용됨
+            step_elapsed = (time.time() - step_start) * 1000
+            is_workflow = ml_result.get('is_workflow_request', False)
+            confidence = ml_result.get('confidence', 0.5)
+            
+            print(f"[OK] 1단계 분류 (ML): {'워크플로우' if is_workflow else '일반 요청'} (신뢰도: {confidence:.2f}, {step_elapsed:.2f}ms)")
+            return {
+                "is_workflow_request": is_workflow,
+                "confidence": confidence,
+                "method": "ml"
+            }
+    except Exception as e:
+        # ML 모델 오류는 무시하고 LLM fallback으로 진행
+        logging.debug(f"ML 모델 분류 실패, LLM fallback 사용: {e}")
+    
+    # 2. LLM Fallback (느림: 500-1000ms)
     classification_config = load_workflow_classification_config()
     request_classification = classification_config.get("request_classification", {})
     
     if not request_classification:
         step_elapsed = (time.time() - step_start) * 1000
-        print(f"⚠️ 워크플로우 분류 설정을 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        print(f"[WARN] 워크플로우 분류 설정을 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        return {"is_workflow_request": False, "confidence": 0.5, "method": "fallback"}
     
     system_prompt_template = request_classification.get("system_prompt", "")
     if not system_prompt_template:
         step_elapsed = (time.time() - step_start) * 1000
-        print(f"⚠️ 워크플로우 분류 프롬프트를 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        print(f"[WARN] 워크플로우 분류 프롬프트를 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        return {"is_workflow_request": False, "confidence": 0.5, "method": "fallback"}
     
     # 프롬프트에 query 삽입
     system_prompt = system_prompt_template.format(query=query)
@@ -281,15 +306,16 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         )
         
         step_elapsed = (time.time() - step_start) * 1000
-        print(f"✅ 1단계 분류: {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
+        print(f"[OK] 1단계 분류 (LLM): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
         return {
             "is_workflow_request": result.is_workflow_request,
-            "confidence": result.confidence
+            "confidence": result.confidence,
+            "method": "llm"
         }
     except Exception as e:
         step_elapsed = (time.time() - step_start) * 1000
-        print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        print(f"[ERROR] 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        return {"is_workflow_request": False, "confidence": 0.5, "method": "fallback"}
 
 
 async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:

@@ -47,6 +47,8 @@ dependencies = [
     { name = "ruff" },
     { name = "sentence-transformers" },
     { name = "sqlalchemy" },
+    { name = "torch" },
+    { name = "transformers" },
     { name = "uvicorn" },
     { name = "xmltodict" },
 ]
@@ -89,6 +91,8 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.14.3" },
     { name = "sentence-transformers", specifier = ">=5.1.2" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
+    { name = "torch", specifier = ">=2.9.1" },
+    { name = "transformers", specifier = ">=4.57.3" },
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "xmltodict", specifier = ">=1.0.2" },
 ]
