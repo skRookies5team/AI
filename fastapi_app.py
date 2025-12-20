@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 from typing import Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Form, Query, Response, Request, Depends, status
@@ -29,6 +30,140 @@ from google_auth_oauthlib.flow import Flow
 _orchestrator_graph = None
 _oauth_state_store: Dict[str, Tuple[str, float]] = {}
 _OAUTH_STATE_TTL_SECONDS = 600
+
+
+# ============================
+# Email recipient resolver (name -> employee.email)
+# ============================
+_RECIPIENT_NAME_RE = re.compile(r"([가-힣]{2,20})\s*(?:한테|에게)\b")
+_RECIPIENT_PICK_RE = re.compile(r"^\s*(\d+)\s*번?\s*$")
+
+
+class RecipientNameParams(BaseModel):
+    """LLM으로 '수신자 이름들'만 추출하기 위한 구조."""
+
+    to_names: list[str] = Field(default_factory=list, description="수신자 이름 리스트(중복 제거 전)")
+
+
+async def _extract_recipient_names_with_llm(text: str) -> list[str]:
+    """이메일 발송 문장에서 수신자 '이름'만 LLM으로 추출 (이메일 주소가 없을 때만 사용 권장).
+
+    - LLM 사용이 불가하거나 실패하면 기존 정규식 기반 추출로 fallback.
+    """
+    # fallback: 기존 정규식 방식
+    fallback = _extract_korean_recipient_names(text or "")
+
+    try:
+        from agents.structured_output import extract_structured_output
+    except Exception:
+        return fallback
+
+    system_prompt = """너는 이메일 작성 요청에서 '수신자 사람 이름(to_names)'만 추출하는 파서다.
+
+규칙:
+- 입력에 이메일 주소(예: a@b.com)가 있어도 to_names에는 넣지 말고 이름만 넣어라.
+- 쉼표(,), '와/과', '랑', '하고', '그리고', 공백으로 연결된 여러 이름을 모두 추출하라.
+- 패턴 예:
+  - "오지윤, 정기정한테 메일 보내줘" -> ["오지윤", "정기정"]
+  - "오지윤과 정기정에게 메일" -> ["오지윤", "정기정"]
+  - "정기정한테 메일" -> ["정기정"]
+  - "asdf@x.com, qwer@y.com 한테 메일" -> [] (이름이 없으면 빈 리스트)
+- 일반 단어(메일/이메일/보내줘/오늘/어제/야근 등)는 이름이 아니므로 절대 포함하지 마라.
+- 확신이 없으면 빈 리스트로 반환하라.
+"""
+
+    try:
+        result = await extract_structured_output(
+            query=text or "",
+            model_class=RecipientNameParams,
+            system_prompt=system_prompt,
+        )
+        names = [n.strip() for n in (result.to_names or []) if isinstance(n, str) and n.strip()]
+        # 간단한 후처리: 너무 긴/짧은 토큰 제거
+        names = [n for n in names if 2 <= len(n) <= 20]
+        # fallback과 합치지 않고, LLM 결과를 우선 사용 (빈이면 fallback)
+        return names or fallback
+    except Exception:
+        return fallback
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in items or []:
+        x = (x or "").strip()
+        if not x:
+            continue
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
+
+
+def _append_unique_email(to_emails: list[str], email: Optional[str]) -> list[str]:
+    if not email:
+        return to_emails
+    e = email.strip()
+    if not e:
+        return to_emails
+    if e not in to_emails:
+        to_emails.append(e)
+    return to_emails
+
+
+def _looks_like_email_send_command(text: str) -> bool:
+    """메일 작성/발송 의도로 보이는지(이름→이메일 해석을 시도할지) 가드."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    # 너무 광범위하게 잡으면 '이메일 검색'에도 이름 DB 조회가 붙을 수 있어서 가드가 필요
+    has_mail_word = ("메일" in t) or ("이메일" in t)
+    has_send_word = any(k in t for k in ["보내", "발송", "전송", "작성", "써줘"])
+    return has_mail_word and has_send_word
+
+
+def _extract_korean_recipient_names(text: str) -> list[str]:
+    """'홍길동한테', '둘리에게' 같은 표현에서 이름을 추출."""
+    names = [m.group(1).strip() for m in _RECIPIENT_NAME_RE.finditer(text or "")]
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in names:
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+async def _fetch_employee_candidates_by_name(name: str) -> list[dict]:
+    """employee 테이블에서 name으로 email 후보 조회."""
+    from sqlalchemy import text  # 지연 import
+    from agents.master_graphs.schedule.services.database_service import DatabaseService
+
+    db = DatabaseService()
+    sql = """
+    SELECT employee_id, name, dept, email
+    FROM employee
+    WHERE name = :name
+      AND email IS NOT NULL
+      AND email <> ''
+    ORDER BY employee_id ASC
+    LIMIT 10;
+    """
+    async with db._session() as session:  # DatabaseService의 세션 유틸 재사용
+        result = await session.execute(text(sql), {"name": name})
+        return [dict(row) for row in result.mappings().all()]
+
+
+def _format_recipient_candidates_prompt(name: str, rows: list[dict]) -> str:
+    lines = [f"'{name}' 이름으로 이메일 수신자를 찾았습니다. 누구에게 보낼까요? 번호로 선택해주세요."]
+    for i, r in enumerate(rows, 1):
+        dept = r.get("dept") or "-"
+        email = r.get("email") or "-"
+        eid = r.get("employee_id")
+        lines.append(f"{i}) {r.get('name')} / {dept} / {email} (사번 {eid})")
+    lines.append("예: 1번")
+    return "\n".join(lines)
 
 def get_cached_orchestrator_graph():
     """캐시된 오케스트레이터 그래프 반환 (앱 시작 시 한 번만 생성).
@@ -569,6 +704,140 @@ async def chat_stream_endpoint(
             if session_manager:
                 session_data = await session_manager.load_session_data(session_id, employee_id)
             
+            # -----------------------------
+            # 이메일 수신자 이름 → email 해석 (DB 조회) + 동명이인 선택 UX
+            # (stream 모드: 동명이인/미존재일 때 그래프 호출 전에 complete 메시지로 종료)
+            # -----------------------------
+            email_compose_context = session_data.get("email_compose_context") or {}
+            # 동명이인 선택 완료 시, 그래프에는 '1번'이 아니라 원래 발송 의도를 담은 문장을 전달하기 위해 사용
+            effective_query = payload.query
+
+            # (1) 동명이인 선택 대기 상태면 "N번" 처리 (여러 명 지원: 큐 기반)
+            m_pick = _RECIPIENT_PICK_RE.match(payload.query or "")
+            if email_compose_context.get("awaiting_recipient_selection") and m_pick:
+                queue = email_compose_context.get("recipient_queue") or []
+                # (하위호환/유실 방어) queue가 없으면 기존 단일 필드로 복구
+                if not queue:
+                    candidates = email_compose_context.get("recipient_candidates") or []
+                    if not candidates:
+                        try:
+                            to_names = email_compose_context.get("to_names") or []
+                            if to_names:
+                                candidates = await _fetch_employee_candidates_by_name(str(to_names[0]))
+                                email_compose_context["recipient_candidates"] = candidates
+                        except Exception:
+                            candidates = []
+                    to_names = email_compose_context.get("to_names") or []
+                    if to_names and candidates:
+                        queue = [{"name": str(to_names[0]), "candidates": candidates}]
+                        email_compose_context["recipient_queue"] = queue
+
+                if queue:
+                    candidates = list(queue[0].get("candidates") or [])
+                    idx = int(m_pick.group(1)) - 1
+                    if not (0 <= idx < len(candidates)):
+                        msg = f"선택 번호가 범위를 벗어났습니다. 1~{len(candidates)} 중에서 선택해주세요."
+                        yield f"data: {json.dumps({'type':'complete','ok':True,'message':msg,'rows':[],'session_id':session_id}, ensure_ascii=False)}\n\n"
+                        return
+
+                    chosen = candidates[idx]
+                    # ✅ 중요: '1번' 자체를 그래프에 넘기면 다른 도메인(논문 등)으로 라우팅될 수 있으므로 원문으로 복원
+                    effective_query = email_compose_context.get("pending_send_query") or effective_query
+
+                    to_emails = list(email_compose_context.get("to_emails") or [])
+                    to_emails = _append_unique_email(to_emails, chosen.get("email"))
+                    email_compose_context["to_emails"] = to_emails
+                    email_compose_context.setdefault("resolved_recipients", []).append(chosen)
+
+                    # 현재 이름 처리 완료 → 큐 pop
+                    queue = queue[1:]
+                    email_compose_context["recipient_queue"] = queue
+
+                    if queue:
+                        # 다음 동명이인 선택으로 이어감
+                        email_compose_context["awaiting_recipient_selection"] = True
+                        # 하위호환: 항상 현재 후보를 recipient_candidates로도 유지
+                        email_compose_context["recipient_candidates"] = list(queue[0].get("candidates") or [])
+                        session_data["email_compose_context"] = email_compose_context
+                        if session_manager:
+                            await session_manager.save_session_state(session_id, {
+                                "conversation_history": session_data.get("conversation_history", []),
+                                "email_search_context": session_data.get("email_search_context", {}),
+                                "email_compose_context": email_compose_context,
+                                "qa_search_context": session_data.get("qa_search_context", {}),
+                                "tech_search_context": session_data.get("tech_search_context", {}),
+                                "schedule_context": session_data.get("schedule_context", {}),
+                                "document_context": session_data.get("document_context", {}),
+                                "recruitment_context": session_data.get("recruitment_context", {}),
+                                "employee_id": employee_id,
+                            })
+                        msg = _format_recipient_candidates_prompt(str(queue[0].get("name") or ""), list(queue[0].get("candidates") or []))
+                        yield f"data: {json.dumps({'type':'complete','ok':True,'message':msg,'rows':[],'session_id':session_id}, ensure_ascii=False)}\n\n"
+                        return
+
+                    # 모든 선택 완료 → 최종 수신자 확정 후 계속 진행
+                    email_compose_context["awaiting_recipient_selection"] = False
+                    email_compose_context["recipient_candidates"] = []
+                    email_compose_context["to_email"] = ", ".join(to_emails)
+                    email_compose_context["resolved_recipient"] = chosen
+                    email_compose_context.pop("pending_send_query", None)
+                    session_data["email_compose_context"] = email_compose_context
+
+            # (2) 이름 기반 자동 해석 (여러 명 지원)
+            if _looks_like_email_send_command(payload.query):
+                has_email = bool(re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", payload.query or ""))
+                if not has_email and not email_compose_context.get("to_email"):
+                    names = _dedupe_preserve_order(await _extract_recipient_names_with_llm(payload.query or ""))
+                    if names:
+                        to_emails = list(email_compose_context.get("to_emails") or [])
+                        resolved_recipients = list(email_compose_context.get("resolved_recipients") or [])
+                        queue: list[dict] = []
+
+                        for name in names:
+                            rows = await _fetch_employee_candidates_by_name(name)
+                            if len(rows) == 0:
+                                msg = f"'{name}' 사원의 이메일을 DB에서 찾지 못했습니다. 이메일 주소를 직접 입력해 주세요."
+                                yield f"data: {json.dumps({'type':'complete','ok':True,'message':msg,'rows':[],'session_id':session_id}, ensure_ascii=False)}\n\n"
+                                return
+                            if len(rows) == 1:
+                                to_emails = _append_unique_email(to_emails, rows[0].get("email"))
+                                resolved_recipients.append(rows[0])
+                            else:
+                                queue.append({"name": name, "candidates": rows})
+
+                        email_compose_context["to_names"] = names
+                        email_compose_context["to_emails"] = to_emails
+                        email_compose_context["resolved_recipients"] = resolved_recipients
+
+                        if queue:
+                            email_compose_context["awaiting_recipient_selection"] = True
+                            email_compose_context["recipient_queue"] = queue
+                            email_compose_context["recipient_candidates"] = list(queue[0].get("candidates") or [])
+                            email_compose_context["pending_send_query"] = payload.query
+                            session_data["email_compose_context"] = email_compose_context
+
+                            # 후보 선택 UX 응답 후 종료 (그래프 호출 안 함)
+                            msg = _format_recipient_candidates_prompt(str(queue[0].get("name") or ""), list(queue[0].get("candidates") or []))
+                            if session_manager:
+                                await session_manager.save_session_state(session_id, {
+                                    "conversation_history": session_data.get("conversation_history", []),
+                                    "email_search_context": session_data.get("email_search_context", {}),
+                                    "email_compose_context": email_compose_context,
+                                    "qa_search_context": session_data.get("qa_search_context", {}),
+                                    "tech_search_context": session_data.get("tech_search_context", {}),
+                                    "schedule_context": session_data.get("schedule_context", {}),
+                                    "document_context": session_data.get("document_context", {}),
+                                    "recruitment_context": session_data.get("recruitment_context", {}),
+                                    "employee_id": employee_id,
+                                })
+                            yield f"data: {json.dumps({'type':'complete','ok':True,'message':msg,'rows':[],'session_id':session_id}, ensure_ascii=False)}\n\n"
+                            return
+
+                        # 모두 유니크로 확정된 경우
+                        email_compose_context["to_email"] = ", ".join(to_emails)
+                        email_compose_context["resolved_recipient"] = resolved_recipients[-1] if resolved_recipients else None
+                        session_data["email_compose_context"] = email_compose_context
+
             # 그래프 가져오기 (체크포인터 없이 실행)
             graph = get_cached_orchestrator_graph()
             
@@ -578,7 +847,7 @@ async def chat_stream_endpoint(
                 graph = _orchestrator_graph
             
             input_state = {
-                "query": payload.query,
+                "query": effective_query,
                 "user_id": employee_id,
                 "session_id": session_id,
                 "employee_id": employee_id,
@@ -864,9 +1133,150 @@ async def chat_endpoint(
         # 캐시된 Orchestrator 그래프 가져오기 (체크포인터 없이 실행)
         graph = get_cached_orchestrator_graph()
         
+        # -----------------------------
+        # 이메일 수신자 이름 → email 해석 (DB 조회) + 동명이인 선택 UX
+        # - 요구사항: DB 조회 로직은 fastapi_app.py에서 수행
+        # - 멀티턴: email_compose_context에 후보 저장 후 "1번" 같은 입력으로 선택
+        # -----------------------------
+        email_compose_context = session_data.get("email_compose_context") or {}
+        effective_query = payload.query
+
+        # (1) 동명이인 선택 대기 상태면, "N번" 입력을 먼저 처리 (여러 명 지원: 큐 기반)
+        m_pick = _RECIPIENT_PICK_RE.match(payload.query or "")
+        if email_compose_context.get("awaiting_recipient_selection") and m_pick:
+            queue = email_compose_context.get("recipient_queue") or []
+            # (하위호환/유실 방어) queue가 없으면 기존 단일 필드로 복구
+            if not queue:
+                candidates = email_compose_context.get("recipient_candidates") or []
+                if not candidates:
+                    try:
+                        to_names = email_compose_context.get("to_names") or []
+                        if to_names:
+                            candidates = await _fetch_employee_candidates_by_name(str(to_names[0]))
+                            email_compose_context["recipient_candidates"] = candidates
+                            session_data["email_compose_context"] = email_compose_context
+                    except Exception:
+                        candidates = []
+                to_names = email_compose_context.get("to_names") or []
+                if to_names and candidates:
+                    queue = [{"name": str(to_names[0]), "candidates": candidates}]
+                    email_compose_context["recipient_queue"] = queue
+
+            if queue:
+                candidates = list(queue[0].get("candidates") or [])
+                idx = int(m_pick.group(1)) - 1
+                if not (0 <= idx < len(candidates)):
+                    return ChatResponse(
+                        ok=True,
+                        message=f"선택 번호가 범위를 벗어났습니다. 1~{len(candidates)} 중에서 선택해주세요.",
+                        rows=[],
+                        session_id=session_id,
+                    )
+
+                chosen = candidates[idx]
+                effective_query = email_compose_context.get("pending_send_query") or effective_query
+
+                to_emails = list(email_compose_context.get("to_emails") or [])
+                to_emails = _append_unique_email(to_emails, chosen.get("email"))
+                email_compose_context["to_emails"] = to_emails
+                email_compose_context.setdefault("resolved_recipients", []).append(chosen)
+
+                queue = queue[1:]
+                email_compose_context["recipient_queue"] = queue
+
+                if queue:
+                    email_compose_context["awaiting_recipient_selection"] = True
+                    email_compose_context["recipient_candidates"] = list(queue[0].get("candidates") or [])
+                    session_data["email_compose_context"] = email_compose_context
+                    if session_manager:
+                        await session_manager.save_session_state(session_id, {
+                            "conversation_history": session_data.get("conversation_history", []),
+                            "email_search_context": session_data.get("email_search_context", {}),
+                            "email_compose_context": email_compose_context,
+                            "qa_search_context": session_data.get("qa_search_context", {}),
+                            "tech_search_context": session_data.get("tech_search_context", {}),
+                            "schedule_context": session_data.get("schedule_context", {}),
+                            "document_context": session_data.get("document_context", {}),
+                            "recruitment_context": session_data.get("recruitment_context", {}),
+                            "employee_id": employee_id,
+                        })
+                    return ChatResponse(
+                        ok=True,
+                        message=_format_recipient_candidates_prompt(str(queue[0].get("name") or ""), list(queue[0].get("candidates") or [])),
+                        rows=[],
+                        session_id=session_id,
+                    )
+
+                email_compose_context["awaiting_recipient_selection"] = False
+                email_compose_context["recipient_candidates"] = []
+                email_compose_context["to_email"] = ", ".join(to_emails)
+                email_compose_context["resolved_recipient"] = chosen
+                email_compose_context.pop("pending_send_query", None)
+                session_data["email_compose_context"] = email_compose_context
+
+        # (2) 이름 기반 자동 해석 (이메일 주소가 직접 입력되지 않은 경우에만, 여러 명 지원)
+        if _looks_like_email_send_command(payload.query):
+            # 이미 email이 직접 포함되어 있으면(예: a@b.com) 이름 해석은 건너뜀
+            has_email = bool(re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", payload.query or ""))
+            if not has_email and not email_compose_context.get("to_email"):
+                names = _dedupe_preserve_order(await _extract_recipient_names_with_llm(payload.query or ""))
+                if names:
+                    to_emails = list(email_compose_context.get("to_emails") or [])
+                    resolved_recipients = list(email_compose_context.get("resolved_recipients") or [])
+                    queue: list[dict] = []
+
+                    for name in names:
+                        rows = await _fetch_employee_candidates_by_name(name)
+                        if len(rows) == 0:
+                            return ChatResponse(
+                                ok=True,
+                                message=f"'{name}' 사원의 이메일을 DB에서 찾지 못했습니다. 이메일 주소를 직접 입력해 주세요.",
+                                rows=[],
+                                session_id=session_id,
+                            )
+                        if len(rows) == 1:
+                            to_emails = _append_unique_email(to_emails, rows[0].get("email"))
+                            resolved_recipients.append(rows[0])
+                        else:
+                            queue.append({"name": name, "candidates": rows})
+
+                    email_compose_context["to_names"] = names
+                    email_compose_context["to_emails"] = to_emails
+                    email_compose_context["resolved_recipients"] = resolved_recipients
+
+                    if queue:
+                        email_compose_context["awaiting_recipient_selection"] = True
+                        email_compose_context["recipient_queue"] = queue
+                        email_compose_context["recipient_candidates"] = list(queue[0].get("candidates") or [])
+                        email_compose_context["pending_send_query"] = payload.query
+                        session_data["email_compose_context"] = email_compose_context
+                        # ✅ 중요: non-stream 모드에서도 세션에 저장해야 다음 턴("1번")에서 유지됩니다.
+                        if session_manager:
+                            await session_manager.save_session_state(session_id, {
+                                "conversation_history": session_data.get("conversation_history", []),
+                                "email_search_context": session_data.get("email_search_context", {}),
+                                "email_compose_context": email_compose_context,
+                                "qa_search_context": session_data.get("qa_search_context", {}),
+                                "tech_search_context": session_data.get("tech_search_context", {}),
+                                "schedule_context": session_data.get("schedule_context", {}),
+                                "document_context": session_data.get("document_context", {}),
+                                "recruitment_context": session_data.get("recruitment_context", {}),
+                                "employee_id": employee_id,
+                            })
+                        return ChatResponse(
+                            ok=True,
+                            message=_format_recipient_candidates_prompt(str(queue[0].get("name") or ""), list(queue[0].get("candidates") or [])),
+                            rows=[],
+                            session_id=session_id,
+                        )
+
+                    email_compose_context["to_email"] = ", ".join(to_emails)
+                    email_compose_context["resolved_recipient"] = resolved_recipients[-1] if resolved_recipients else None
+                    session_data["email_compose_context"] = email_compose_context
+
         # 입력 state 구성 (이전 세션 데이터 포함)
         input_state = {
-            "query": payload.query,
+            "query": effective_query,
             "user_id": employee_id,
             "session_id": session_id,
             "employee_id": employee_id,

@@ -76,9 +76,10 @@ def format_result(result) -> str:
                         if date:
                             lines.append(f"   📅 {date}")
 
-                    # 이메일 상세 보기 안내 (더 자연스럽게)
+                    # 이메일 검색 결과 선택(번호/제목 기반 상세 조회) UX는 현재 사용하지 않음
+                    # 필요한 경우 검색 조건을 추가로 요청하도록 유도
                     lines.append("")
-                    lines.append("💡 자세히 보려면 번호나 제목을 말씀해주세요. 예: '1번' 또는 '1번에 대해 알려줘'")
+                    lines.append("💡 더 정확히 찾으려면 발신자/키워드/날짜 범위를 추가로 알려주세요.")
 
                 # 기타 형식 (title, link 등)
                 else:
