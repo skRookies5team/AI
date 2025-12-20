@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>2024년 스마트워치 신제품 개발 계획서</title>
+<style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .header-info {
+            display: flex;
+            justify-content: space-between;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .header-info-item {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .header-info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 16px;
+            min-width: 80px;
+        }
+
+        .header-info-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .form-section {
+            margin-bottom: 30px;
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 0;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .section-label {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            font-weight: 600;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        .section-content {
+            padding: 20px;
+            background: white;
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .input-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .input-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .input-item-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .input-item input,
+        .input-item textarea {
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .input-item input:focus,
+        .input-item textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .input-item textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .large-textarea {
+            min-height: 120px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 14px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        td {
+            padding: 12px;
+            text-align: center;
+            font-size: 14px;
+            color: #495057;
+            border-right: 1px solid #e9ecef;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .total-row {
+            background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
+            font-weight: 700;
+        }
+
+        .total-row td {
+            font-size: 16px;
+            color: #2c3e50;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: white;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input[type="number"] {
+            text-align: right;
+        }
+
+        .cost-display {
+            font-weight: 600;
+            color: #28a745;
+            font-size: 15px;
+        }
+
+        .actions {
+            margin-top: 40px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            padding-top: 25px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        .row-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .actions,
+            .row-actions {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .form-section {
+                grid-template-columns: 1fr;
+            }
+
+            .section-label {
+                padding: 15px;
+            }
+
+            .input-group {
+                grid-template-columns: 1fr;
+            }
+
+            .table-container {
+                overflow-x: scroll;
+            }
+
+            th, td {
+                font-size: 12px;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>2024년 스마트워치 신제품 개발 계획서</h1>
+<div class="header-info">
+<div class="header-info-item">
+<span class="header-info-label">작성일자</span>
+<input class="header-info-input" id="createDate" placeholder="작성일자" readonly="" type="text" value="2025년 12월 20일"/>
+</div>
+<div class="header-info-item">
+<span class="header-info-label">작성자</span>
+<input class="header-info-input" id="author" type="text" value="AI 생성"/>
+</div>
+</div>
+</div>
+<!-- 개발품목 -->
+<div class="form-section">
+<div class="section-label">개발품목</div>
+<div class="section-content">
+<div class="input-group">
+<div class="input-item">
+<label class="input-item-label">품목명</label>
+<input id="itemName" type="text" value="스마트워치 Pro Max"/>
+</div>
+<div class="input-item">
+<label class="input-item-label">규격 사양</label>
+<input id="specifications" type="text" value="건강 모니터링(심박수, 혈압, 수면 분석), GPS 추적, 스마트 알림, 7일 배터리 수명, AI 기반 건강 코칭 기능, 무선 충전, 방수 기능"/>
+</div>
+<div class="input-item">
+<label class="input-item-label">용도</label>
+<input id="purpose" type="text" value="건강 관리 및 일상 활동 추적"/>
+</div>
+</div>
+</div>
+</div>
+<!-- 개발목적 -->
+<div class="form-section">
+<div class="section-label">개발목적</div>
+<div class="section-content">
+<textarea class="large-textarea" id="developmentPurpose">신제품 개발을 통한 시장 경쟁력 강화 및 매출 증대. 젊은 층 타겟, SNS 마케팅, 인플루언서 협업 타겟 시장 확보를 위한 혁신적인 건강 관리 디바이스 개발. AI 기반 건강 코칭 기능과 무선 충전, 방수 기능을 통해 경쟁사 대비 차별화된 제품을 제공하여 시장 점유율 확대를 목표로 한다.</textarea>
+</div>
+</div>
+<!-- 개발기간 -->
+<div class="form-section">
+<div class="section-label">개발기간</div>
+<div class="section-content">
+<textarea class="large-textarea" id="developmentPeriod">2024년 1월~6월 (6개월), Q1: 설계 및 프로토타입, Q2: 테스트 및 양산 준비</textarea>
+</div>
+</div>
+<!-- 개발일정 -->
+<div class="form-section">
+<div class="section-label">개발일정</div>
+<div class="section-content">
+<div class="table-container">
+<table id="scheduleTable">
+<thead>
+<tr>
+<th>작업명</th>
+<th>작업기간</th>
+<th>비고</th>
+</tr>
+</thead>
+<tbody id="scheduleBody"><tr><td><input class_="task-name" type="text" value="설계 및 프로토타입"/></td><td><input class_="task-period" type="text" value="2024년 1월~3월"/></td><td><input class_="task-remarks" type="text" value="Q1"/></td></tr><tr><td><input class_="task-name" type="text" value="테스트 및 양산 준비"/></td><td><input class_="task-period" type="text" value="2024년 4월~6월"/></td><td><input class_="task-remarks" type="text" value="Q2"/></td></tr></tbody>
+</table>
+</div>
+<div class="row-actions">
+<button class="btn btn-secondary" onclick="addScheduleRow()">행 추가</button>
+<button class="btn btn-secondary" onclick="removeScheduleRow()">행 삭제</button>
+</div>
+</div>
+</div>
+<!-- 개발내용 -->
+<div class="form-section">
+<div class="section-label">개발내용</div>
+<div class="section-content">
+<textarea class="large-textarea" id="developmentContent">핵심 기능: 건강 모니터링(심박수, 혈압, 수면 분석), GPS 추적, 스마트 알림, 7일 배터리 수명. 기술적 특징: AI 기반 건강 코칭 기능, 무선 충전, 방수 기능. 배터리 수명 최적화가 주요 기술적 도전 과제이며, 이를 통해 경쟁사 대비 차별화된 제품을 개발한다. 배터리 수명 최적화가 주요 도전 과제. 건강 모니터링 센서의 정확도 향상과 AI 알고리즘을 통한 개인 맞춤형 건강 코칭 서비스를 제공한다.</textarea>
+<div class="input-group" style="margin-top: 15px;">
+<div class="input-item">
+<label class="input-item-label">주관부서</label>
+<input id="department" type="text" value="연구개발부서"/>
+</div>
+<div class="input-item">
+<label class="input-item-label">책임자</label>
+<input id="responsiblePerson" type="text" value="담당자"/>
+</div>
+<div class="input-item"></div>
+</div>
+</div>
+</div>
+<!-- 기대효과 -->
+<div class="form-section">
+<div class="section-label">기대효과</div>
+<div class="section-content">
+<textarea class="large-textarea" id="expectedEffects">젊은 층 타겟, SNS 마케팅, 인플루언서 협업 타겟 시장 확보. 젊은 층 타겟, SNS 마케팅, 인플루언서 협업 및 인플루언서 협업을 통한 브랜드 인지도 향상. 건강 관리 시장에서 경쟁 우위 확보 및 매출 증대 기대. AI 기반 건강 코칭 기능, 무선 충전, 방수 기능을 통한 차별화로 프리미엄 시장 진입 및 브랜드 가치 상승을 기대한다.</textarea>
+</div>
+</div>
+<!-- 소요비용 -->
+<div class="form-section">
+<div class="section-label">소요비용</div>
+<div class="section-content">
+<div class="table-container">
+<table id="costTable">
+<thead>
+<tr>
+<th>작업명</th>
+<th>개발비용</th>
+<th>비고</th>
+</tr>
+</thead>
+<tbody id="costBody"><tr><td><input class_="cost-task-name" type="text" value="인력비"/></td><td><input class_="cost-amount" min="0" step="1000" type="number" value="3000000000"/></td><td><input class_="cost-remarks" type="text" value="인력비"/></td></tr><tr><td><input class_="cost-task-name" type="text" value="부품비"/></td><td><input class_="cost-amount" min="0" step="1000" type="number" value="1500000000"/></td><td><input class_="cost-remarks" type="text" value="부품비"/></td></tr><tr><td><input class_="cost-task-name" type="text" value="마케팅"/></td><td><input class_="cost-amount" min="0" step="1000" type="number" value="500000000"/></td><td><input class_="cost-remarks" type="text" value="마케팅"/></td></tr></tbody>
+<tfoot>
+<tr class="total-row">
+<td>합계</td>
+<td class="cost-display" id="totalCost">₩0</td>
+<td></td>
+</tr>
+</tfoot>
+</table>
+</div>
+<div class="row-actions">
+<button class="btn btn-secondary" onclick="addCostRow()">행 추가</button>
+<button class="btn btn-secondary" onclick="removeCostRow()">행 삭제</button>
+</div>
+</div>
+</div>
+<!-- 특기사항 -->
+<div class="form-section">
+<div class="section-label">특기사항</div>
+<div class="section-content">
+<textarea class="large-textarea" id="specialNotes">배터리 수명 최적화가 주요 도전 과제. AI 기반 건강 코칭 기능으로 경쟁사 대비 차별화. AI 기반 건강 코칭 기능, 무선 충전, 방수 기능을 통해 사용자 편의성 향상. 건강 모니터링 센서의 정확도와 신뢰성 확보가 핵심 기술 과제이며, 이를 통해 시장 경쟁력을 확보할 수 있다.</textarea>
+</div>
+</div>
+<div class="actions">
+<button class="btn btn-success" onclick="calculateTotal()">비용 계산</button>
+<button class="btn btn-primary" onclick="printPlan()">인쇄</button>
+<button class="btn btn-primary" onclick="exportData()">내보내기</button>
+</div>
+</div>
+<script>
+        const DEFAULT_SCHEDULE_ROWS = 5;
+        const DEFAULT_COST_ROWS = 5;
+
+        // 날짜 자동 설정
+        function setDefaultDate() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            document.getElementById('createDate').value = `${year}년 ${month}월 ${day}일`;
+        }
+
+        // 초기 일정 행 생성
+        function initializeScheduleTable() {
+            for (let i = 0; i < DEFAULT_SCHEDULE_ROWS; i++) {
+                addScheduleRow();
+            }
+        }
+
+        // 일정 행 추가
+        function addScheduleRow() {
+            const tbody = document.getElementById('scheduleBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="text" class="task-name" placeholder="작업명"></td>
+                <td><input type="text" class="task-period" placeholder="작업기간"></td>
+                <td><input type="text" class="task-remarks" placeholder="비고"></td>
+            `;
+            tbody.appendChild(row);
+        }
+
+        // 일정 행 삭제
+        function removeScheduleRow() {
+            const tbody = document.getElementById('scheduleBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastElementChild);
+            } else {
+                alert('삭제할 행이 없습니다.');
+            }
+        }
+
+        // 초기 비용 행 생성
+        function initializeCostTable() {
+            for (let i = 0; i < DEFAULT_COST_ROWS; i++) {
+                addCostRow();
+            }
+        }
+
+        // 비용 행 추가
+        function addCostRow() {
+            const tbody = document.getElementById('costBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="text" class="cost-task-name" placeholder="작업명"></td>
+                <td><input type="number" class="cost-amount" placeholder="0" min="0" step="1000"></td>
+                <td><input type="text" class="cost-remarks" placeholder="비고"></td>
+            `;
+            tbody.appendChild(row);
+            
+            // 비용 입력 시 자동 계산
+            const costInput = row.querySelector('.cost-amount');
+            costInput.addEventListener('input', calculateTotal);
+        }
+
+        // 비용 행 삭제
+        function removeCostRow() {
+            const tbody = document.getElementById('costBody');
+            if (tbody.children.length > 0) {
+                tbody.removeChild(tbody.lastElementChild);
+                calculateTotal();
+            } else {
+                alert('삭제할 행이 없습니다.');
+            }
+        }
+
+        // 총 비용 계산
+        function calculateTotal() {
+            const rows = document.querySelectorAll('#costBody tr');
+            let total = 0;
+
+            rows.forEach(row => {
+                const cost = parseFloat(row.querySelector('.cost-amount')?.value || 0);
+                total += cost;
+            });
+
+            document.getElementById('totalCost').textContent = `₩${total.toLocaleString('ko-KR')}`;
+        }
+
+        // 인쇄
+        function printPlan() {
+            window.print();
+        }
+
+        // 데이터 내보내기 (CSV)
+        function exportData() {
+            let csv = '제품개발 계획서\n\n';
+            
+            csv += `작성일자,${document.getElementById('createDate').value}\n`;
+            csv += `작성자,${document.getElementById('author').value}\n\n`;
+            
+            csv += '개발품목\n';
+            csv += `품목명,${document.getElementById('itemName').value}\n`;
+            csv += `규격 사양,${document.getElementById('specifications').value}\n`;
+            csv += `용도,${document.getElementById('purpose').value}\n\n`;
+            
+            csv += '개발목적\n';
+            csv += `${document.getElementById('developmentPurpose').value}\n\n`;
+            
+            csv += '개발기간\n';
+            csv += `${document.getElementById('developmentPeriod').value}\n\n`;
+            
+            csv += '개발일정\n';
+            csv += '작업명,작업기간,비고\n';
+            const scheduleRows = document.querySelectorAll('#scheduleBody tr');
+            scheduleRows.forEach(row => {
+                const taskName = row.querySelector('.task-name')?.value || '';
+                const taskPeriod = row.querySelector('.task-period')?.value || '';
+                const taskRemarks = row.querySelector('.task-remarks')?.value || '';
+                csv += `"${taskName}","${taskPeriod}","${taskRemarks}"\n`;
+            });
+            
+            csv += '\n개발내용\n';
+            csv += `${document.getElementById('developmentContent').value}\n`;
+            csv += `주관부서,${document.getElementById('department').value}\n`;
+            csv += `책임자,${document.getElementById('responsiblePerson').value}\n\n`;
+            
+            csv += '기대효과\n';
+            csv += `${document.getElementById('expectedEffects').value}\n\n`;
+            
+            csv += '소요비용\n';
+            csv += '작업명,개발비용,비고\n';
+            const costRows = document.querySelectorAll('#costBody tr');
+            costRows.forEach(row => {
+                const taskName = row.querySelector('.cost-task-name')?.value || '';
+                const cost = row.querySelector('.cost-amount')?.value || '';
+                const remarks = row.querySelector('.cost-remarks')?.value || '';
+                csv += `"${taskName}","₩${parseFloat(cost || 0).toLocaleString('ko-KR')}","${remarks}"\n`;
+            });
+            csv += `합계,"${document.getElementById('totalCost').textContent}",\n\n`;
+            
+            csv += '특기사항\n';
+            csv += `${document.getElementById('specialNotes').value}\n`;
+
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            const itemName = document.getElementById('itemName').value || '제품개발_계획서';
+            link.setAttribute('download', `${itemName}_제품개발_계획서.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 페이지 로드 시 초기화
+        window.addEventListener('DOMContentLoaded', () => {
+            setDefaultDate();
+            initializeScheduleTable();
+            initializeCostTable();
+            calculateTotal();
+        });
+    </script>
+</body>
+</html>
