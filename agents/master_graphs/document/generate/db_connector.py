@@ -1398,3 +1398,170 @@ def verify_leave_request_saved(employee_id: int, start_date: str, end_date: str)
         return None
     
     return None
+
+
+def fetch_business_trip_request_data(
+    employee_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """business_trip 테이블에서 출장 신청 데이터를 조회합니다.
+    
+    Args:
+        employee_id: 직원 ID (선택사항)
+        start_date: 시작일 (선택사항)
+        end_date: 종료일 (선택사항)
+    
+    Returns:
+        출장 신청 데이터 리스트
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 조회 건너뜀")
+        return []
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 조회를 건너뜀")
+        return []
+    
+    query = "SELECT * FROM business_trip WHERE 1=1"
+    params = []
+    
+    if employee_id:
+        query += " AND employee_id = %s"
+        params.append(employee_id)
+    
+    if start_date:
+        query += " AND start_time = %s"
+        params.append(start_date)
+    
+    if end_date:
+        query += " AND end_time = %s"
+        params.append(end_date)
+    
+    query += " ORDER BY created_at DESC LIMIT 10"
+    
+    results = execute_query(query, tuple(params) if params else None)
+    
+    if results:
+        print(f"✅ 출장 신청 데이터 조회 성공: {len(results)}개")
+    else:
+        print(f"⚠️ 출장 신청 데이터 조회 결과 없음")
+    
+    return results if results else []
+
+
+def save_business_trip_request(
+    employee_id: int,
+    destination: str,
+    purpose: str,
+    start_date: str,
+    end_date: str,
+    reason: str,
+    request_date: Optional[str] = None,
+    status: str = "대기"
+) -> Optional[int]:
+    """business_trip 테이블에 출장 신청 데이터를 저장합니다.
+    
+    Args:
+        employee_id: 직원 ID
+        destination: 출장지
+        purpose: 출장 목적 (trip_title 컬럼에 저장)
+        start_date: 시작일 (YYYY-MM-DD 형식)
+        end_date: 종료일 (YYYY-MM-DD 형식)
+        reason: 출장 사유 (trip_purpose 컬럼에 저장)
+        request_date: 신청일 (YYYY-MM-DD 형식, 사용하지 않음, created_at으로 대체)
+        status: 상태 (기본값: "대기")
+    
+    Returns:
+        저장된 id (AUTO_INCREMENT) 또는 None (실패 시)
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 저장 건너뜀")
+        return None
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 저장을 건너뜀")
+        return None
+    
+    from datetime import datetime, date, timedelta
+    
+    # 신청일 설정
+    if not request_date:
+        request_date = date.today().isoformat()
+    
+    # 출장 일수 계산
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        # 출장 일수 계산 (주말 포함)
+        total_days = 0
+        current = start
+        while current <= end:
+            total_days += 1
+            current = current + timedelta(days=1)
+    except Exception as e:
+        print(f"⚠️ 출장 일수 계산 실패: {e}, 기본값 1일 사용")
+        total_days = 1
+    
+    # SQL 쿼리 (실제 테이블 구조에 맞게 수정)
+    # business_trip 테이블 구조: trip_id(PK), document_id, employee_id, trip_title, trip_purpose,
+    # destination, start_time, end_time, status, created_at, alert_time
+    # created_at은 TIMESTAMP이고 default가 current_timestamp이므로 명시적으로 설정하지 않음
+    query = """
+    INSERT INTO business_trip (
+        employee_id,
+        destination,
+        trip_title,
+        trip_purpose,
+        start_time,
+        end_time,
+        status,
+        document_id
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s, NULL
+    )
+    """
+    
+    # status가 없으면 기본값 'REQUESTED' 사용
+    final_status = status if status else 'REQUESTED'
+    
+    params = (
+        employee_id,
+        destination,
+        purpose,  # trip_title에 저장 (출장 목적)
+        reason,  # trip_purpose에 저장 (출장 사유)
+        start_date,
+        end_date,
+        final_status
+    )
+    
+    try:
+        print(f"💾 [business_trip] 출장 신청 데이터 저장 시도...")
+        print(f"  - employee_id: {employee_id}")
+        print(f"  - destination: {destination}")
+        print(f"  - trip_title (출장 목적): {purpose}")
+        print(f"  - start_time: {start_date}")
+        print(f"  - end_time: {end_date}")
+        print(f"  - status: {status}")
+        print(f"  - trip_purpose (출장 사유): {reason}")
+        
+        connection = pymysql.connect(**db_config)
+        
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            connection.commit()
+            inserted_id = cursor.lastrowid
+            print(f"✅ [business_trip] 출장 신청 데이터 저장 성공: id={inserted_id}")
+            return inserted_id
+            
+    except Exception as e:
+        print(f"❌ [business_trip] 출장 신청 데이터 저장 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    finally:
+        if connection:
+            connection.close()
