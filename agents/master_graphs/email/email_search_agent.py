@@ -1093,7 +1093,7 @@ def _message_to_text(msg, max_lines: Optional[int] = 5) -> str:
 # 세션별 이메일 검색 결과 캐시 (멀티턴 대화 지원)
 # DEPRECATED: 이제 Redis 숏텀 메모리(OrchestratorState.email_search_context)를 사용합니다.
 # 하위 호환성을 위해 유지되지만, 새 코드에서는 사용하지 마세요.
-# {session_id: {"ids": [], "items": [], "last_keyword": ""}}
+# {session_id: {"ids": [], "items": [], "index_map": {}, "last_keyword": ""}}
 _EMAIL_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
 _EMAIL_SESSION_ID: Optional[str] = None
 
@@ -1132,6 +1132,7 @@ def _get_email_cache(session_id: Optional[str] = None, state: Optional[Dict[str,
 		_EMAIL_SEARCH_CACHE[sid] = {
 			"ids": [],
 			"items": [],
+			"index_map": {},
 			"last_keyword": ""
 		}
 	return _EMAIL_SEARCH_CACHE[sid]
@@ -2034,6 +2035,7 @@ async def email_search(
 		cache = _get_email_cache(session_id, state)
 		cache["ids"] = [item["email_id"] for item in items]
 		cache["items"] = items
+		cache["index_map"] = {i + 1: i for i in range(len(items))}
 		cache["last_keyword"] = query
 		updated_state = _save_email_cache(cache, session_id, state)
 		if updated_state and state:
