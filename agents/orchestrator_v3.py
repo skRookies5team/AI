@@ -312,6 +312,7 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"✅ 1단계 분류 (LLM fallback): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
         _routing_logger.info(f"[1단계 분류 LLM fallback] {step_elapsed:.2f}ms, confidence={result.confidence:.2f}")
+
         return {
             "is_workflow_request": result.is_workflow_request,
             "confidence": result.confidence
@@ -320,6 +321,7 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
         _routing_logger.warning(f"[1단계 분류 실패] {step_elapsed:.2f}ms, error={str(e)}")
+
         return {"is_workflow_request": False, "confidence": 0.5}
 
 

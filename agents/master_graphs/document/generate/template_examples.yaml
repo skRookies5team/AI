@@ -514,4 +514,50 @@ templates:
           </div>
       </div>
 
-
+  business_trip_request_form:
+    title: "출장 신청서"
+    example: |
+      <div style="font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; line-height: 1.6;">
+          <div style="font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;">
+              📋 <strong>출장 신청서 작성 예시</strong>
+          </div>
+          
+          <div style="color: #495057; margin-bottom: 20px;">
+              다음 형식을 참고하여 제목과 요구사항을 입력해주세요:
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">입력 형식:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 12px 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px; color: #2c3e50;">
+                  제목: [문서 제목]<br>
+                  요구사항: [상세 요구사항]
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 1:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 2024년 서울 출장 신청서
+      요구사항:
+      - 출장지: 서울
+      - 출장 목적: 고객 미팅
+      - 출장 기간: 2024년 3월 15일 ~ 2024년 3월 17일
+      - 출장 사유: 주요 고객사와의 계약 협상
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 2:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 부산 출장 신청서
+      요구사항:
+      출장지: 부산, 출장 목적: 전시회 참관, 출장 기간: 2024년 4월 10일 ~ 2024년 4월 12일
+      출장 사유: IT 전시회 참관 및 신제품 홍보
+              </div>
+          </div>
+          
+          <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 12px; margin-top: 20px; color: #004085;">
+              💡 위 예시를 참고하여 <strong>제목</strong>과 <strong>요구사항</strong>을 입력해주세요!
+              <br>💡 신청자 정보는 로그인한 사용자 정보로 자동 설정됩니다.
+          </div>
+      </div>

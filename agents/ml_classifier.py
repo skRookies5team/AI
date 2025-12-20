@@ -119,6 +119,7 @@ def _check_model_files(model_path: Path) -> bool:
             if not _warning_shown:
                 print(f"⚠️ [ML 모델] 필수 파일이 없습니다: {model_path / file}")
                 logger.warning(f"ML 모델 필수 파일이 없습니다: {file} (경로: {model_path})")
+
             return False
     
     # 가중치 파일 확인 (여러 패턴 시도)
@@ -129,6 +130,7 @@ def _check_model_files(model_path: Path) -> bool:
     for f in ["pytorch_model.bin", "model.safetensors"]:
         if (model_path / f).exists():
             has_weight = True
+
             found_weight_file = f
             break
     
@@ -137,6 +139,7 @@ def _check_model_files(model_path: Path) -> bool:
         index_file = model_path / "pytorch_model.bin.index.json"
         if index_file.exists():
             has_weight = True
+
             found_weight_file = "pytorch_model.bin.index.json"
     
     # 3. 다른 가능한 위치 확인 (하위 디렉토리)
@@ -201,6 +204,7 @@ def load_model() -> bool:
         
         _model_path = model_path
         print(f"🔍 [ML 모델] 모델 경로 확인: {model_path}")
+
         
         # 모델 파일 확인
         if not _check_model_files(model_path):
@@ -212,6 +216,7 @@ def load_model() -> bool:
             from transformers import AutoTokenizer, AutoModelForSequenceClassification
         except ImportError:
             if not _warning_shown:
+
                 print("⚠️ [ML 모델] transformers 라이브러리가 설치되지 않았습니다.")
                 print("   설치 명령: pip install transformers")
                 print("   LLM fallback을 사용합니다.")
@@ -228,12 +233,14 @@ def load_model() -> bool:
         _model.eval()
         
         _model_loaded = True
+
         print("✅ [ML 모델] 모델 로드 완료 - 빠른 분류 사용 가능")
         logger.info("✅ ML 모델 로드 완료 - 빠른 분류 사용 가능")
         return True
         
     except Exception as e:
         if not _warning_shown:
+
             print(f"❌ [ML 모델] 모델 로드 실패: {e}")
             print(f"   LLM fallback을 사용합니다.")
             logger.error(f"ML 모델 로드 실패: {e}", exc_info=True)

@@ -8,6 +8,10 @@ from .monthly_profit_analysis import extract_monthly_profit_analysis_fields
 from .activity_based_costing import extract_activity_based_costing_fields
 from .hr_summary_report import extract_hr_summary_report_fields
 from .vacation_request import extract_vacation_request_fields
+<<<<<<< HEAD
+=======
+from .business_trip_request import extract_business_trip_request_fields
+>>>>>>> origin/dev
 
 __all__ = [
     'extract_product_development_fields',
@@ -18,6 +22,10 @@ __all__ = [
     'extract_activity_based_costing_fields',
     'extract_hr_summary_report_fields',
     'extract_vacation_request_fields',
+<<<<<<< HEAD
+=======
+    'extract_business_trip_request_fields',
+>>>>>>> origin/dev
 ]
 
 # 템플릿 이름과 추출 함수 매핑
@@ -30,5 +38,9 @@ TEMPLATE_EXTRACTORS = {
     'activity_based_costing': extract_activity_based_costing_fields,
     'hr_summary_report': extract_hr_summary_report_fields,
     'vacation_request_form': extract_vacation_request_fields,
+<<<<<<< HEAD
+=======
+    'business_trip_request_form': extract_business_trip_request_fields,
+>>>>>>> origin/dev
 }
 
