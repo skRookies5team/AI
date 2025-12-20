@@ -1,0 +1,284 @@
+{
+  "metadata": {
+    "created_at": "2025-12-19T15:42:10.785095",
+    "total_samples": 44,
+    "business_trip_samples": 22,
+    "none_samples": 22,
+    "description": "2단계 워크플로우 타입 분류 데이터셋 (KLUE-RoBERTa/SetFit 최적화)",
+    "classification_type": "multiclass",
+    "models": [
+      "KLUE-RoBERTa",
+      "SetFit"
+    ],
+    "classes": {
+      "0": "business_trip",
+      "1": "none"
+    }
+  },
+  "samples": [
+    {
+      "query": "오늘 3일간 부산로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 일주일간 제주도로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "근무제도 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "이번 주 일주일간 제주도로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 점심 메뉴 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "논문 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 일주일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "인재 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청해줘",
+      "workflow_type": "business_trip",
+      "confidence": 0.95,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 대구로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 절차 알려주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 삭제해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 서울로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 취소해주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가규정 확인해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 점심 메뉴 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 신청서 양식 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "공급업체 평가서 작성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 방법 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 부산로 출장 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청 절차 찾아줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "휴가 변경해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "오늘 3일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 부산로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 일주일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 부산로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "다음 주 3일간 서울로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 취소",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 절차 방법은?",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 일주일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "휴가 규정 조회해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "출장 신청 절차 알려줘",
+      "workflow_type": null,
+      "confidence": 0.85,
+      "label": 1
+    },
+    {
+      "query": "휴가 일정 알려줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 제주도로 워크샵 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "발주서 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "내일 3일간 대구로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 3일간 서울로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 제주도로 워크샵 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "오늘 일주일간 서울로 휴가 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "월별 수익 분석 리포트 생성해줘",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    },
+    {
+      "query": "다음 주 3일간 부산로 출장 다녀올게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "내일 3일간 제주도로 휴가 갈게",
+      "workflow_type": "business_trip",
+      "confidence": 0.9,
+      "label": 0
+    },
+    {
+      "query": "출장 신청서 양식 보여주세요",
+      "workflow_type": null,
+      "confidence": 0.95,
+      "label": 1
+    }
+  ]
+}

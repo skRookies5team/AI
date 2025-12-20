@@ -23,6 +23,7 @@ sub_agents:
       - "활동 기준 원가 계산서 작성"
       - "근무 평가서 작성"
       - "휴가 신청서 작성"
+      - "출장 신청서 작성"
     templates:
       - "hr_summary_report"  # 인사정보 요약 리포트
       - "product_comparison"  # 제품 비교표
@@ -32,6 +33,7 @@ sub_agents:
       - "activity_based_costing"  # 활동 기준 원가
       - "work_performance_review"  # 근무 평가서
       - "vacation_request_form"  # 휴가 신청서
+      - "business_trip_request_form"  # 출장 신청서
     keywords:
       positive:
         - "문서"
@@ -45,6 +47,7 @@ sub_agents:
         - "휴가"
         - "연차"
         - "반차"
+        - "출장"
         - "신청서"
       negative:
         - "이메일 자동응답"  # 이건 email 도메인으로
@@ -56,6 +59,8 @@ sub_agents:
       - "휴가 신청서 작성해줘"
       - "연차 신청서 만들어줘"
       - "반차 신청서 생성"
+      - "출장 신청서 작성해줘"
+      - "출장 신청서 만들어줘"
   update_document:
     description: "문서 업데이트 (복리후생/식단/메뉴얼/이력서)"
     features: |
@@ -202,6 +207,7 @@ classification_criteria: |
   - update_document: 문서 업데이트 (복리후생/식단/메뉴얼/이력서)
   - email_auto_reply: 이메일, 메일, 자동응답 관련 (참고: 실제로는 email 도메인으로 라우팅)
 output_format: '{"intent": "doc_generate|update_document|email_auto_reply"}'
+
 
 
 
