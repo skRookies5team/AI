@@ -36,3 +36,6 @@ build/
 dist/
 
 .idea
+
+# ML 모델 파일 (프로젝트 루트의 models/만 무시)
+/models/
