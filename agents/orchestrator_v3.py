@@ -31,6 +31,7 @@ from agents.redis_optimizer import optimize_state_before_save
 from agents.domain_node_handler import process_domain_node_result
 from agents.utils import check_detailed_response_in_history, get_clarification_message
 from agents.history_check_handler import detect_history_check_query, handle_history_check_query
+from agents.ml_classifier import classify_workflow_request, is_model_available
 from agents.master_graphs import (
     get_schedule_master_graph,
     get_document_master_graph,
@@ -248,6 +249,8 @@ def load_workflow_classification_config() -> Dict[str, Any]:
 async def classify_request_type(query: str) -> Dict[str, Any]:
     """1단계: 사용자 요청을 워크플로우 요청과 일반 요청으로 분류합니다.
     
+    ML 모델을 우선 사용하고, ML 모델이 사용 불가능하거나 실패하면 LLM fallback을 사용합니다.
+    
     Args:
         query: 사용자 쿼리
         
@@ -255,6 +258,32 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         {'is_workflow_request': bool, 'confidence': float}
     """
     step_start = time.time()
+    
+    # 1. ML 모델 사용 가능 여부 확인 및 분류 시도
+    model_available = is_model_available()
+    if not model_available:
+        print(f"ℹ️ [1단계 분류] ML 모델을 사용할 수 없습니다. LLM fallback을 사용합니다.")
+    
+    if model_available:
+        try:
+            ml_result = classify_workflow_request(query)
+            step_elapsed = (time.time() - step_start) * 1000
+            
+            if ml_result.get("method") == "ml":
+                print(f"✅ 1단계 분류 (ML 모델): {'워크플로우' if ml_result['is_workflow_request'] else '일반 요청'} (신뢰도: {ml_result['confidence']:.2f}, {step_elapsed/1000:.2f}초)")
+                _routing_logger.info(f"[1단계 분류 ML 모델] {step_elapsed:.2f}ms, confidence={ml_result['confidence']:.2f}")
+                return {
+                    "is_workflow_request": ml_result["is_workflow_request"],
+                    "confidence": ml_result["confidence"]
+                }
+            else:
+                # ML 모델 fallback (모델 로드 실패 등)
+                print(f"⚠️ [1단계 분류] ML 모델 fallback 감지 (method={ml_result.get('method')}), LLM으로 전환")
+        except Exception as e:
+            print(f"⚠️ [1단계 분류] ML 모델 분류 중 오류 발생: {e}, LLM으로 fallback")
+            _routing_logger.warning(f"[1단계 분류 ML 모델 실패] error={str(e)}")
+    
+    # 2. LLM fallback (ML 모델이 사용 불가능하거나 실패한 경우)
     classification_config = load_workflow_classification_config()
     request_classification = classification_config.get("request_classification", {})
     
@@ -281,7 +310,8 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         )
         
         step_elapsed = (time.time() - step_start) * 1000
-        print(f"✅ 1단계 분류: {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
+        print(f"✅ 1단계 분류 (LLM fallback): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
+        _routing_logger.info(f"[1단계 분류 LLM fallback] {step_elapsed:.2f}ms, confidence={result.confidence:.2f}")
         return {
             "is_workflow_request": result.is_workflow_request,
             "confidence": result.confidence
@@ -289,6 +319,7 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
     except Exception as e:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
+        _routing_logger.warning(f"[1단계 분류 실패] {step_elapsed:.2f}ms, error={str(e)}")
         return {"is_workflow_request": False, "confidence": 0.5}
 
 

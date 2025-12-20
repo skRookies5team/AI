@@ -117,16 +117,19 @@ def _check_model_files(model_path: Path) -> bool:
     for file in required_files:
         if not (model_path / file).exists():
             if not _warning_shown:
-                logger.debug(f"필수 파일이 없습니다: {file}")
+                print(f"⚠️ [ML 모델] 필수 파일이 없습니다: {model_path / file}")
+                logger.warning(f"ML 모델 필수 파일이 없습니다: {file} (경로: {model_path})")
             return False
     
     # 가중치 파일 확인 (여러 패턴 시도)
     has_weight = False
+    found_weight_file = None
     
     # 1. 일반 모델 파일 확인
     for f in ["pytorch_model.bin", "model.safetensors"]:
         if (model_path / f).exists():
             has_weight = True
+            found_weight_file = f
             break
     
     # 2. Sharded 모델 확인 (여러 파일로 나뉜 경우)
@@ -134,6 +137,7 @@ def _check_model_files(model_path: Path) -> bool:
         index_file = model_path / "pytorch_model.bin.index.json"
         if index_file.exists():
             has_weight = True
+            found_weight_file = "pytorch_model.bin.index.json"
     
     # 3. 다른 가능한 위치 확인 (하위 디렉토리)
     if not has_weight:
@@ -142,15 +146,22 @@ def _check_model_files(model_path: Path) -> bool:
                 for f in ["pytorch_model.bin", "model.safetensors"]:
                     if (subdir / f).exists():
                         has_weight = True
+                        found_weight_file = str(subdir / f)
                         break
                 if has_weight:
                     break
     
     if not has_weight:
         if not _warning_shown:
-            logger.debug("ML 모델 가중치 파일이 없습니다. LLM fallback을 사용합니다.")
+            print(f"⚠️ [ML 모델] 가중치 파일이 없습니다. 경로: {model_path}")
+            print(f"   찾는 파일: pytorch_model.bin 또는 model.safetensors")
+            print(f"   LLM fallback을 사용합니다.")
+            logger.warning(f"ML 모델 가중치 파일이 없습니다. 경로: {model_path}, LLM fallback을 사용합니다.")
             _warning_shown = True
         return False
+    
+    if not _warning_shown and found_weight_file:
+        print(f"✅ [ML 모델] 모델 파일 확인 완료: {found_weight_file}")
     
     return True
 
@@ -170,11 +181,26 @@ def load_model() -> bool:
         model_path = _get_model_path()
         if not model_path:
             if not _warning_shown:
-                logger.debug("ML 모델 디렉토리를 찾을 수 없습니다: models/")
+                print("⚠️ [ML 모델] 모델 디렉토리를 찾을 수 없습니다.")
+                print("   확인한 경로:")
+                current_file = Path(__file__)
+                project_root = current_file.parent.parent
+                possible_paths = [
+                    project_root / "models",
+                    project_root / "step1_klue_roberta_final",
+                    project_root / "step1_klue_roberta_model",
+                    project_root / "models" / "step1_klue_roberta_final",
+                ]
+                for path in possible_paths:
+                    exists = "✅" if path.exists() else "❌"
+                    print(f"   {exists} {path}")
+                print("   LLM fallback을 사용합니다.")
+                logger.warning("ML 모델 디렉토리를 찾을 수 없습니다.")
                 _warning_shown = True
             return False
         
         _model_path = model_path
+        print(f"🔍 [ML 모델] 모델 경로 확인: {model_path}")
         
         # 모델 파일 확인
         if not _check_model_files(model_path):
@@ -186,12 +212,15 @@ def load_model() -> bool:
             from transformers import AutoTokenizer, AutoModelForSequenceClassification
         except ImportError:
             if not _warning_shown:
+                print("⚠️ [ML 모델] transformers 라이브러리가 설치되지 않았습니다.")
+                print("   설치 명령: pip install transformers")
+                print("   LLM fallback을 사용합니다.")
                 logger.warning("transformers 라이브러리가 설치되지 않았습니다. pip install transformers")
                 _warning_shown = True
             return False
         
         # 모델 및 토크나이저 로드
-        logger.debug(f"ML 모델 로드 중: {model_path}")
+        print(f"📦 [ML 모델] 모델 로드 중: {model_path}")
         _tokenizer = AutoTokenizer.from_pretrained(str(model_path))
         _model = AutoModelForSequenceClassification.from_pretrained(str(model_path))
         
@@ -199,12 +228,15 @@ def load_model() -> bool:
         _model.eval()
         
         _model_loaded = True
+        print("✅ [ML 모델] 모델 로드 완료 - 빠른 분류 사용 가능")
         logger.info("✅ ML 모델 로드 완료 - 빠른 분류 사용 가능")
         return True
         
     except Exception as e:
         if not _warning_shown:
-            logger.debug(f"ML 모델 로드 실패: {e}")
+            print(f"❌ [ML 모델] 모델 로드 실패: {e}")
+            print(f"   LLM fallback을 사용합니다.")
+            logger.error(f"ML 모델 로드 실패: {e}", exc_info=True)
             _warning_shown = True
         _model_loaded = False
         return False
