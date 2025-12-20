@@ -87,6 +87,7 @@ def doc_generate(
                 # 제품 비교표는 제품개발보다 먼저 체크 (더 구체적인 키워드)
                 "product_comparison_table": ["제품 비교표", "제품 비교", "제품성능 비교", "성능 비교", "비교표", "제품비교", "비교 대상", "비교 목적"],
                 "vacation_request_form": ["휴가 신청서", "휴가 신청", "연차 신청", "반차 신청", "휴가", "연차", "반차", "병가", "경조사", "출산휴가", "육아휴직"],
+                "business_trip_request_form": ["출장 신청서", "출장 신청", "출장", "출장서", "출장 신청서"],
                 "product_development_plan": ["제품개발", "신제품", "개발계획", "제품개발 계획서"],
                 "purchase_order": ["발주", "구매", "주문", "발주서"],
                 "hr_summary_report": ["인사", "인력", "직원", "인사정보"],
@@ -250,13 +251,17 @@ def doc_generate(
     
     # 1단계: 템플릿 로드
     print("📋 [1/3] 템플릿 로드 중...")
+    print(f"🔍 템플릿 이름: {template_name}")
     template_html = document_utils.load_template(template_name)
     if not template_html:
+        print(f"❌ 템플릿 파일을 찾을 수 없습니다: {template_name}")
+        print(f"💡 예상 경로: templates/{template_name}.html")
         return {
             "ok": False,
             "message": f"템플릿 파일을 찾을 수 없습니다: {template_name}",
             "error": "template_not_found"
         }
+    print(f"✅ 템플릿 로드 성공: {template_name} ({len(template_html)} 문자)")
     
     # 템플릿 구조 추출
     template_structure = document_utils.extract_template_structure(template_html)
@@ -512,6 +517,35 @@ def doc_generate(
                     db_data=db_data,
                     employee_id=employee_id
                 )
+            elif template_name == "business_trip_request_form":
+                # employee_id를 orchestrator_state에서 가져오기 (로그인한 사용자)
+                employee_id = None
+                if orchestrator_state:
+                    # state에서 employee_id 가져오기 (최우선)
+                    employee_id = orchestrator_state.get("employee_id")
+                    print(f"🔍 [business_trip_request_form] orchestrator_state에서 employee_id 확인: {employee_id}")
+                    
+                    # employee_id가 없으면 user_id에서 추출 시도
+                    if not employee_id:
+                        user_id = orchestrator_state.get("user_id")
+                        if user_id:
+                            try:
+                                employee_id = int(user_id)
+                                print(f"🔍 [business_trip_request_form] user_id에서 employee_id 추출: {employee_id}")
+                            except (ValueError, TypeError):
+                                print(f"⚠️ [business_trip_request_form] user_id를 employee_id로 변환 실패: {user_id}")
+                
+                if not employee_id:
+                    print(f"⚠️ [business_trip_request_form] employee_id를 찾을 수 없습니다. 로그인 정보가 필요합니다.")
+                
+                # extractor_func 호출 (employee_id 전달)
+                extractor_func(
+                    field_values, 
+                    requirements, 
+                    document_title, 
+                    db_data=db_data,
+                    employee_id=employee_id
+                )
             elif template_name == "product_comparison_table":
                 # db_product_data가 None이거나 빈 리스트여도 extractor_func 호출 (기본 comparisonTable 생성)
                 extractor_func(field_values, requirements, document_title, db_data=db_product_data if db_product_data else None)
@@ -604,6 +638,15 @@ def doc_generate(
                 'document_title': document_title,
                 'departmentName': '인사팀',
                 'codeNumber': 'HR-001',
+            }
+        elif template_name == "business_trip_request_form":
+            field_values = {
+                'document_title': document_title,
+                'destination': '',
+                'purpose': '',
+                'startDate': '',
+                'endDate': '',
+                'reason': '',
             }
         else:
             field_values = {
@@ -776,6 +819,73 @@ def doc_generate(
                 print(f"⚠️ [vacation_request_form] 휴가 기간 정보가 없어 leave_request 테이블에 저장하지 않음")
         else:
             print(f"⚠️ [vacation_request_form] employee_id를 찾을 수 없어 leave_request 테이블에 저장하지 않음")
+    
+    # 출장 신청서인 경우 business_trip 테이블에 저장
+    if template_name == "business_trip_request_form":
+        # employee_id 가져오기
+        employee_id = None
+        if orchestrator_state:
+            employee_id = orchestrator_state.get("employee_id")
+            if not employee_id:
+                user_id = orchestrator_state.get("user_id")
+                if user_id:
+                    try:
+                        employee_id = int(user_id)
+                    except (ValueError, TypeError):
+                        pass
+        
+        if employee_id:
+            # field_values에서 출장 정보 추출
+            destination = field_values.get('destination', '')
+            purpose = field_values.get('purpose', '')
+            start_date = field_values.get('startDate')
+            end_date = field_values.get('endDate')
+            reason = field_values.get('reason', '')
+            request_date = field_values.get('requestDate')
+            
+            # 디버깅: 필드 값 확인
+            print(f"🔍 [business_trip_request_form] 저장 전 필드 값 확인:")
+            print(f"  - destination: {destination}")
+            print(f"  - purpose: {purpose}")
+            print(f"  - start_date: {start_date}")
+            print(f"  - end_date: {end_date}")
+            print(f"  - reason: {reason}")
+            print(f"  - request_date: {request_date}")
+            print(f"  - employee_id: {employee_id}")
+            
+            # 필수 정보가 있으면 저장
+            if start_date and end_date and destination:
+                from .db_connector import save_business_trip_request
+                
+                saved_id = save_business_trip_request(
+                    employee_id=employee_id,
+                    destination=destination,
+                    purpose=purpose,  # trip_title에 저장 (출장 목적)
+                    start_date=start_date,
+                    end_date=end_date,
+                    reason=reason,  # trip_purpose에 저장 (출장 사유)
+                    request_date=request_date,
+                    status="대기"
+                )
+                
+                if saved_id:
+                    print(f"✅ [business_trip_request_form] business_trip 테이블에 저장 완료: id={saved_id}")
+                    field_values['business_trip_request_id'] = saved_id
+                else:
+                    print(f"⚠️ [business_trip_request_form] business_trip 테이블 저장 실패")
+            else:
+                missing_info = []
+                if not start_date:
+                    missing_info.append('start_date')
+                if not end_date:
+                    missing_info.append('end_date')
+                if not destination:
+                    missing_info.append('destination')
+                print(f"⚠️ [business_trip_request_form] 필수 정보 누락으로 business_trip 테이블에 저장하지 않음: {missing_info}")
+                print(f"   현재 값: start_date={start_date}, end_date={end_date}, destination={destination}")
+                print(f"   field_values 전체: {list(field_values.keys())}")
+        else:
+            print(f"⚠️ [business_trip_request_form] employee_id를 찾을 수 없어 business_trip 테이블에 저장하지 않음")
     
     print(f"💾 Redis 컨텍스트에 저장 완료:")
     print(f"   - 템플릿: {template_name}")
