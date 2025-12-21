@@ -189,13 +189,37 @@ class DocumentMasterGraph(BaseMasterGraph):
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
         
+        # 디버깅: Step 2에서 받은 workflow_temp_data 확인
+        print(f"🔍 [Step 2] state에서 받은 workflow_temp_data: {workflow_temp_data}")
+        print(f"🔍 [Step 2] workflow_temp_data keys: {list(workflow_temp_data.keys())}")
+        
         # 워크플로우 모드이고 business_trip 워크플로우인 경우
         if workflow_in_progress and workflow_type == "business_trip":
-            # 출장 사유 확인
+            # workflow_temp_data에서 필요한 정보 확인
+            start_time_str = workflow_temp_data.get("start_time")
+            end_time_str = workflow_temp_data.get("end_time")
             description = workflow_temp_data.get("description") or query.strip()
+            destination = workflow_temp_data.get("destination", "")
             
-            # 출장 사유가 없거나 너무 짧으면 재요청
+            # 디버깅: 각 필드 확인
+            print(f"🔍 [Step 2] start_time_str: {start_time_str}")
+            print(f"🔍 [Step 2] end_time_str: {end_time_str}")
+            print(f"🔍 [Step 2] destination: {destination}")
+            print(f"🔍 [Step 2] description: {description}")
+            
+            # 필요한 값들 확인 및 누락된 값 수집
+            missing_fields = []
+            if not start_time_str:
+                missing_fields.append("출장 시작일")
+            if not end_time_str:
+                missing_fields.append("출장 종료일")
             if not description or len(description.strip()) < 3:
+                missing_fields.append("출장 사유")
+            if not destination or len(destination.strip()) < 1:
+                missing_fields.append("출장지")
+            
+            # 누락된 값이 있으면 HITL로 요청
+            if missing_fields:
                 buttons_html = """
 <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
     <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
@@ -203,7 +227,8 @@ class DocumentMasterGraph(BaseMasterGraph):
     </button>
 </div>
 """
-                question = "출장 사유를 알려주세요.\n예: 거래처 미팅, 워크샵, 고객 방문 등" + buttons_html
+                missing_list = "\n".join([f"- {field}" for field in missing_fields])
+                question = f"출장 신청서 작성을 위해 다음 정보가 필요합니다:\n{missing_list}\n\n위 정보를 알려주세요." + buttons_html
                 return {
                     "final_response": question,
                     "messages": [question],
@@ -212,30 +237,42 @@ class DocumentMasterGraph(BaseMasterGraph):
                     "requires_input": True,
                 }
             
-            # workflow_temp_data에 description 저장
-            workflow_temp_data["description"] = description
+            # workflow_temp_data에 description 저장 (query에서 온 경우)
+            if description and description != query.strip():
+                workflow_temp_data["description"] = description
+            elif description:
+                workflow_temp_data["description"] = description
             
             # 템플릿명 설정 (출장 신청서)
             template_name = "business_trip_request_form"
             
-            # workflow_temp_data에서 정보 가져오기
-            start_time_str = workflow_temp_data.get("start_time")
-            end_time_str = workflow_temp_data.get("end_time")
             title = workflow_temp_data.get("title", "출장")
-            destination = workflow_temp_data.get("destination", "")
+            description = workflow_temp_data.get("description", "")
+            
+            # 출장 사유 구성: title과 description을 조합
+            # title: description 형식 (예: "제주도 출장: 거래처 미팅")
+            if title and description:
+                trip_reason = f"{title}: {description}"
+            elif title:
+                trip_reason = title
+            elif description:
+                trip_reason = description
+            else:
+                trip_reason = "출장"
             
             # 요구사항 구성
             requirements = f"출장 기간: {start_time_str} ~ {end_time_str}\n"
             if destination:
                 requirements += f"목적지: {destination}\n"
-            requirements += f"출장 사유: {description}\n"
+            requirements += f"출장 사유: {trip_reason}\n"
             requirements += f"제목: {title}"
             
             document_title = title
             
             print(f"✅ [워크플로우 모드] 출장 신청서 작성: {title}")
             print(f"   기간: {start_time_str} ~ {end_time_str}")
-            print(f"   사유: {description}")
+            print(f"   목적지: {destination}")
+            print(f"   사유: {trip_reason}")
         else:
             # 일반 모드 (기존 로직)
             # Redis 기반 컨텍스트 초기화
@@ -369,30 +406,37 @@ class DocumentMasterGraph(BaseMasterGraph):
             }
         
         # 제목과 요구사항이 모두 없으면 예시문 반환 (모든 템플릿에 적용)
+        # 단, 워크플로우 모드에서는 예시문을 출력하지 않음
         if not document_title and not requirements:
-            from agents.master_graphs.document.generate.template_examples import get_template_example, get_template_title
-            
-            example_text = get_template_example(template_name)
-            template_title = get_template_title(template_name) or template_name
-            
-            if example_text:
-                response_message = example_text  # 예시문에 이미 안내 메시지가 포함되어 있음
-                print(f"📋 {template_title} 작성 예시문 반환 (Human-in-the-loop)")
+            # 워크플로우 모드에서는 템플릿 예시를 출력하지 않음
+            if workflow_in_progress and workflow_type == "business_trip":
+                print("📋 워크플로우 모드: 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
+                # 워크플로우 모드에서는 여기 도달하지 않아야 함 (위에서 이미 처리됨)
+                # 하지만 안전을 위해 그냥 진행
             else:
-                response_message = f"📋 {template_title} 작성을 시작하시겠어요?\n\n다음 형식으로 제목과 요구사항을 입력해주세요:\n\n```\n제목: [문서 제목]\n요구사항: [상세 요구사항]\n```"
-            
-            from agents.state import Message
-            
-            return {
-                "final_response": response_message,
-                "template_name": template_name,  # 템플릿 정보 유지
-                "requires_input": True,  # 사용자 입력 필요 플래그
-                "conversation_history": [{
-                    "role": "assistant",
-                    "content": response_message,
-                    "timestamp": dt_now.now().isoformat()
-                }]
-            }
+                from agents.master_graphs.document.generate.template_examples import get_template_example, get_template_title
+                
+                example_text = get_template_example(template_name)
+                template_title = get_template_title(template_name) or template_name
+                
+                if example_text:
+                    response_message = example_text  # 예시문에 이미 안내 메시지가 포함되어 있음
+                    print(f"📋 {template_title} 작성 예시문 반환 (Human-in-the-loop)")
+                else:
+                    response_message = f"📋 {template_title} 작성을 시작하시겠어요?\n\n다음 형식으로 제목과 요구사항을 입력해주세요:\n\n```\n제목: [문서 제목]\n요구사항: [상세 요구사항]\n```"
+                
+                from agents.state import Message
+                
+                return {
+                    "final_response": response_message,
+                    "template_name": template_name,  # 템플릿 정보 유지
+                    "requires_input": True,  # 사용자 입력 필요 플래그
+                    "conversation_history": [{
+                        "role": "assistant",
+                        "content": response_message,
+                        "timestamp": dt_now.now().isoformat()
+                    }]
+                }
         
         # DB 데이터 매핑을 위한 정보 추출
         db_data = await self._fetch_db_data_for_template(template_name, query, requirements)

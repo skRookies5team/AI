@@ -16,6 +16,10 @@ from agents.master_graphs.schedule.utils.entity_parser import extract_schedule_e
 from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
 from agents.master_graphs.schedule.models.schedule_models import ScheduleSlotDecision
 from agents.master_graphs.schedule.utils.schedule_slot_manager import analyze_schedule_slots
+from agents.master_graphs.schedule.utils.prompt_loader import (
+    get_sub_agent_prompt,
+    format_prompt_template
+)
 
 
 _scheduler = None
@@ -442,17 +446,18 @@ def _collect_creation_missing(parsed: ParsedScheduleIntent, context: Dict[str, A
 
 def _build_initial_creation_prompt(missing_slots: List[str]) -> str:
     """일정 생성을 위한 초기 프롬프트를 생성한다."""
-    lines = ["일정을 등록하려면 아래 정보가 필요합니다:", ""]
+    # YAML에서 템플릿 로드
+    template = get_sub_agent_prompt("schedule", "initial_creation_template")
     
-    for slot_name in CREATION_SLOT_ORDER:
-        if slot_name in missing_slots:
-            desc = CREATION_SLOT_DESCRIPTIONS.get(slot_name, slot_name)
-            lines.append(f"- {desc}")
+    # 누락된 슬롯 목록 생성
+    missing_slots_list = "\n".join([
+        f"- {CREATION_SLOT_DESCRIPTIONS.get(slot_name, slot_name)}"
+        for slot_name in CREATION_SLOT_ORDER
+        if slot_name in missing_slots
+    ])
     
-    lines.append("")
-    lines.append("차례대로 알려주시면 곧바로 등록을 진행하겠습니다.")
-    
-    return "\n".join(lines)
+    # 템플릿 포맷팅
+    return format_prompt_template(template, missing_slots_list=missing_slots_list)
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:

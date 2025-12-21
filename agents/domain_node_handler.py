@@ -119,6 +119,23 @@ def process_domain_node_result(
         current_step_index = state.get("current_workflow_step_index", 0)
         workflow_completed_steps = state.get("workflow_completed_steps", [])
         
+        # 디버깅: state와 result의 workflow_temp_data 확인
+        print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - state workflow_temp_data: {state.get('workflow_temp_data', {})}")
+        print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - result workflow_temp_data: {result.get('workflow_temp_data', {})}")
+        
+        # workflow_temp_data 유지 (result에 있으면 유지, 없으면 state에서 가져오기)
+        # result의 workflow_temp_data를 우선하되, state의 값도 병합하여 누락 방지
+        if "workflow_temp_data" in result:
+            # result에 있으면 state의 값과 병합 (result 우선)
+            if "workflow_temp_data" in state:
+                merged_temp_data = {**(state.get("workflow_temp_data", {})), **(result.get("workflow_temp_data", {}))}
+                result["workflow_temp_data"] = merged_temp_data
+                print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - 병합된 workflow_temp_data: {merged_temp_data}")
+        else:
+            # result에 없으면 state에서 가져오기
+            result["workflow_temp_data"] = state.get("workflow_temp_data", {})
+            print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - state에서 가져온 workflow_temp_data: {result['workflow_temp_data']}")
+        
         # 사용자 입력이 필요한 경우 (HITL) - 다음 단계로 진행하지 않음
         if requires_input:
             result["next_domain"] = None  # 사용자 입력 대기
@@ -160,6 +177,16 @@ def process_domain_node_result(
                 result["workflow_completed_steps"] = workflow_completed_steps
                 result["workflow_in_progress"] = True
                 result["requires_input"] = False  # 다음 단계로 진행하므로 입력 불필요
+                
+                # workflow_temp_data 유지 (다음 단계로 전달)
+                if "workflow_temp_data" not in result:
+                    result["workflow_temp_data"] = state.get("workflow_temp_data", {})
+                    print(f"🔍 [domain_node_handler] Step {current_step_index + 1} → {next_step_index + 1} - state에서 가져온 workflow_temp_data: {result['workflow_temp_data']}")
+                elif "workflow_temp_data" in state:
+                    # result와 state의 workflow_temp_data 병합 (result 우선)
+                    merged_temp_data = {**(state.get("workflow_temp_data", {})), **(result.get("workflow_temp_data", {}))}
+                    result["workflow_temp_data"] = merged_temp_data
+                    print(f"🔍 [domain_node_handler] Step {current_step_index + 1} → {next_step_index + 1} - 병합된 workflow_temp_data: {merged_temp_data}")
                 
                 # 워크플로우 단계 완료 메시지 추가 (선택적)
                 # step_completion_messages가 workflows.yaml에 정의되어 있으면 사용
@@ -222,6 +249,14 @@ def process_domain_node_result(
                     result["next_domain"] = None  # 사용자 입력 대기
                     result["workflow_completed_steps"] = workflow_completed_steps
                     result["workflow_in_progress"] = True  # 진행 중 유지
+                    
+                    # workflow_temp_data 유지
+                    if "workflow_temp_data" not in result:
+                        result["workflow_temp_data"] = state.get("workflow_temp_data", {})
+                    elif "workflow_temp_data" in state:
+                        merged_temp_data = {**(state.get("workflow_temp_data", {})), **(result.get("workflow_temp_data", {}))}
+                        result["workflow_temp_data"] = merged_temp_data
+                    
                     print(f"⚠️ 워크플로우 진행 중 - 슬롯 채우기 질문 감지, 사용자 입력 대기 (step {current_step_index + 1}/{len(workflow_steps)})")
                 else:
                     # 실제로 모든 단계가 완료된 경우

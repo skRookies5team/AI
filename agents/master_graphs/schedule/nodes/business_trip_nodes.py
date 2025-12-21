@@ -27,34 +27,13 @@ APPLICATION_SLOT_DESCRIPTIONS = {
     "trip_title": "출장 제목 (선택, 없으면 자동 생성)",
 }
 
-# Slot Manager 프롬프트
-BUSINESS_TRIP_SLOT_MANAGER_PROMPT = """당신은 출장 신청 도우미입니다.
+# Slot Manager 프롬프트는 YAML에서 로드
+from agents.master_graphs.schedule.utils.prompt_loader import get_sub_agent_prompt
 
-사용자 입력과 현재까지 수집된 슬롯 정보를 기반으로 다음을 판단하세요:
-1. 필요한 슬롯 중 아직 채워지지 않은 항목을 missing_slots에 명시
-2. 추가 질문이 필요하면 should_ask=True로 설정하고 followup_question에 자연스러운 질문 작성
-3. followup_question은 한 번에 하나의 슬롯만 묻습니다.
-4. 날짜 표현(예: "내일", "12월 25일", "다음주 월요일")이 있으면 start_time과 end_time으로 파싱하세요.
-5. "~까지", "~부터" 같은 표현이 있으면 기간을 정확히 파싱합니다.
-6. 모든 필수 슬롯(start_time, end_time)이 채워졌다면 should_ask=False로 설정하고 action에 "신청"을 지정합니다.
-7. filled_slots에는 현재까지의 슬롯 값을 JSON 형태로 포함합니다.
 
-필수 슬롯:
-- start_time: 출장 시작 일시 (ISO 8601 형식, 예: "2025-01-15T09:00:00")
-- end_time: 출장 종료 일시 (ISO 8601 형식)
-
-권장 슬롯:
-- destination: 출장 목적지
-- trip_purpose: 출장 목적
-- trip_title: 출장 제목 (없으면 자동 생성)
-
-예시:
-- query="다음 주 3일간 제주도로 워크샵 다녀올게"
-  → filled_slots={"start_time": "2025-01-15T09:00:00", "end_time": "2025-01-17T18:00:00", "destination": "제주도", "trip_purpose": "워크샵"}
-- query="1월 15일부터 17일까지 출장 갈게"
-  → filled_slots={"start_time": "2025-01-15T09:00:00", "end_time": "2025-01-17T18:00:00"}
-
-다음 형식의 JSON만 출력하세요."""
+def _get_business_trip_slot_manager_prompt() -> str:
+    """출장 Slot Manager 프롬프트를 YAML에서 로드합니다."""
+    return get_sub_agent_prompt("business_trip", "slot_manager")
 
 
 def _get_scheduler() -> HybridScheduler:
@@ -168,7 +147,8 @@ async def process_business_trip_request(state: OrchestratorState) -> Dict[str, A
     # 8. ParsedIntent 생성
     parsed = await _parse_business_trip_intent(
         query, employee_id, user_id, normalized_action,
-        business_trip_context, awaiting_slots_ctx, slot_decision, slot_state_payload
+        business_trip_context, awaiting_slots_ctx, slot_decision, slot_state_payload,
+        state=state  # state 전달 추가
     )
     
     # 9. slot_decision 적용
@@ -238,7 +218,7 @@ async def _analyze_business_trip_slots(
     """LLM을 사용하여 출장 슬롯을 분석."""
     try:
         # slot_state 정보를 system_prompt에 포함
-        enhanced_prompt = f"""{BUSINESS_TRIP_SLOT_MANAGER_PROMPT}
+        enhanced_prompt = f"""{_get_business_trip_slot_manager_prompt()}
 
 현재 슬롯 상태:
 {slot_state}"""
@@ -421,9 +401,31 @@ async def _parse_business_trip_intent(
     context: Dict[str, Any],
     awaiting_slots: Optional[List[str]],
     slot_decision: Optional[BusinessTripSlotDecision],
-    slot_state_payload: Dict[str, Any]
+    slot_state_payload: Dict[str, Any],
+    state: Optional[Dict[str, Any]] = None  # state 파라미터 추가
 ) -> ParsedBusinessTripIntent:
     """쿼리에서 출장 의도 파싱."""
+    # orchestrator의 현재 시간 가져오기
+    from zoneinfo import ZoneInfo
+    import os
+    
+    current_datetime = None
+    if state:
+        current_datetime_str = state.get("current_datetime")
+        if current_datetime_str:
+            try:
+                current_datetime = datetime.fromisoformat(current_datetime_str)
+                if current_datetime.tzinfo is None:
+                    local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+                    current_datetime = current_datetime.replace(tzinfo=local_tz)
+            except Exception as e:
+                print(f"⚠️ current_datetime 파싱 실패: {e}, datetime.now() 사용")
+                local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+                current_datetime = datetime.now(local_tz)
+    else:
+        local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+        current_datetime = datetime.now(local_tz)
+    
     # 1. 기존 slots에서 정보 추출
     existing_slots = slot_state_payload.get("slots", {})
     
@@ -432,8 +434,11 @@ async def _parse_business_trip_intent(
     end_time = existing_slots.get("end_time")
     
     if action == "신청" and not awaiting_slots:
-        # LLM으로 날짜 파싱
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+        # LLM으로 날짜 파싱 (orchestrator의 현재 시간 전달)
+        start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+            query,
+            current_datetime=current_datetime  # orchestrator의 현재 시간 전달
+        )
         
         if start_date_obj:
             # 시간이 없으면 기본값 설정 (09:00)
@@ -459,9 +464,12 @@ async def _parse_business_trip_intent(
             except ValueError:
                 pass
         
-        # trip_id가 없으면 날짜로 찾기 위해 날짜 파싱
+        # trip_id가 없으면 날짜로 찾기 위해 날짜 파싱 (orchestrator의 현재 시간 전달)
         if not existing_slots.get("trip_id") and not start_time:
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+                query,
+                current_datetime=current_datetime  # orchestrator의 현재 시간 전달
+            )
             if start_date_obj:
                 start_time = start_date_obj
             if end_date_obj:
@@ -893,6 +901,22 @@ async def _handle_workflow_step1_check_conflicts(
     """워크플로우 1단계: 일정 조회 및 날짜 확인."""
     print("--- [Business Trip Workflow] Step 1: 일정 조회 및 날짜 확인 ---")
     
+    # orchestrator에서 전달받은 현재 시간 사용
+    current_datetime_str = state.get("current_datetime")
+    if current_datetime_str:
+        try:
+            current_datetime = datetime.fromisoformat(current_datetime_str)
+            if current_datetime.tzinfo is None:
+                local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+                current_datetime = current_datetime.replace(tzinfo=local_tz)
+        except Exception as e:
+            print(f"⚠️ current_datetime 파싱 실패: {e}, datetime.now() 사용")
+            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+            current_datetime = datetime.now(local_tz)
+    else:
+        local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+        current_datetime = datetime.now(local_tz)
+    
     # workflow_temp_data 초기화
     workflow_temp_data = state.get("workflow_temp_data") or {}
     
@@ -925,12 +949,15 @@ async def _handle_workflow_step1_check_conflicts(
     # 날짜가 없으면 사용자 입력에서 파싱 시도
     if not start_time or not end_time:
         print("🔍 날짜 정보 부족 - 사용자 입력에서 파싱 시도")
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+        start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+            query, 
+            current_datetime=current_datetime  # orchestrator의 현재 시간 전달
+        )
         
         if start_date_obj:
             # 파싱된 날짜가 유효한지 즉시 검증
-            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
-            now = datetime.now(local_tz)
+            # orchestrator의 현재 시간 사용
+            now = current_datetime
             
             if start_date_obj.tzinfo is None:
                 start_date_obj = start_date_obj.replace(tzinfo=local_tz)
@@ -976,8 +1003,9 @@ async def _handle_workflow_step1_check_conflicts(
         }
     
     # 날짜가 정확한지 확인 (미래 날짜인지, 시작일이 종료일보다 이전인지)
+    # orchestrator의 현재 시간 사용
+    now = current_datetime
     local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
-    now = datetime.now(local_tz)
     
     if start_time.tzinfo is None:
         start_time = start_time.replace(tzinfo=local_tz)
@@ -1034,6 +1062,9 @@ async def _handle_workflow_step1_check_conflicts(
     workflow_temp_data["start_time"] = start_time.isoformat()
     workflow_temp_data["end_time"] = end_time.isoformat()
     
+    # 디버깅: 저장된 데이터 확인
+    print(f"🔍 [Step 1] workflow_temp_data 저장 직후: {workflow_temp_data}")
+    
     # 목적지 및 제목 추출
     destination = workflow_temp_data.get("destination") or state.get("destination")
     if not destination:
@@ -1059,6 +1090,10 @@ async def _handle_workflow_step1_check_conflicts(
         else:
             title = "출장"
         workflow_temp_data["title"] = title
+    
+    # 디버깅: 최종 저장된 데이터 확인
+    print(f"🔍 [Step 1] workflow_temp_data 최종 저장: {workflow_temp_data}")
+    print(f"🔍 [Step 1] return에 포함될 workflow_temp_data keys: {list(workflow_temp_data.keys())}")
     
     # 일정 충돌 체크 (날짜가 정확할 때만 수행)
     scheduler = _get_scheduler()

@@ -13,31 +13,48 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
 
+from agents.master_graphs.schedule.utils.prompt_loader import (
+    get_utils_prompt,
+    format_prompt_template
+)
+
 
 LOCAL_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
 
 
-async def parse_korean_date_with_llm(query: str) -> Tuple[Optional[datetime], Optional[datetime]]:
+async def parse_korean_date_with_llm(
+    query: str, 
+    current_datetime: Optional[datetime] = None
+) -> Tuple[Optional[datetime], Optional[datetime]]:
     """한국어 날짜 표현을 파싱하여 datetime 객체로 반환.
     
     Args:
         query: 사용자 쿼리 (예: "내일 오후 2시", "다음주 월요일", "이번 달")
+        current_datetime: 현재 시간 (orchestrator에서 전달, 없으면 datetime.now() 사용)
         
     Returns:
         (시작 datetime, 종료 datetime) 튜플
         날짜가 없으면 (None, None) 반환
     """
+    # orchestrator에서 전달받은 현재 시간 사용, 없으면 기본값 사용
+    if current_datetime is None:
+        now = datetime.now(LOCAL_TIMEZONE)
+    else:
+        # timezone 정보가 없으면 추가
+        if current_datetime.tzinfo is None:
+            now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+        else:
+            now = current_datetime.astimezone(LOCAL_TIMEZONE)
+    
     if not LLM_AVAILABLE:
-        return _fallback_date_parsing(query)
+        return _fallback_date_parsing(query, current_datetime=now)
     
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return _fallback_date_parsing(query)
+        return _fallback_date_parsing(query, current_datetime=now)
     
     try:
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
-
-        now = datetime.now(LOCAL_TIMEZONE)
         today_str = now.strftime("%Y-%m-%d %H:%M")
         today_weekday = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'][now.weekday()]
         
@@ -48,58 +65,28 @@ async def parse_korean_date_with_llm(query: str) -> Tuple[Optional[datetime], Op
         next_monday = now + timedelta(days=days_until_next_monday)
         next_monday_str = next_monday.strftime("%Y-%m-%d")
         
-        prompt = f"""오늘 날짜/시간: {today_str}
-오늘 요일: {today_weekday}
-다음주 월요일: {next_monday_str}
-
-사용자 질문: "{query}"
-
-위 질문에서 날짜와 시간 정보를 정확히 추출하여 JSON으로 반환하세요.
-
-**중요: 시간 해석 규칙**
-- "오후 2시" = 14:00 (14시)
-- "오후 5시" = 17:00 (17시)
-- "오후 7시" = 19:00 (19시)
-- "7시" (단독) = 07:00 또는 19:00 (문맥상 판단, "부터~까지" 패턴에서는 오후로 해석)
-- "~부터 ~까지" 패턴이 있으면 정확히 그 시간 범위를 사용
-
-**날짜 표현 예시:**
-- "오늘" → 오늘 00:00 ~ 23:59
-- "내일" → 내일 00:00 ~ 23:59
-- "내일 오후 2시" → 내일 14:00 ~ 15:00
-- "내일 오후 2시부터 4시까지" → 내일 14:00 ~ 16:00
-- "내일 오후 5시부터 7시까지" → 내일 17:00 ~ 19:00
-- "내일 오후 5시부터 오후 9시까지" → 내일 17:00 ~ 21:00
-- "다음주 월요일" → 다음주 월요일 00:00 ~ 23:59
-- "다음 주 3일간" → 다음주 월요일 00:00 ~ 다음주 수요일 23:59 (월, 화, 수 3일)
-- "다음 주 3일" → 다음주 월요일 00:00 ~ 다음주 수요일 23:59 (월, 화, 수 3일)
-- "다음 주 5일간" → 다음주 월요일 00:00 ~ 다음주 금요일 23:59 (월~금 5일)
-- "이번 주" → 이번주 월요일 00:00 ~ 일요일 23:59
-- "이번 달" → 이번달 1일 00:00 ~ 말일 23:59
-- "12월 25일" → 해당 날짜 00:00 ~ 23:59
-- "12월 25일 오후 2시부터 3시까지" → 12월 25일 14:00 ~ 15:00
-
-**중요: "다음 주 N일간" 패턴 처리**
-- "다음 주 3일간" = 다음주 월요일부터 3일 (월, 화, 수)
-- "다음 주 5일간" = 다음주 월요일부터 5일 (월~금)
-- 항상 다음주 월요일을 시작일로 계산
-- 오늘 날짜({today_str})를 기준으로 정확히 계산하세요
-
-**출력 형식 (JSON만):**
-{{
-    "start_date": "YYYY-MM-DD HH:MM" or null,
-    "end_date": "YYYY-MM-DD HH:MM" or null
-}}
-
-**주의사항:**
-- 반드시 오늘 날짜({today_str})를 기준으로 계산하세요
-- 과거 날짜를 반환하지 마세요 (오늘보다 이전 날짜는 절대 반환 금지)
-- "~부터 ~까지" 패턴이 있으면 반드시 시작/종료 시간을 모두 정확히 추출
-- 종료 시간이 명시되지 않은 경우에만 시작 시간 + 1시간으로 설정
-- 오후/오전을 정확히 해석 (오후 5시 = 17시, 오후 7시 = 19시)
-- 날짜 정보가 없거나 불확실하면 null 반환
-
-JSON만 출력하세요."""
+        # 다음주 수요일 계산 (3일간 예시용)
+        next_wednesday = next_monday + timedelta(days=2)  # 월요일 + 2일 = 수요일
+        next_wednesday_str = next_wednesday.strftime("%Y-%m-%d")
+        
+        # YAML에서 프롬프트 템플릿 로드
+        prompt_template = get_utils_prompt("date_parser", "korean_date_parsing")
+        
+        # 템플릿 변수 준비
+        today_date = today_str.split()[0]  # 날짜 부분만 추출
+        
+        # 프롬프트 포맷팅
+        prompt = format_prompt_template(
+            prompt_template,
+            today_str=today_str,
+            today_weekday=today_weekday,
+            now_year=now.year,
+            now_month=now.month,
+            next_monday_str=next_monday_str,
+            next_wednesday_str=next_wednesday_str,
+            query=query,
+            today_date=today_date
+        )
 
         response = llm.invoke(prompt)
         content = response.content.strip()
@@ -125,40 +112,55 @@ JSON만 출력하세요."""
                         end_date = start_date
                     
                     # 파싱된 날짜가 과거인지 검증 (더 엄격하게)
-                    now = datetime.now(LOCAL_TIMEZONE)
+                    # now는 이미 위에서 정의됨 (orchestrator의 현재 시간 또는 datetime.now())
                     days_diff = (start_date.date() - now.date()).days
                     
-                    # 과거 날짜이거나 너무 오래된 날짜(2024년 이전)면 fallback 사용
-                    if days_diff < 0 or start_date.year < 2024:
-                        print(f"⚠️ LLM이 잘못된 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일)")
-                        print(f"⚠️ Fallback 파싱으로 전환")
-                        return _fallback_date_parsing(query)
+                    # 디버깅: LLM 반환값 확인
+                    print(f"🔍 [date_parser] LLM 반환 날짜: {start_date.date()}, 오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year}")
+                    
+                    # 과거 날짜이거나 현재 연도가 아니면 즉시 None 반환 (재요청)
+                    if days_diff < 0 or start_date.year != now.year:
+                        print(f"⚠️ LLM이 잘못된 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year})")
+                        print(f"⚠️ 날짜 정보가 불확실하므로 None 반환하여 재요청")
+                        return None, None  # 재요청을 위해 None 반환
                     
                     print(f"✅ LLM 날짜 파싱: {start_date} ~ {end_date}")
                     return start_date, end_date
             except (ValueError, json.JSONDecodeError) as e:
                 print(f"⚠️ LLM 응답 파싱 실패: {e}, Fallback 사용")
-                return _fallback_date_parsing(query)
+                return _fallback_date_parsing(query, current_datetime=now)
         
         # JSON을 찾지 못했거나 파싱 실패 시 fallback 사용
         print(f"⚠️ LLM 응답에서 날짜를 찾을 수 없음, Fallback 사용")
-        return _fallback_date_parsing(query)
+        return _fallback_date_parsing(query, current_datetime=now)
     
     except Exception as e:
         print(f"⚠️ LLM 날짜 파싱 실패: {e}")
-        return _fallback_date_parsing(query)
+        return _fallback_date_parsing(query, current_datetime=now)
 
 
-def _fallback_date_parsing(query: str) -> Tuple[Optional[datetime], Optional[datetime]]:
+def _fallback_date_parsing(
+    query: str, 
+    current_datetime: Optional[datetime] = None
+) -> Tuple[Optional[datetime], Optional[datetime]]:
     """키워드 기반 날짜 파싱 (fallback).
     
     Args:
         query: 사용자 쿼리
+        current_datetime: 현재 시간 (orchestrator에서 전달, 없으면 datetime.now() 사용)
         
     Returns:
         (시작 datetime, 종료 datetime) 튜플
     """
-    now = datetime.now(LOCAL_TIMEZONE)
+    # orchestrator에서 전달받은 현재 시간 사용, 없으면 기본값 사용
+    if current_datetime is None:
+        now = datetime.now(LOCAL_TIMEZONE)
+    else:
+        # timezone 정보가 없으면 추가
+        if current_datetime.tzinfo is None:
+            now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+        else:
+            now = current_datetime.astimezone(LOCAL_TIMEZONE)
     
     # 오늘
     if "오늘" in query:

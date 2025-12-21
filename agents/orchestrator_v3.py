@@ -801,6 +801,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                                 if redis_last_domain and "step" in redis_last_domain.lower():
                                     last_domain = redis_last_domain
                                     workflow_temp_data = redis_workflow_temp_data
+                                    state["workflow_temp_data"] = redis_workflow_temp_data  # state에도 설정
                             # last_domain에서 워크플로우 정보 복구
                             elif redis_last_domain and "step" in redis_last_domain.lower():
                                 last_domain = redis_last_domain
@@ -842,6 +843,8 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     
     if workflow_in_progress:
         next_domain = state.get("next_domain")
+        # workflow_temp_data 가져오기 (state에서)
+        workflow_temp_data = state.get("workflow_temp_data", {})
         
         print(f"🔄 워크플로우 진행 중 감지: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)})")
         
@@ -875,6 +878,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "workflow_steps": workflow_steps,
                     "current_workflow_step_index": next_step_index,
                     "workflow_in_progress": True,
+                    "workflow_temp_data": workflow_temp_data,  # workflow_temp_data 포함
                     "requires_input": False,
                     "conversation_history": [user_message],
                     **current_date_info
@@ -888,8 +892,9 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                         "workflow_type": workflow_type,
                         "workflow_steps": workflow_steps,
                         "current_workflow_step_index": next_step_index,
-                        "next_domain": next_domain,
                         "workflow_in_progress": True,
+                        "workflow_temp_data": workflow_temp_data,  # workflow_temp_data 포함
+                        "next_domain": next_domain,
                         "requires_input": False,
                         "conversation_history": [user_message],
                         **current_date_info
@@ -935,6 +940,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "workflow_steps": workflow_steps,
                     "current_workflow_step_index": current_step_index,
                     "workflow_in_progress": True,
+                    "workflow_temp_data": workflow_temp_data,  # workflow_temp_data 포함
                     "requires_input": False,
                     "conversation_history": [user_message],
                     **current_date_info
@@ -949,6 +955,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "workflow_steps": workflow_steps,
                 "current_workflow_step_index": current_step_index,
                 "workflow_in_progress": True,
+                "workflow_temp_data": workflow_temp_data,  # workflow_temp_data 포함
                 "conversation_history": [user_message],
                 **current_date_info
             }
@@ -1127,9 +1134,9 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "current_workflow_step_index": current_step_index,  # 현재 단계 유지
                     "workflow_in_progress": True,  # 워크플로우 진행 중 유지
                     "requires_input": False,  # 사용자 입력을 받았으므로 리셋
-                    "conversation_history": [user_message],
-                    **current_date_info
-                }
+                "conversation_history": [user_message],
+                **current_date_info
+            }
         
         # 다음 단계 도메인 설정
         if next_domain and next_domain in MASTER_GRAPHS:
@@ -1200,9 +1207,9 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         return {
             "final_response": "❌ 워크플로우 진행 중 오류가 발생했습니다.",
             "messages": ["워크플로우 진행 오류가 발생했습니다."],
-            "conversation_history": [user_message],
-            **current_date_info
-        }
+                "conversation_history": [user_message],
+                **current_date_info
+            }
     
     # ============================================
     # 1단계: 워크플로우 vs 일반 요청 분류

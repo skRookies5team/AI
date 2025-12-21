@@ -17,6 +17,10 @@ from agents.state import OrchestratorState
 from agents.master_graphs.schedule.models.meeting_room_models import MeetingSlotDecision
 from agents.master_graphs.schedule.utils.meeting_slot_manager import analyze_meeting_slots
 from agents.session_manager import get_session_manager
+from agents.master_graphs.schedule.utils.prompt_loader import (
+    get_sub_agent_prompt,
+    format_prompt_template
+)
 
 
 _scheduler: Optional[HybridScheduler] = None
@@ -1322,11 +1326,17 @@ def _collect_reservation_missing(parsed: ParsedMeetingIntent, context: Dict[str,
 
 def _build_initial_reservation_prompt(missing_slots: List[str]) -> str:
     """예약 시작 시 필수 정보를 안내하는 메시지를 생성한다."""
-    lines = ["회의실 예약을 하려면 아래 정보가 필요합니다:"]
-    for slot in RESERVATION_SLOT_ORDER:
-        lines.append(f"- {RESERVATION_SLOT_DESCRIPTIONS[slot]}")
-    lines.append("차례대로 알려주시면 곧바로 예약을 진행하겠습니다.")
-    return "\n".join(lines)
+    # YAML에서 템플릿 로드
+    template = get_sub_agent_prompt("meeting", "initial_reservation_template")
+    
+    # 누락된 슬롯 목록 생성
+    missing_slots_list = "\n".join([
+        f"- {RESERVATION_SLOT_DESCRIPTIONS[slot]}"
+        for slot in RESERVATION_SLOT_ORDER
+    ])
+    
+    # 템플릿 포맷팅
+    return format_prompt_template(template, missing_slots_list=missing_slots_list)
 
 
 def _build_missing_reservation_prompt(
@@ -1338,11 +1348,18 @@ def _build_missing_reservation_prompt(
         return slot_decision.followup_question
     if not missing_slots:
         return "필요한 정보가 모두 준비되었습니다."
-    lines = ["회의실 예약을 하려면 아래 정보가 필요합니다:"]
-    for slot in missing_slots:
-        lines.append(f"- {RESERVATION_SLOT_DESCRIPTIONS[slot]}")
-    lines.append("차례대로 알려주시면 곧바로 예약을 진행하겠습니다.")
-    return "\n".join(lines)
+    
+    # YAML에서 템플릿 로드
+    template = get_sub_agent_prompt("meeting", "missing_reservation_template")
+    
+    # 누락된 슬롯 목록 생성
+    missing_slots_list = "\n".join([
+        f"- {RESERVATION_SLOT_DESCRIPTIONS[slot]}"
+        for slot in missing_slots
+    ])
+    
+    # 템플릿 포맷팅
+    return format_prompt_template(template, missing_slots_list=missing_slots_list)
 
 
 def _maybe_reset_meeting_context(
@@ -1776,7 +1793,11 @@ def _candidate_from_db_reservation(record: Dict[str, Any]) -> Optional[Dict[str,
 
 def _format_cancel_prompt(candidates: List[Dict[str, Any]]) -> str:
     """취소 후보 목록을 사용자 메시지로 변환한다."""
-    lines = ["취소할 회의를 선택해 주세요:"]
+    # YAML에서 템플릿 로드
+    template = get_sub_agent_prompt("meeting", "cancel_prompt_template")
+    
+    # 후보 목록 생성
+    lines = []
     for idx, candidate in enumerate(candidates, start=1):
         start_dt = _parse_iso_datetime(candidate.get("start_time"))
         end_dt = _parse_iso_datetime(candidate.get("end_time"))
@@ -1785,8 +1806,11 @@ def _format_cancel_prompt(candidates: List[Dict[str, Any]]) -> str:
         room_name = candidate.get("meeting_room_name")
         room_text = f" | 회의실: {room_name}" if room_name else ""
         lines.append(f"{idx}. {candidate.get('title', '회의 예약')} ({start_str} ~ {end_str}){room_text}")
-    lines.append("취소할 회의 번호를 말씀해 주세요. (예: '1번 취소')")
-    return "\n".join(lines)
+    
+    candidates_list = "\n".join(lines)
+    
+    # 템플릿 포맷팅
+    return format_prompt_template(template, candidates_list=candidates_list)
 
 
 def _format_cancel_success(candidate: Dict[str, Any]) -> str:

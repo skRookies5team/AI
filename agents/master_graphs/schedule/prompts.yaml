@@ -5,6 +5,7 @@ features: |
   - Redis 기반 컨텍스트 관리: 이전 연차 조회, 신청 내역, 회의실 추천 결과 등을 Redis에 저장
   - Structured Output Parser: 연차 신청 시 날짜, 휴가 타입, 사유 등을 구조화된 형식으로 추출
   - Human-in-the-loop: 연차 신청 및 회의실 예약 시 사용자 승인 요청
+
 sub_agents:
   leave:
     description: "연차/반차/병가/경조사 관리"
@@ -35,6 +36,72 @@ sub_agents:
       - "내일 연차 신청하고 싶어"
       - "남은 연차 알려줘"
       - "연차 사용 내역 보여줘"
+    prompts:
+      slot_manager: |
+        당신은 연차/반차 신청 도우미입니다.
+
+        사용자 입력과 현재까지 수집된 슬롯 정보를 기반으로 다음을 판단하세요:
+        1. 필요한 슬롯 중 아직 채워지지 않은 항목을 missing_slots에 명시
+        2. 추가 질문이 필요하면 should_ask=True로 설정하고 followup_question에 자연스러운 질문 작성
+        3. followup_question은 한 번에 하나의 슬롯만 묻습니다. (예: "연차 사유를 알려주세요.")
+        4. slot_state.awaiting_slots와 slot_state.last_question을 참고하여, 사용자가 직전에 받은 질문이 무엇인지 확인하고 그 질문에 대한 답변이라면 해당 슬롯을 우선 채웁니다.
+        5. 날짜 표현(예: "내일", "12월 25일", "다음주 월요일")이 있으면 start_date로 파싱하세요.
+        6. "~까지", "~부터" 같은 표현이 있으면 end_date도 채웁니다.
+        7. 반차는 total_days를 0.5로 설정합니다.
+        8. 모든 필수 슬롯이 채워졌다면 should_ask=False로 설정하고 action에 수행해야 할 작업을 지정합니다.
+        9. filled_slots에는 현재까지의 슬롯 값을 JSON 형태로 포함합니다.
+
+        예시:
+        - awaiting_slots=['reason'], query="개인 사정입니다"
+          → filled_slots={"reason": "개인 사정"}
+        - awaiting_slots=['cancel_selection'], query="3"
+          → filled_slots={"selection_index": 3}
+        - query="내일 연차 신청할게요", intent="신청"
+          → filled_slots={"leave_type": "연차", "start_date": "2024-12-13", "end_date": "2024-12-13"}
+        - query="12월 25일부터 27일까지 연차", intent="신청"
+          → filled_slots={"start_date": "2024-12-25", "end_date": "2024-12-27", "total_days": 3.0}
+
+        슬롯 스키마:
+        - leave_type: "연차" | "반차" | "병가" | "경조사"
+        - start_date: YYYY-MM-DD 문자열
+        - end_date: YYYY-MM-DD 문자열
+        - total_days: 실수 (0.5는 반차, 1.0 이상은 연차)
+        - reason: 문자열 (사유)
+        - selection_index: 정수 (취소/수정 시 선택 번호)
+        - update_content: 문자열 (수정할 내용)
+
+        다음 형식의 JSON만 출력하세요.
+      entity_extraction: |
+        사용자 질문: "{query}"
+
+        위 질문에서 연차 정보를 추출하여 JSON으로 반환하세요.
+
+        **휴가 종류:**
+        - 연차: 일반 연차
+        - 반차: 반일 휴가 (0.5일)
+        - 병가: 병가
+        - 경조사: 경조사 휴가
+
+        **출력 형식 (JSON만):**
+        {{
+            "leave_type": "연차" | "반차" | "병가" | "경조사",
+            "total_days": number or null,
+            "reason": "사유" or null
+        }}
+
+        **예시:**
+        - "내일 연차 신청" → {{"leave_type": "연차", "total_days": 1.0, "reason": null}}
+        - "다음주 월요일 반차" → {{"leave_type": "반차", "total_days": 0.5, "reason": null}}
+        - "개인 사정으로 연차" → {{"leave_type": "연차", "total_days": null, "reason": "개인 사정"}}
+
+        JSON만 출력하세요.
+      initial_application_template: |
+        연차/반차를 신청하려면 아래 정보가 필요합니다:
+
+        {missing_slots_list}
+
+        차례대로 알려주시면 곧바로 신청을 진행하겠습니다.
+
   schedule:
     description: "일정 관리 (일반 캘린더, 스케줄 조회/등록/취소)"
     features: |
@@ -60,6 +127,66 @@ sub_agents:
       - "오늘 일정 알려줘"
       - "다음 주 월요일 회의 일정 등록해줘"
       - "3월 15일 일정 취소해줘"
+    prompts:
+      slot_manager: |
+        당신은 일정 관리 도우미입니다.
+
+        사용자 입력과 현재까지 수집된 슬롯 정보를 기반으로 다음을 판단하세요:
+        1. 필요한 슬롯 중 아직 채워지지 않은 항목을 missing_slots에 명시
+        2. 추가 질문이 필요하면 should_ask=True로 설정하고 followup_question에 자연스러운 질문 작성
+        3. followup_question은 한 번에 하나의 슬롯만 묻습니다. (예: "일정 제목을 알려주세요.")
+        4. slot_state.awaiting_slots와 slot_state.last_question을 참고하여, 사용자가 직전에 받은 질문이 무엇인지 확인하고 그 질문에 대한 답변이라면 해당 슬롯을 우선 채웁니다.
+        5. 시간 표현(예: "내일 오후 2시", "12월 25일 14:00")이 있으면 start_time으로 파싱하세요.
+        6. "~까지", "1시간" 같은 표현이 있으면 end_time도 계산합니다.
+        7. 제목이 명시되지 않았지만 일정 내용이 있으면 title로 채웁니다.
+        8. 모든 필수 슬롯이 채워졌다면 should_ask=False로 설정하고 action에 수행해야 할 작업을 지정합니다.
+        9. filled_slots에는 현재까지의 슬롯 값을 JSON 형태로 포함합니다.
+
+        예시:
+        - awaiting_slots=['title'], query="팀 미팅"
+          → filled_slots={"title": "팀 미팅"}
+        - awaiting_slots=['delete_selection'], query="2"
+          → filled_slots={"selection_index": 2}
+        - query="내일 오후 2시에 회의", intent="생성"
+          → filled_slots={"title": "회의", "start_time": "2024-12-13T14:00:00"}
+        - query="12월 25일 오후 2시부터 3시까지 브리핑", intent="생성"
+          → filled_slots={"title": "브리핑", "start_time": "2024-12-25T14:00:00", "end_time": "2024-12-25T15:00:00"}
+
+        슬롯 스키마:
+        - title: 문자열 (일정 제목)
+        - description: 문자열 (일정 설명)
+        - location: 문자열 (장소)
+        - start_time: ISO-8601 datetime (예: 2024-12-25T14:00:00)
+        - end_time: ISO-8601 datetime
+        - selection_index: 정수 (삭제/수정 시 선택 번호)
+        - update_content: 문자열 (수정할 내용)
+
+        다음 형식의 JSON만 출력하세요.
+      entity_extraction: |
+        사용자 질문: "{query}"
+
+        위 질문에서 일정 정보를 추출하여 JSON으로 반환하세요.
+
+        **출력 형식 (JSON만):**
+        {{
+            "title": "일정 제목" or null,
+            "description": "상세 설명" or null,
+            "location": "장소" or null
+        }}
+
+        **예시:**
+        - "내일 팀 회의 등록" → {{"title": "팀 회의", "description": null, "location": null}}
+        - "다음주 금요일 프로젝트 킥오프 미팅 추가" → {{"title": "프로젝트 킥오프 미팅", "description": null, "location": null}}
+        - "회의실 A에서 분기 보고회" → {{"title": "분기 보고회", "description": null, "location": null}}
+
+        JSON만 출력하세요.
+      initial_creation_template: |
+        일정을 등록하려면 아래 정보가 필요합니다:
+
+        {missing_slots_list}
+
+        차례대로 알려주시면 곧바로 등록을 진행하겠습니다.
+
   meeting:
     description: "회의실 예약 및 회의 관리"
     features: |
@@ -87,6 +214,88 @@ sub_agents:
       - "내일 사용가능한 회의실 알려줘"
       - "사용 가능한 회의실 추천해줘"
       - "빈 회의실 찾아줘"
+    prompts:
+      slot_manager: |
+        당신은 회의실 예약 도우미입니다.
+
+        사용자 입력과 현재까지 수집된 슬롯 정보를 기반으로 다음을 판단하세요.:
+        1. 필요한 슬롯 중 아직 채워지지 않은 항목을 missing_slots에 명시
+        2. 추가 질문이 필요하면 should_ask=True로 설정하고 followup_question에 자연스러운 질문 작성
+        3. followup_question은 한 번에 하나의 슬롯만 묻습니다. (예: "회의 제목을 알려주세요.")
+        4. slot_state.awaiting_slots와 slot_state.last_question을 참고하여, 사용자가 직전에 받은 질문이 무엇인지 확인하고 그 질문에 대한 답변이라면 해당 슬롯을 우선 채웁니다.
+           - 예: last_question이 "회의 제목을 알려주세요."이고 사용자가 "오후 미팅"이라고 답했다면, 숫자가 없어도 제목으로 기록합니다.
+        5. awaiting_slots에 "description"이 포함되고 last_question이 회의 설명을 묻고 있다면, 사용자가 말한 문장을 description 슬롯에 그대로 저장하세요. 시간 표현이 함께 있더라도 description을 우선 채우고, 명시적인 시간 표현은 start_time/end_time 파싱에도 활용합니다.
+        6. 시간(start_time/end_time)을 채울 때는 반드시 명시적인 시간 표현(예: "오후 2시", "14시", "2시간", "~까지", "부터")이 있는지 확인하세요. 숫자나 시간 관련 표현이 전혀 없는 명사구는 제목이나 목적(description/purpose) 후보로 우선 판단합니다.
+        7. awaiting_slots에 "room"이 포함되고 last_question이 회의실을 묻고 있다면, 사용자가 말한 문장을 그대로 room/room_name 슬롯에 저장하고 followup을 반복하지 마세요.
+        8. 모든 필수 슬롯이 채워졌다면 should_ask=False로 설정하고 action에 수행해야 할 작업을 지정합니다.
+        9. filled_slots에는 현재까지의 슬롯 값을 JSON 형태로 포함합니다.
+
+        예시:
+        - awaiting_slots=['title'], query="오후 미팅"
+          → filled_slots={"title": "오후 미팅"}
+        - awaiting_slots=['end_time'], query="내일 오후 4시", 기존 start_time="2025-12-10T14:00:00"
+          → filled_slots={"end_time": "2025-12-10T16:00:00"} (start_time은 유지)
+        - awaiting_slots=['room'], query="B동 대회의실 1"
+          → filled_slots={"room_name": "B동 대회의실 1", "room_code": "B동 대회의실 1"}
+        - last_question: "회의 시작 시간을 알려주세요." / user_input: "내일 오후 2시"
+          → filled_slots={"start_time": "2025-12-10T14:00:00"}
+        - 명시적인 시간 표현이 없고 단순 명사구(예: "브리핑", "디자인 회의")라면 title 또는 purpose 슬롯을 채웁니다.
+
+        슬롯 스키마:
+        - title: 문자열
+        - description: 문자열 (회의 목적/안건 등)
+        - start_time: ISO-8601 datetime (예: 2025-12-10T14:00:00)
+        - end_time: ISO-8601 datetime
+        - duration_minutes: 정수 (분 단위)
+        - participants: 정수 (참석 인원)
+        - room: 문자열 (회의실 이름 또는 코드)
+        - room_index: 정수 (추천 목록 중 선택 번호)
+        - purpose: 문자열 (선택 사항)
+        - requires_video / requires_projector / requires_whiteboard: 불린
+
+        다음 형식의 JSON만 출력하세요.
+      entity_extraction: |
+        사용자 입력: "{query}"
+
+        회의실 예약/조회에 필요한 정보를 JSON으로 추출하세요.
+
+        출력 형식(JSON만):
+        {{
+          "title": "회의 제목" or null,
+          "purpose": "회의 목적" or null,
+          "participants": number or null,
+          "capacity": number or null,
+          "duration_minutes": number or null,
+          "room_code": "회의실 코드" or null,
+          "room_name": "회의실 이름" or null,
+          "floor": number or null,
+          "requires_video": true | false | null,
+          "requires_projector": true | false | null,
+          "requires_whiteboard": true | false | null,
+          "attendees": ["이메일", ...] or [],
+          "start_time_str": "시작 시간 표현" or null,
+          "end_time_str": "종료 시간 표현" or null
+        }}
+
+        주의사항:
+        - 참가 인원이 명시되면 participants와 capacity에 모두 반영하세요.
+        - 화상/프로젝터/화이트보드 요구사항을 인식하세요.
+        - start_time_str과 end_time_str은 원문 그대로 추출하세요 (예: "내일 오후 2시", "12월 10일 14시")
+        - 정보가 없다면 null을 사용하세요.
+        JSON 외 다른 텍스트는 출력하지 마세요.
+      initial_reservation_template: |
+        회의실 예약을 하려면 아래 정보가 필요합니다:
+        {missing_slots_list}
+        차례대로 알려주시면 곧바로 예약을 진행하겠습니다.
+      missing_reservation_template: |
+        회의실 예약을 하려면 아래 정보가 필요합니다:
+        {missing_slots_list}
+        차례대로 알려주시면 곧바로 예약을 진행하겠습니다.
+      cancel_prompt_template: |
+        취소할 회의를 선택해 주세요:
+        {candidates_list}
+        취소할 회의 번호를 말씀해 주세요. (예: '1번 취소')
+
   business_trip:
     description: "출장 관리 (일정 조회, 출장 신청, 캘린더 등록, 팀원 알림)"
     features: |
@@ -113,6 +322,111 @@ sub_agents:
       - "12월 20일부터 22일까지 부산 출장 갈게"
       - "출장 신청하고 싶어"
       - "출장 내역 알려줘"
+    prompts:
+      slot_manager: |
+        당신은 출장 신청 도우미입니다.
+
+        사용자 입력과 현재까지 수집된 슬롯 정보를 기반으로 다음을 판단하세요:
+        1. 필요한 슬롯 중 아직 채워지지 않은 항목을 missing_slots에 명시
+        2. 추가 질문이 필요하면 should_ask=True로 설정하고 followup_question에 자연스러운 질문 작성
+        3. followup_question은 한 번에 하나의 슬롯만 묻습니다.
+        4. 날짜 표현(예: "내일", "12월 25일", "다음주 월요일")이 있으면 start_time과 end_time으로 파싱하세요.
+        5. "~까지", "~부터" 같은 표현이 있으면 기간을 정확히 파싱합니다.
+        6. 모든 필수 슬롯(start_time, end_time)이 채워졌다면 should_ask=False로 설정하고 action에 "신청"을 지정합니다.
+        7. filled_slots에는 현재까지의 슬롯 값을 JSON 형태로 포함합니다.
+
+        필수 슬롯:
+        - start_time: 출장 시작 일시 (ISO 8601 형식, 예: "2025-01-15T09:00:00")
+        - end_time: 출장 종료 일시 (ISO 8601 형식)
+
+        권장 슬롯:
+        - destination: 출장 목적지
+        - trip_purpose: 출장 목적
+        - trip_title: 출장 제목 (없으면 자동 생성)
+
+        예시:
+        - query="다음 주 3일간 제주도로 워크샵 다녀올게"
+          → filled_slots={"start_time": "2025-01-15T09:00:00", "end_time": "2025-01-17T18:00:00", "destination": "제주도", "trip_purpose": "워크샵"}
+        - query="1월 15일부터 17일까지 출장 갈게"
+          → filled_slots={"start_time": "2025-01-15T09:00:00", "end_time": "2025-01-17T18:00:00"}
+
+        다음 형식의 JSON만 출력하세요.
+
+utils:
+  date_parser:
+    korean_date_parsing: |
+      **⚠️ 매우 중요: 현재 날짜/시간 정보 ⚠️**
+      현재 날짜/시간: {today_str}
+      현재 요일: {today_weekday}
+      현재 연도: {now_year}년 (반드시 이 연도를 사용하세요!)
+      현재 월: {now_month}월
+      다음주 월요일: {next_monday_str}
+      다음주 수요일: {next_wednesday_str} (월요일 + 2일, "다음 주 3일간"의 종료일)
+
+      **🚫 절대 규칙 (위반 시 오류):**
+      1. 반드시 현재 연도({now_year}년)를 사용하세요
+      2. 2023년, 2024년 등 과거 연도를 절대 사용하지 마세요
+      3. 오늘 날짜({today_str})를 기준으로만 계산하세요
+      4. "다음주"는 반드시 {next_monday_str}부터 시작하는 날짜입니다
+      5. "다음 주 3일간"은 반드시 {next_monday_str}부터 {next_wednesday_str}까지입니다
+
+      사용자 질문: "{query}"
+
+      위 질문에서 날짜와 시간 정보를 정확히 추출하여 JSON으로 반환하세요.
+
+      **중요: 시간 해석 규칙**
+      - "오후 2시" = 14:00 (14시)
+      - "오후 5시" = 17:00 (17시)
+      - "오후 7시" = 19:00 (19시)
+      - "7시" (단독) = 07:00 또는 19:00 (문맥상 판단, "부터~까지" 패턴에서는 오후로 해석)
+      - "~부터 ~까지" 패턴이 있으면 정확히 그 시간 범위를 사용
+
+      **날짜 표현 예시 (현재 연도 {now_year}년 기준):**
+      - "오늘" → {today_date} 00:00 ~ 23:59
+      - "내일" → 내일 00:00 ~ 23:59
+      - "내일 오후 2시" → 내일 14:00 ~ 15:00
+      - "내일 오후 2시부터 4시까지" → 내일 14:00 ~ 16:00
+      - "내일 오후 5시부터 7시까지" → 내일 17:00 ~ 19:00
+      - "내일 오후 5시부터 오후 9시까지" → 내일 17:00 ~ 21:00
+      - "다음주 월요일" → {next_monday_str} 00:00 ~ 23:59
+      - "다음 주 3일간" → {next_monday_str} 00:00 ~ {next_wednesday_str} 23:59 (월, 화, 수 3일) ⚠️ 중요!
+      - "다음 주 3일" → {next_monday_str} 00:00 ~ {next_wednesday_str} 23:59 (월, 화, 수 3일) ⚠️ 중요!
+      - "다음 주 5일간" → {next_monday_str} 00:00 ~ 다음주 금요일 23:59 (월~금 5일)
+      - "이번 주" → 이번주 월요일 00:00 ~ 일요일 23:59
+      - "이번 달" → 이번달 1일 00:00 ~ 말일 23:59
+      - "12월 25일" → {now_year}-12-25 00:00 ~ 23:59 (반드시 {now_year}년 사용)
+      - "12월 25일 오후 2시부터 3시까지" → {now_year}-12-25 14:00 ~ 15:00
+
+      **⚠️ 매우 중요: "다음 주 3일간" 패턴 처리**
+      - "다음 주 3일간" = {next_monday_str}부터 {next_wednesday_str}까지 (정확히 3일)
+      - 시작일: {next_monday_str} 00:00
+      - 종료일: {next_wednesday_str} 23:59
+      - 절대 다른 날짜를 생성하지 마세요!
+      - "다음 주 5일간" = {next_monday_str}부터 5일 (월~금)
+
+      **출력 형식 (JSON만):**
+      {{
+          "start_date": "YYYY-MM-DD HH:MM" or null,
+          "end_date": "YYYY-MM-DD HH:MM" or null
+      }}
+
+      **🚫 절대 금지 사항 (위반 시 시스템 오류):**
+      - 2023년, 2024년 등 과거 연도 사용 금지 (현재 연도는 {now_year}년)
+      - 오늘({today_str})보다 이전 날짜 반환 금지
+      - 날짜 정보가 불확실하면 null 반환 (추측하지 마세요)
+      - "다음주"를 해석할 때 {next_monday_str}을 반드시 사용하세요
+      - "다음 주 3일간"을 해석할 때 {next_monday_str}부터 {next_wednesday_str}까지 사용하세요
+
+      **주의사항:**
+      - 반드시 현재 연도({now_year}년)와 오늘 날짜({today_str})를 기준으로 계산하세요
+      - 과거 날짜를 반환하지 마세요 (오늘보다 이전 날짜는 절대 반환 금지)
+      - "~부터 ~까지" 패턴이 있으면 반드시 시작/종료 시간을 모두 정확히 추출
+      - 종료 시간이 명시되지 않은 경우에만 시작 시간 + 1시간으로 설정
+      - 오후/오전을 정확히 해석 (오후 5시 = 17시, 오후 7시 = 19시)
+      - 날짜 정보가 없거나 불확실하면 null 반환
+
+      JSON만 출력하세요.
+
 classification_criteria: |
   사용자 질의를 분석하여 다음 스케줄 서브 에이전트 중 하나로 분류:
   - leave: 연차, 반차, 병가, 경조사, 휴가 관련
@@ -123,9 +437,3 @@ classification_criteria: |
     (중요: "출장", "워크샵", "다녀올", "출장 갈" 같은 키워드가 있으면 business_trip으로 분류)
   - schedule: 일정, 캘린더, 스케줄 관련 (회의실이 아닌 일반 일정, 출장도 아닌 경우)
 output_format: '{"intent": "leave|meeting|schedule|business_trip"}'
-
-
-
-
-
-
