@@ -125,7 +125,6 @@ class DocumentMasterGraph(BaseMasterGraph):
                     # 구체적인 키워드 우선 (순서 중요!)
                     ("work_performance_review", ["업무 성과 평가", "근무 평가", "성과 평가서", "업무 평가서", "업무 성과", "성과 평가"]),
                     ("vacation_request_form", ["휴가 신청서", "휴가 신청", "연차 신청", "반차 신청", "휴가", "연차", "반차", "병가", "경조사"]),
-                    ("business_trip_request_form", ["출장 신청서", "출장 신청", "출장", "출장서"]),
                     # 제품 비교표는 제품개발보다 먼저 체크 (더 구체적인 키워드)
                     ("product_comparison_table", ["제품 비교표", "제품 비교", "제품성능 비교", "성능 비교", "비교표", "제품비교", "비교 대상", "비교 목적"]),
                     ("product_development_plan", ["제품개발", "신제품", "개발계획", "제품개발 계획서"]),
@@ -172,6 +171,11 @@ class DocumentMasterGraph(BaseMasterGraph):
         1. 템플릿 로드: 선택된 템플릿 HTML 파일 로드
         2. DB 데이터 매핑: 템플릿 필드에 필요한 데이터를 DB에서 조회 및 매핑
         3. 초안 생성: 매핑된 데이터와 사용자 요구사항을 기반으로 LLM으로 초안 생성
+        
+        워크플로우 모드 지원:
+        - workflow_temp_data에서 출장 정보 가져오기
+        - 출장 사유(description)가 없으면 재요청
+        - 문서 작성 후 결재 진행 여부 확인 (휴먼 인 더 루프)
         """
         print("--- [AI-012] Document Generation: 템플릿 로드 → DB 데이터 매핑 → 초안 생성 ---")
         # datetime을 전역 변수로 명시적으로 참조
@@ -180,12 +184,69 @@ class DocumentMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         orchestrator_state = state  # orchestrator_state는 state와 동일
         
-        # Redis 기반 컨텍스트 초기화
-        if orchestrator_state.get("document_context") is None:
-            orchestrator_state["document_context"] = {}
+        # 워크플로우 모드 확인
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_temp_data = state.get("workflow_temp_data") or {}
         
-        # State에서 템플릿명 가져오기 (route_intent에서 이미 매핑됨)
-        template_name = state.get("template_name")
+        # 워크플로우 모드이고 business_trip 워크플로우인 경우
+        if workflow_in_progress and workflow_type == "business_trip":
+            # 출장 사유 확인
+            description = workflow_temp_data.get("description") or query.strip()
+            
+            # 출장 사유가 없거나 너무 짧으면 재요청
+            if not description or len(description.strip()) < 3:
+                buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
+        ❌ 종료
+    </button>
+</div>
+"""
+                question = "출장 사유를 알려주세요.\n예: 거래처 미팅, 워크샵, 고객 방문 등" + buttons_html
+                return {
+                    "final_response": question,
+                    "messages": [question],
+                    "workflow_temp_data": workflow_temp_data,
+                    "document_context": orchestrator_state.get("document_context", {}),
+                    "requires_input": True,
+                }
+            
+            # workflow_temp_data에 description 저장
+            workflow_temp_data["description"] = description
+            
+            # 템플릿명 설정 (출장 신청서)
+            template_name = "business_trip_request_form"
+            
+            # workflow_temp_data에서 정보 가져오기
+            start_time_str = workflow_temp_data.get("start_time")
+            end_time_str = workflow_temp_data.get("end_time")
+            title = workflow_temp_data.get("title", "출장")
+            destination = workflow_temp_data.get("destination", "")
+            
+            # 요구사항 구성
+            requirements = f"출장 기간: {start_time_str} ~ {end_time_str}\n"
+            if destination:
+                requirements += f"목적지: {destination}\n"
+            requirements += f"출장 사유: {description}\n"
+            requirements += f"제목: {title}"
+            
+            document_title = title
+            
+            print(f"✅ [워크플로우 모드] 출장 신청서 작성: {title}")
+            print(f"   기간: {start_time_str} ~ {end_time_str}")
+            print(f"   사유: {description}")
+        else:
+            # 일반 모드 (기존 로직)
+            # Redis 기반 컨텍스트 초기화
+            if orchestrator_state.get("document_context") is None:
+                orchestrator_state["document_context"] = {}
+            
+            # State에서 템플릿명 가져오기 (route_intent에서 이미 매핑됨)
+            template_name = state.get("template_name")
+            
+            document_title = None
+            requirements = None
         
         print(f"🔍 [generate_document] State에서 템플릿 확인: {template_name}")
         print(f"🔍 [generate_document] State keys: {list(state.keys())}")
@@ -206,7 +267,6 @@ class DocumentMasterGraph(BaseMasterGraph):
                     # 구체적인 키워드 우선 (순서 중요!)
                     ("work_performance_review", ["업무 성과 평가", "근무 평가", "성과 평가서", "업무 평가서", "성과", "평가서"]),
                     ("vacation_request_form", ["휴가 신청서", "휴가 신청", "연차 신청", "반차 신청", "휴가", "연차", "반차", "병가", "경조사"]),
-                    ("business_trip_request_form", ["출장 신청서", "출장 신청", "출장", "출장서", "출장 신청서"]),
                     ("product_development_plan", ["제품개발", "신제품", "개발계획", "제품개발 계획서"]),
                     ("purchase_order", ["발주", "구매", "주문", "발주서"]),
                     ("monthly_profit_analysis_report", ["수익", "매출", "분석", "수익 분석 리포트"]),
@@ -385,11 +445,34 @@ class DocumentMasterGraph(BaseMasterGraph):
         # final_response 설정 (문서 내용을 우선 표시)
         if result.get("ok") and document_content:
             final_response = document_content
+            
+            # 워크플로우 모드: 문서 작성 후 결재 진행 여부 확인
+            if workflow_in_progress and workflow_type == "business_trip":
+                # workflow_temp_data에 description 저장 (이미 저장되어 있지만 확실히)
+                if workflow_temp_data.get("description"):
+                    # Step 2 완료 메시지 추가
+                    step2_complete_msg = "\n\n✅ [Step 2 완료] 출장 신청서가 생성되었습니다."
+                    # 결재 진행 여부 확인 메시지 추가
+                    buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
+        ✅ 진행
+    </button>
+    <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+        ❌ 취소
+    </button>
+</div>
+"""
+                    approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
+                    final_response = document_content + step2_complete_msg + approval_message
+                    # workflow_temp_data 업데이트
+                    workflow_temp_data["description"] = workflow_temp_data.get("description")
+            
             # conversation_history에 assistant 메시지 추가
             from agents.state import Message
             assistant_message: Message = {
                 "role": "assistant",
-                "content": document_content,
+                "content": final_response,
                 "timestamp": datetime.now().isoformat()
             }
             conversation_history = state.get("conversation_history", [])
@@ -398,7 +481,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             final_response = result.get("message", "문서 생성에 실패했습니다.")
             conversation_history = state.get("conversation_history", [])
         
-        return {
+        return_result = {
             "document_content": document_content,
             "document_path": document_path,  # HTML 파일 경로
             "document_title": document_title,  # 문서 제목 저장
@@ -407,6 +490,13 @@ class DocumentMasterGraph(BaseMasterGraph):
             "conversation_history": conversation_history,  # 업데이트된 대화 히스토리
             "document_context": orchestrator_state["document_context"],  # Redis 컨텍스트 반환 (HTML 포함)
         }
+        
+        # 워크플로우 모드: workflow_temp_data 반환
+        if workflow_in_progress and workflow_type == "business_trip":
+            return_result["workflow_temp_data"] = workflow_temp_data
+            return_result["requires_input"] = True  # 결재 진행 여부 확인을 위한 플래그
+        
+        return return_result
     
     async def _fetch_db_data_for_template(
         self, 
@@ -723,3 +813,4 @@ def get_document_master_graph() -> StateGraph:
     """문서 마스터그래프 인스턴스 반환."""
     master = DocumentMasterGraph()
     return master.get_graph()
+

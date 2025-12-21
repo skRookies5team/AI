@@ -79,11 +79,43 @@ class ParsedBusinessTripIntent:
 
 
 async def process_business_trip_request(state: OrchestratorState) -> Dict[str, Any]:
-    """출장 요청 처리 - Slot Manager Pattern."""
+    """출장 요청 처리 - Slot Manager Pattern + 워크플로우 모드 지원."""
     query = state.get("query", "")
     employee_id = state.get("employee_id")
     user_id = state.get("user_id") or str(employee_id) if employee_id else None
     
+    # 워크플로우 진행 중인지 확인
+    workflow_in_progress = state.get("workflow_in_progress", False)
+    workflow_type = state.get("workflow_type")
+    current_workflow_step_index = state.get("current_workflow_step_index", 0)
+    
+    # 워크플로우 모드이고 business_trip 워크플로우인 경우
+    if workflow_in_progress and workflow_type == "business_trip":
+        # 워크플로우 핸들러를 통한 단계 처리
+        from agents.workflows import get_workflow_handler
+        workflow_handler = get_workflow_handler(workflow_type)
+        workflow_steps = state.get("workflow_steps", [])
+        
+        if workflow_handler:
+            # 워크플로우 핸들러가 해당 단계를 처리할 수 있는지 확인
+            # Step 0과 Step 3만 schedule 도메인에서 처리
+            if current_workflow_step_index == 0:
+                # Step 1: 일정 조회 및 날짜 확인
+                return await _handle_workflow_step1_check_conflicts(state, query, employee_id, user_id)
+            elif current_workflow_step_index == 3:
+                # Step 4: 캘린더 등록 및 RDB 저장
+                return await _handle_workflow_step4_register_calendar(state, query, employee_id, user_id)
+            else:
+                # Step 2 (document) 또는 Step 3 (email)는 다른 도메인에서 처리
+                # 여기서는 오류 메시지 반환
+                expected_domain = workflow_steps[current_workflow_step_index] if current_workflow_step_index < len(workflow_steps) else 'unknown'
+                return {
+                    "final_response": f"❌ 워크플로우 단계 오류: Step {current_workflow_step_index + 1}는 {expected_domain} 도메인에서 처리되어야 합니다.",
+                    "messages": [f"워크플로우 단계 오류: Step {current_workflow_step_index + 1}"],
+                    "schedule_context": state.get("schedule_context", {}),
+                }
+    
+    # 일반 모드 (기존 로직)
     # Redis 기반 컨텍스트 초기화
     if state.get("schedule_context") is None:
         state["schedule_context"] = {}
@@ -646,10 +678,7 @@ async def _handle_create_trip(
         
         trip_id = await scheduler.db.create_business_trip_request(trip_data)
         
-        # 4. 팀원 이메일 조회
-        team_member_emails = await scheduler.db.get_team_member_emails(parsed.employee_id)
-        
-        # 5. Google Calendar에 이벤트 생성
+        # 4. Google Calendar에 이벤트 생성 (본인 캘린더에만 등록)
         event_description = f"출장 목적: {parsed.trip_purpose or '출장'}\n"
         if parsed.destination:
             event_description += f"목적지: {parsed.destination}\n"
@@ -660,7 +689,7 @@ async def _handle_create_trip(
             "start_time": parsed.start_time.isoformat(),
             "end_time": parsed.end_time.isoformat(),
             "location": parsed.destination or "",
-            "attendees": team_member_emails,  # 팀원에게 자동 초대
+            "attendees": [],  # 본인 캘린더에만 등록 (팀원 초대 없음)
             "schedule_type": "business_trip",
             "employee_id": parsed.employee_id,
         }
@@ -677,8 +706,6 @@ async def _handle_create_trip(
                 message += f"기간: {parsed.start_time.strftime('%Y-%m-%d %H:%M')} ~ {parsed.end_time.strftime('%Y-%m-%d %H:%M')}\n"
                 if parsed.destination:
                     message += f"목적지: {parsed.destination}\n"
-                if team_member_emails:
-                    message += f"팀원 {len(team_member_emails)}명에게 캘린더 초대가 발송되었습니다."
                 
                 return {
                     "ok": True,
@@ -853,4 +880,426 @@ def _determine_business_trip_action(query: str) -> str:
         return "신청"
     else:
         return "신청"  # 기본값은 신청
+
+
+# ========== Workflow Step Handlers ==========
+
+async def _handle_workflow_step1_check_conflicts(
+    state: OrchestratorState,
+    query: str,
+    employee_id: Optional[int],
+    user_id: Optional[str]
+) -> Dict[str, Any]:
+    """워크플로우 1단계: 일정 조회 및 날짜 확인."""
+    print("--- [Business Trip Workflow] Step 1: 일정 조회 및 날짜 확인 ---")
+    
+    # workflow_temp_data 초기화
+    workflow_temp_data = state.get("workflow_temp_data") or {}
+    
+    # 날짜 정보 확인 (workflow_temp_data 또는 state에서)
+    start_time_str = workflow_temp_data.get("start_time") or state.get("start_date")
+    end_time_str = workflow_temp_data.get("end_time") or state.get("end_date")
+    
+    # 날짜 파싱 시도
+    start_time = None
+    end_time = None
+    
+    if start_time_str:
+        try:
+            if isinstance(start_time_str, str):
+                start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+            elif isinstance(start_time_str, datetime):
+                start_time = start_time_str
+        except Exception as e:
+            print(f"⚠️ start_time 파싱 실패: {e}")
+    
+    if end_time_str:
+        try:
+            if isinstance(end_time_str, str):
+                end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+            elif isinstance(end_time_str, datetime):
+                end_time = end_time_str
+        except Exception as e:
+            print(f"⚠️ end_time 파싱 실패: {e}")
+    
+    # 날짜가 없으면 사용자 입력에서 파싱 시도
+    if not start_time or not end_time:
+        print("🔍 날짜 정보 부족 - 사용자 입력에서 파싱 시도")
+        start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+        
+        if start_date_obj:
+            # 파싱된 날짜가 유효한지 즉시 검증
+            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+            now = datetime.now(local_tz)
+            
+            if start_date_obj.tzinfo is None:
+                start_date_obj = start_date_obj.replace(tzinfo=local_tz)
+            
+            # 과거 날짜이거나 너무 오래된 날짜면 무시
+            days_diff = (start_date_obj.date() - now.date()).days
+            if days_diff < 0 or start_date_obj.year < 2024:
+                print(f"⚠️ 파싱된 날짜가 유효하지 않음: {start_date_obj.date()} (오늘: {now.date()})")
+                start_date_obj = None
+                end_date_obj = None
+            else:
+                if start_date_obj.hour == 0 and start_date_obj.minute == 0:
+                    start_date_obj = start_date_obj.replace(hour=9, minute=0)
+                start_time = start_date_obj
+                
+                if end_date_obj:
+                    if end_date_obj.tzinfo is None:
+                        end_date_obj = end_date_obj.replace(tzinfo=local_tz)
+                    if end_date_obj.hour == 0 and end_date_obj.minute == 0:
+                        end_date_obj = end_date_obj.replace(hour=18, minute=0)
+                    end_time = end_date_obj
+                else:
+                    # 종료일이 없으면 시작일과 동일하게 설정
+                    end_time = start_date_obj.replace(hour=18, minute=0)
+    
+    # 날짜가 여전히 없거나 정확하지 않으면 재요청 (일정 조회 전에)
+    # 정확한 날짜 확인: datetime 객체가 있고, 미래 날짜인지 확인
+    if not start_time or not end_time:
+        buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
+        ❌ 종료
+    </button>
+</div>
+"""
+        question = "출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,  # 사용자 입력 대기
+        }
+    
+    # 날짜가 정확한지 확인 (미래 날짜인지, 시작일이 종료일보다 이전인지)
+    local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+    now = datetime.now(local_tz)
+    
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=local_tz)
+    if end_time.tzinfo is None:
+        end_time = end_time.replace(tzinfo=local_tz)
+    
+    # 날짜 유효성 검사
+    # 1. 시작일이 종료일보다 이전이어야 함
+    # 2. 시작일이 과거 날짜가 아니어야 함 (현재 날짜보다 1일 이상 과거면 재요청)
+    # 3. 날짜가 너무 오래된 경우 (예: 2023년) 재요청
+    buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
+        ❌ 종료
+    </button>
+</div>
+"""
+    
+    # 시작일이 종료일보다 이전이어야 함
+    if start_time >= end_time:
+        question = f"출장 종료일({end_time.strftime('%Y-%m-%d')})이 시작일({start_time.strftime('%Y-%m-%d')})보다 이전이거나 같습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    
+    # 시작일이 과거 날짜인지 확인 (현재 날짜보다 1일 이상 과거면 재요청)
+    days_diff = (start_time.date() - now.date()).days
+    if days_diff < -1:
+        question = f"출장 시작일({start_time.strftime('%Y-%m-%d')})이 과거 날짜입니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    
+    # 날짜가 너무 오래된 경우 (2024년 이전이면 재요청)
+    if start_time.year < 2024:
+        question = f"출장 날짜({start_time.strftime('%Y-%m-%d')})가 너무 오래되었습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    
+    # workflow_temp_data에 저장
+    workflow_temp_data["start_time"] = start_time.isoformat()
+    workflow_temp_data["end_time"] = end_time.isoformat()
+    
+    # 목적지 및 제목 추출
+    destination = workflow_temp_data.get("destination") or state.get("destination")
+    if not destination:
+        # 쿼리에서 목적지 추출 시도
+        if "제주" in query or "제주도" in query:
+            destination = "제주도"
+        elif "부산" in query:
+            destination = "부산"
+        elif "서울" in query:
+            destination = "서울"
+        elif "울산" in query:
+            destination = "울산"
+        if destination:
+            workflow_temp_data["destination"] = destination
+    
+    # 제목 추출
+    title = workflow_temp_data.get("title")
+    if not title:
+        if destination:
+            title = f"{destination} 출장"
+        elif "워크샵" in query:
+            title = "워크샵 출장"
+        else:
+            title = "출장"
+        workflow_temp_data["title"] = title
+    
+    # 일정 충돌 체크 (날짜가 정확할 때만 수행)
+    scheduler = _get_scheduler()
+    try:
+        start_aware = start_time
+        end_aware = end_time
+        
+        start_utc = start_aware.astimezone(ZoneInfo("UTC"))
+        end_utc = end_aware.astimezone(ZoneInfo("UTC"))
+        start_date_str = start_utc.strftime('%Y-%m-%dT%H:%M:%S') + "Z"
+        end_date_str = end_utc.strftime('%Y-%m-%dT%H:%M:%S') + "Z"
+        
+        events = await scheduler.get_events(
+            user_id=user_id,
+            start_date=start_date_str,
+            end_date=end_date_str
+        )
+        
+        # 출장 일정 제외
+        conflicting_events = []
+        for event in events:
+            if event.get('schedule_type') == 'business_trip':
+                continue
+            
+            event_start_str = event.get('start_time')
+            event_end_str = event.get('end_time')
+            
+            if not event_start_str or not event_end_str:
+                continue
+            
+            try:
+                if 'T' in event_start_str:
+                    if event_start_str.endswith('Z'):
+                        event_start = datetime.fromisoformat(event_start_str.replace('Z', '+00:00'))
+                    else:
+                        event_start = datetime.fromisoformat(event_start_str)
+                else:
+                    event_start = datetime.fromisoformat(event_start_str).replace(tzinfo=ZoneInfo("UTC"))
+                
+                if 'T' in event_end_str:
+                    if event_end_str.endswith('Z'):
+                        event_end = datetime.fromisoformat(event_end_str.replace('Z', '+00:00'))
+                    else:
+                        event_end = datetime.fromisoformat(event_end_str)
+                else:
+                    event_end = datetime.fromisoformat(event_end_str).replace(tzinfo=ZoneInfo("UTC")) + timedelta(days=1)
+                
+                if event_start.tzinfo is None:
+                    event_start = event_start.replace(tzinfo=ZoneInfo("UTC"))
+                if event_end.tzinfo is None:
+                    event_end = event_end.replace(tzinfo=ZoneInfo("UTC"))
+                
+                event_start_local = event_start.astimezone(local_tz)
+                event_end_local = event_end.astimezone(local_tz)
+                
+                is_overlapping = start_aware < event_end_local and end_aware > event_start_local
+                
+                if is_overlapping:
+                    conflicting_events.append(event)
+            except Exception:
+                continue
+        
+        # Step 1 완료 메시지 먼저 추가
+        step1_complete_msg = "✅ [Step 1 완료] 일정 조회가 완료되었습니다.\n\n"
+        
+        # 휴먼 인 더 루프: 출장 신청서 작성 진행 여부 확인
+        # 버튼 형태로 표시하기 위해 HTML 형식 사용
+        buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
+        ✅ 진행
+    </button>
+    <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+        ❌ 취소
+    </button>
+</div>
+"""
+        
+        if conflicting_events:
+            conflict_titles = [e.get('title', '제목 없음') for e in conflicting_events[:3]]
+            conflict_msg = "\n".join(f"- {title}" for title in conflict_titles)
+            message = step1_complete_msg + f"⚠️ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n출장 신청서 작성을 계속하시겠습니까?" + buttons_html
+        else:
+            message = step1_complete_msg + f"✅ 해당 기간에 일정 충돌이 없습니다.\n\n출장 기간: {start_aware.strftime('%Y-%m-%d %H:%M')} ~ {end_aware.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?" + buttons_html
+        
+        return {
+            "final_response": message,
+            "messages": [message],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,  # 버튼 표시를 위한 플래그
+        }
+    except GoogleAuthRequired as auth_error:
+        # 인증 필요 시 경고 후 진행
+        message = f"⚠️ Google Calendar 인증이 필요합니다. (일정 충돌 체크 생략)\n\n출장 기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?\n\n[진행] 또는 [취소]를 선택해주세요."
+        return {
+            "final_response": message,
+            "messages": [message],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    except Exception as e:
+        print(f"⚠️ 일정 조회 실패: {e}")
+        message = f"⚠️ 일정 조회 중 오류가 발생했습니다.\n\n출장 기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?\n\n[진행] 또는 [취소]를 선택해주세요."
+        return {
+            "final_response": message,
+            "messages": [message],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+
+
+async def _handle_workflow_step4_register_calendar(
+    state: OrchestratorState,
+    query: str,
+    employee_id: Optional[int],
+    user_id: Optional[str]
+) -> Dict[str, Any]:
+    """워크플로우 4단계: 캘린더 등록 및 RDB 저장."""
+    print("--- [Business Trip Workflow] Step 4: 캘린더 등록 및 RDB 저장 ---")
+    
+    workflow_temp_data = state.get("workflow_temp_data") or {}
+    
+    if not workflow_temp_data.get("start_time") or not workflow_temp_data.get("end_time"):
+        return {
+            "final_response": "❌ 출장 정보가 없습니다. 워크플로우를 처음부터 다시 시작해주세요.",
+            "messages": ["출장 정보가 없습니다."],
+            "schedule_context": state.get("schedule_context", {}),
+        }
+    
+    try:
+        start_time = datetime.fromisoformat(workflow_temp_data["start_time"].replace("Z", "+00:00"))
+        end_time = datetime.fromisoformat(workflow_temp_data["end_time"].replace("Z", "+00:00"))
+    except Exception as e:
+        print(f"❌ 날짜 파싱 실패: {e}")
+        return {
+            "final_response": f"❌ 날짜 정보를 파싱할 수 없습니다: {e}",
+            "messages": ["날짜 정보를 파싱할 수 없습니다."],
+            "schedule_context": state.get("schedule_context", {}),
+        }
+    
+    title = workflow_temp_data.get("title", "출장")
+    description = workflow_temp_data.get("description", workflow_temp_data.get("trip_purpose", "출장"))
+    destination = workflow_temp_data.get("destination", "")
+    
+    scheduler = _get_scheduler()
+    
+    # 출장 제목 자동 생성
+    trip_title = title
+    if not trip_title:
+        if destination:
+            trip_title = f"{destination} 출장"
+        elif description:
+            trip_title = f"{description} 출장"
+        else:
+            trip_title = "출장"
+    
+    # DB에 출장 저장
+    trip_data = {
+        "employee_id": employee_id,
+        "trip_title": trip_title,
+        "trip_purpose": description,
+        "destination": destination,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
+    
+    trip_id = await scheduler.db.create_business_trip_request(trip_data)
+    
+    # Google Calendar에 이벤트 생성
+    event_description = f"출장 목적: {description}\n"
+    if destination:
+        event_description += f"목적지: {destination}\n"
+    
+    event_data = {
+        "title": trip_title,
+        "description": event_description.strip(),
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+        "location": destination or "",
+        "attendees": [],  # 본인 캘린더에만 등록
+        "schedule_type": "business_trip",
+        "employee_id": employee_id,
+    }
+    
+    try:
+        created_event = await scheduler.create_event(
+            user_id=user_id,
+            event_data=event_data
+        )
+        
+        if created_event:
+            gcal_event_id = created_event.get("id")
+            # Step 4 완료 메시지 추가
+            step4_complete_msg = "✅ [Step 4 완료] 캘린더 등록이 완료되었습니다.\n\n"
+            message = f"✅ 출장 신청이 완료되었습니다!\n\n"
+            message += f"기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n"
+            if destination:
+                message += f"목적지: {destination}\n"
+            message += f"제목: {trip_title}\n"
+            message += "\n구글 캘린더에 일정이 등록되었습니다."
+            message = step4_complete_msg + message
+            
+            # 워크플로우 완료 - workflow_temp_data 초기화
+            return {
+                "ok": True,
+                "final_response": message,
+                "messages": [message],
+                "trip_id": trip_id,
+                "gcal_event_id": gcal_event_id,
+                "workflow_temp_data": {},  # 초기화
+                "workflow_in_progress": False,  # 워크플로우 완료
+                "schedule_context": state.get("schedule_context", {}),
+                "next_domain": None,  # 워크플로우 완료
+            }
+    except GoogleAuthRequired as auth_error:
+        # 캘린더 등록 실패해도 DB 저장은 완료
+        message = f"✅ 출장 신청이 완료되었습니다 (캘린더 등록은 Google 인증 후 가능합니다).\n\n기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}"
+        return {
+            "ok": True,
+            "final_response": message,
+            "messages": [message],
+            "trip_id": trip_id,
+            "workflow_temp_data": {},  # 초기화
+            "workflow_in_progress": False,  # 워크플로우 완료
+            "schedule_context": state.get("schedule_context", {}),
+            "next_domain": None,
+        }
+    except Exception as e:
+        print(f"⚠️ Google Calendar 이벤트 생성 실패: {e}")
+        message = f"✅ 출장 신청이 완료되었습니다 (캘린더 등록 실패).\n\n기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}"
+        return {
+            "ok": True,
+            "final_response": message,
+            "messages": [message],
+            "trip_id": trip_id,
+            "workflow_temp_data": {},  # 초기화
+            "workflow_in_progress": False,  # 워크플로우 완료
+            "schedule_context": state.get("schedule_context", {}),
+            "next_domain": None,
+        }
 

@@ -891,7 +891,15 @@ async def get_session_manager() -> Optional[SessionManager]:
             except (ValueError, AttributeError):
                 redis_timeout = 10  # 기본값: 10초
 
+            # 현재 실행 중인 이벤트 루프 가져오기 (Windows 호환성)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # 이벤트 루프가 실행 중이 아닌 경우 (일반적으로 발생하지 않음)
+                loop = None
+            
             # Redis 연결 풀 설정으로 타임아웃 및 재시도 설정
+            # Windows에서 이벤트 루프 문제를 방지하기 위해 명시적으로 설정
             redis_client = AsyncRedis.from_url(
                 redis_url,
                 decode_responses=False,

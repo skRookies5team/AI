@@ -18,12 +18,17 @@ from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.session_manager import get_session_manager
 from agents.notifications import get_notification_queue
 import asyncio
+import sys
 import threading
 from datetime import datetime, timedelta
 import time
 from typing import Dict, Tuple
 
 from google_auth_oauthlib.flow import Flow
+
+# Windows에서 SelectorEventLoop 정책 설정 (Redis asyncio 호환성)
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Orchestrator 그래프 캐시 (앱 시작 시 한 번만 생성)
 _orchestrator_graph = None

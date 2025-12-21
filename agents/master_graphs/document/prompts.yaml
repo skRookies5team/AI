@@ -207,3 +207,4 @@ classification_criteria: |
   - update_document: 문서 업데이트 (복리후생/식단/메뉴얼/이력서)
   - email_auto_reply: 이메일, 메일, 자동응답 관련 (참고: 실제로는 email 도메인으로 라우팅)
 output_format: '{"intent": "doc_generate|update_document|email_auto_reply"}'
+

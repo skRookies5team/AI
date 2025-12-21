@@ -219,3 +219,5 @@ FileNotFoundError: 학습 데이터를 찾을 수 없습니다
 - 모델 확인 스크립트: `scripts/check_ml_model.py`
 - 통합 가이드: `ML_MODEL_INTEGRATION.md`
 
+
+

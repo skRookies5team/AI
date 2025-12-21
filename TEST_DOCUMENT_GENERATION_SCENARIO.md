@@ -627,6 +627,129 @@ uv run main_agents.py --mode cli
 
 ---
 
+## 시나리오 11: 휴가 신청서 생성
+
+### 입력 예시 1 (상세한 형태)
+```
+양식: vacation_request_form 제목: 2024년 연차 휴가 신청서 요구사항:
+- 휴가 유형: 연차
+- 휴가 기간: 2024년 3월 15일 ~ 2024년 3월 17일
+- 휴가 사유: 개인 사정으로 인한 휴가
+```
+
+**작동 방식:**
+1. 사용자가 휴가 유형, 기간, 사유를 입력하면
+2. LLM이 필요한 정보를 추출하여 HTML 양식에 자동 기입
+3. 신청자 정보는 로그인한 사용자 정보(employee_id)로 자동 설정
+4. HTML 양식에 자동 기입:
+   - 신청자 정보: `applicantName`, `department`, `position`, `employeeId`, `phone` (DB에서 조회)
+   - 신청일: `requestDate` (자동 설정)
+   - 휴가 정보: `vacationType`, `startDate`, `endDate`, `vacationDays` (자동 계산)
+   - 휴가 사유: `reason`
+   - 결재선: `approver1Name`, `approver1Position`, `approver1Signature`, `approver1Date`, `approver2Name`, `approver2Position`, `approver2Signature`, `approver2Date`
+
+### 입력 예시 2 (간단한 형태)
+```
+양식: vacation_request_form 제목: 반차 신청서 요구사항:
+휴가 유형: 반차(오전), 휴가 기간: 2024년 4월 10일
+휴가 사유: 병원 방문
+```
+
+### 입력 예시 3 (자연스러운 형태)
+```
+휴가 신청서를 만들어줘. 연차로 3월 15일부터 17일까지 3일간 신청하고, 사유는 개인 사정이야.
+```
+
+### 예상 출력 결과
+
+**주요 필드 값 요약:**
+- **formNumber**: `VAC-20241221-001` (자동 생성)
+- **applicantName**: `홍길동` (DB에서 조회)
+- **department**: `개발팀` (DB에서 조회)
+- **position**: `과장` (DB에서 조회)
+- **employeeId**: `4000` (DB에서 조회)
+- **phone**: `hong@company.com` (DB에서 조회)
+- **requestDate**: `2024-12-21` (자동 설정)
+- **vacationType**: `연차`
+- **startDate**: `2024-03-15`
+- **endDate**: `2024-03-17`
+- **vacationDays**: `3일` (자동 계산, 주말 제외)
+- **reason**: `개인 사정으로 인한 휴가`
+- **approver1Name**: `이부장` (추론 또는 DB 조회)
+- **approver1Position**: `부장`
+- **approver2Name**: `최대표` (추론 또는 DB 조회)
+- **approver2Position**: `대표이사`
+
+**참고:**
+- 신청자 정보는 로그인한 사용자의 `employee_id`를 기반으로 DB에서 자동 조회됩니다.
+- 휴가 일수는 주말을 제외하고 자동 계산됩니다 (반차는 0.5일).
+- 신청서 번호는 `VAC-YYYYMMDD-XXX` 형식으로 자동 생성됩니다.
+
+---
+
+## 시나리오 12: 출장 신청서 생성
+
+### 입력 예시 1 (상세한 형태)
+```
+양식: business_trip_request_form 제목: 2024년 서울 출장 신청서 요구사항:
+- 출장지: 서울
+- 출장 목적: 고객 미팅
+- 출장 기간: 2024년 3월 15일 ~ 2024년 3월 17일
+- 출장 사유: 주요 고객사와의 계약 협상
+```
+
+**작동 방식:**
+1. 사용자가 출장지, 목적, 기간, 사유를 입력하면
+2. LLM이 필요한 정보를 추출하여 HTML 양식에 자동 기입
+3. 신청자 정보는 로그인한 사용자 정보(employee_id)로 자동 설정
+4. HTML 양식에 자동 기입:
+   - 신청자 정보: `applicantName`, `department`, `position`, `employeeId`, `phone` (DB에서 조회)
+   - 신청일: `requestDate` (자동 설정)
+   - 출장 정보: `destination`, `purpose`, `startDate`, `endDate`, `tripDays` (자동 계산)
+   - 출장 사유: `reason`
+   - 결재선: `approver1Name`, `approver1Position`, `approver1Signature`, `approver1Date`, `approver2Name`, `approver2Position`, `approver2Signature`, `approver2Date`
+
+### 입력 예시 2 (간단한 형태)
+```
+양식: business_trip_request_form 제목: 부산 출장 신청서 요구사항:
+출장지: 부산, 출장 목적: 전시회 참관, 출장 기간: 2024년 4월 10일 ~ 2024년 4월 12일
+출장 사유: IT 전시회 참관 및 신제품 홍보
+```
+
+### 입력 예시 3 (자연스러운 형태)
+```
+출장 신청서를 만들어줘. 다음 주 3일간 울산으로 출장 가는데, 목적은 거래처 미팅이고 사유는 신규 계약 협상이야.
+```
+
+### 예상 출력 결과
+
+**주요 필드 값 요약:**
+- **formNumber**: `BT-20241221-001` (자동 생성)
+- **applicantName**: `홍길동` (DB에서 조회)
+- **department**: `영업팀` (DB에서 조회)
+- **position**: `과장` (DB에서 조회)
+- **employeeId**: `4000` (DB에서 조회)
+- **phone**: `hong@company.com` (DB에서 조회)
+- **requestDate**: `2024-12-21` (자동 설정)
+- **destination**: `서울`
+- **purpose**: `고객 미팅`
+- **startDate**: `2024-03-15`
+- **endDate**: `2024-03-17`
+- **tripDays**: `3일` (자동 계산, 주말 포함)
+- **reason**: `주요 고객사와의 계약 협상`
+- **approver1Name**: `이부장` (추론 또는 DB 조회)
+- **approver1Position**: `부장`
+- **approver2Name**: `최대표` (추론 또는 DB 조회)
+- **approver2Position**: `대표이사`
+
+**참고:**
+- 신청자 정보는 로그인한 사용자의 `employee_id`를 기반으로 DB에서 자동 조회됩니다.
+- 출장 일수는 주말을 포함하여 자동 계산됩니다.
+- 신청서 번호는 `BT-YYYYMMDD-XXX` 형식으로 자동 생성됩니다.
+- 워크플로우 모드에서 출장 신청 시, `workflow_temp_data`에서 `start_time`, `end_time`, `destination`, `description` 정보를 가져와 자동으로 채워집니다.
+
+---
+
 ## 테스트 체크리스트
 
 ### 기본 기능 테스트
@@ -652,6 +775,8 @@ uv run main_agents.py --mode cli
 - [ ] activity_based_costing
 - [ ] project_schedule
 - [ ] product_comparison_table
+- [ ] vacation_request_form
+- [ ] business_trip_request_form
 
 ---
 

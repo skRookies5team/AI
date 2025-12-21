@@ -39,8 +39,18 @@ async def parse_korean_date_with_llm(query: str) -> Tuple[Optional[datetime], Op
 
         now = datetime.now(LOCAL_TIMEZONE)
         today_str = now.strftime("%Y-%m-%d %H:%M")
+        today_weekday = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'][now.weekday()]
+        
+        # 다음주 월요일 계산 (예시용)
+        days_until_next_monday = (7 - now.weekday()) % 7
+        if days_until_next_monday == 0:
+            days_until_next_monday = 7  # 오늘이 월요일이면 다음주 월요일
+        next_monday = now + timedelta(days=days_until_next_monday)
+        next_monday_str = next_monday.strftime("%Y-%m-%d")
         
         prompt = f"""오늘 날짜/시간: {today_str}
+오늘 요일: {today_weekday}
+다음주 월요일: {next_monday_str}
 
 사용자 질문: "{query}"
 
@@ -61,10 +71,19 @@ async def parse_korean_date_with_llm(query: str) -> Tuple[Optional[datetime], Op
 - "내일 오후 5시부터 7시까지" → 내일 17:00 ~ 19:00
 - "내일 오후 5시부터 오후 9시까지" → 내일 17:00 ~ 21:00
 - "다음주 월요일" → 다음주 월요일 00:00 ~ 23:59
+- "다음 주 3일간" → 다음주 월요일 00:00 ~ 다음주 수요일 23:59 (월, 화, 수 3일)
+- "다음 주 3일" → 다음주 월요일 00:00 ~ 다음주 수요일 23:59 (월, 화, 수 3일)
+- "다음 주 5일간" → 다음주 월요일 00:00 ~ 다음주 금요일 23:59 (월~금 5일)
 - "이번 주" → 이번주 월요일 00:00 ~ 일요일 23:59
 - "이번 달" → 이번달 1일 00:00 ~ 말일 23:59
 - "12월 25일" → 해당 날짜 00:00 ~ 23:59
 - "12월 25일 오후 2시부터 3시까지" → 12월 25일 14:00 ~ 15:00
+
+**중요: "다음 주 N일간" 패턴 처리**
+- "다음 주 3일간" = 다음주 월요일부터 3일 (월, 화, 수)
+- "다음 주 5일간" = 다음주 월요일부터 5일 (월~금)
+- 항상 다음주 월요일을 시작일로 계산
+- 오늘 날짜({today_str})를 기준으로 정확히 계산하세요
 
 **출력 형식 (JSON만):**
 {{
@@ -73,10 +92,12 @@ async def parse_korean_date_with_llm(query: str) -> Tuple[Optional[datetime], Op
 }}
 
 **주의사항:**
+- 반드시 오늘 날짜({today_str})를 기준으로 계산하세요
+- 과거 날짜를 반환하지 마세요 (오늘보다 이전 날짜는 절대 반환 금지)
 - "~부터 ~까지" 패턴이 있으면 반드시 시작/종료 시간을 모두 정확히 추출
 - 종료 시간이 명시되지 않은 경우에만 시작 시간 + 1시간으로 설정
 - 오후/오전을 정확히 해석 (오후 5시 = 17시, 오후 7시 = 19시)
-- 날짜 정보가 없으면 null 반환
+- 날짜 정보가 없거나 불확실하면 null 반환
 
 JSON만 출력하세요."""
 
@@ -84,22 +105,43 @@ JSON만 출력하세요."""
         content = response.content.strip()
         
         import json, re
-        json_match = re.search(r'\{[^{}]*"start_date"[^{}]*\}', content)
-        if json_match:
-            data = json.loads(json_match.group(0))
-            
-            start_str = data.get("start_date")
-            end_str = data.get("end_date")
-            
-            if start_str:
-                start_date = datetime.strptime(start_str, "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TIMEZONE)
-                end_date = datetime.strptime(end_str, "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TIMEZONE) if end_str else start_date
-                if end_date < start_date:
-                    end_date = start_date
-                
-                print(f"✅ LLM 날짜 파싱: {start_date} ~ {end_date}")
-                return start_date, end_date
+        # JSON 추출 시 더 넓은 범위로 검색 (중첩된 JSON도 처리)
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*"start_date"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
+        if not json_match:
+            # 단순 JSON 패턴으로 재시도
+            json_match = re.search(r'\{[^{}]*"start_date"[^{}]*\}', content)
         
+        if json_match:
+            try:
+                data = json.loads(json_match.group(0))
+                
+                start_str = data.get("start_date")
+                end_str = data.get("end_date")
+                
+                if start_str:
+                    start_date = datetime.strptime(start_str, "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TIMEZONE)
+                    end_date = datetime.strptime(end_str, "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TIMEZONE) if end_str else start_date
+                    if end_date < start_date:
+                        end_date = start_date
+                    
+                    # 파싱된 날짜가 과거인지 검증 (더 엄격하게)
+                    now = datetime.now(LOCAL_TIMEZONE)
+                    days_diff = (start_date.date() - now.date()).days
+                    
+                    # 과거 날짜이거나 너무 오래된 날짜(2024년 이전)면 fallback 사용
+                    if days_diff < 0 or start_date.year < 2024:
+                        print(f"⚠️ LLM이 잘못된 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일)")
+                        print(f"⚠️ Fallback 파싱으로 전환")
+                        return _fallback_date_parsing(query)
+                    
+                    print(f"✅ LLM 날짜 파싱: {start_date} ~ {end_date}")
+                    return start_date, end_date
+            except (ValueError, json.JSONDecodeError) as e:
+                print(f"⚠️ LLM 응답 파싱 실패: {e}, Fallback 사용")
+                return _fallback_date_parsing(query)
+        
+        # JSON을 찾지 못했거나 파싱 실패 시 fallback 사용
+        print(f"⚠️ LLM 응답에서 날짜를 찾을 수 없음, Fallback 사용")
         return _fallback_date_parsing(query)
     
     except Exception as e:
@@ -148,6 +190,33 @@ def _fallback_date_parsing(query: str) -> Tuple[Optional[datetime], Optional[dat
             next_month = now.replace(month=now.month + 1, day=1)
             month_end = next_month - timedelta(seconds=1)
         return month_start, month_end
+    
+    # 다음 주
+    elif "다음 주" in query or "다음주" in query:
+        # 다음주 월요일 계산
+        days_until_next_monday = (7 - now.weekday()) % 7
+        if days_until_next_monday == 0:
+            days_until_next_monday = 7  # 오늘이 월요일이면 다음주 월요일
+        next_monday = now + timedelta(days=days_until_next_monday)
+        next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # "3일간" 같은 패턴 추출
+        import re
+        days_match = re.search(r'(\d+)일간?', query)
+        if days_match:
+            days = int(days_match.group(1))
+            end_date = next_monday + timedelta(days=days - 1, hours=23, minutes=59, seconds=59)
+        else:
+            # 기본값: 다음주 월요일~일요일
+            end_date = next_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        
+        # 검증: 파싱된 날짜가 미래인지 확인
+        if next_monday.date() < now.date():
+            print(f"⚠️ Fallback 파싱 결과가 과거 날짜: {next_monday.date()} (오늘: {now.date()})")
+            return None, None
+        
+        print(f"✅ Fallback 날짜 파싱 (다음 주): {next_monday.date()} ~ {end_date.date()}")
+        return next_monday, end_date
     
     # 날짜 정보 없음
     else:

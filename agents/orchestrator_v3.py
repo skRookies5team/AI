@@ -40,6 +40,7 @@ from agents.master_graphs import (
     get_tech_master_graph,
     get_recruitment_master_graph,
 )
+from agents.workflows import get_workflow_handler
 
 
 # 도메인별 마스터그래프 매핑
@@ -206,7 +207,7 @@ def load_workflows_config() -> Dict[str, Any]:
         return _workflows_config
     
     current_dir = Path(__file__).parent
-    yaml_path = current_dir / "workflows.yaml"
+    yaml_path = current_dir / "workflows" / "workflows.yaml"
     
     if not yaml_path.exists():
         print(f"⚠️ 워크플로우 파일을 찾을 수 없습니다: {yaml_path}")
@@ -249,7 +250,7 @@ def load_workflow_classification_config() -> Dict[str, Any]:
 async def classify_request_type(query: str) -> Dict[str, Any]:
     """1단계: 사용자 요청을 워크플로우 요청과 일반 요청으로 분류합니다.
     
-    ML 모델을 우선 사용하고, ML 모델이 사용 불가능하거나 실패하면 LLM fallback을 사용합니다.
+    ML 모델을 우선 사용하고, 사용 불가능한 경우 LLM fallback을 사용합니다.
     
     Args:
         query: 사용자 쿼리
@@ -259,31 +260,27 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
     """
     step_start = time.time()
     
-    # 1. ML 모델 사용 가능 여부 확인 및 분류 시도
-    model_available = is_model_available()
-    if not model_available:
-        print(f"ℹ️ [1단계 분류] ML 모델을 사용할 수 없습니다. LLM fallback을 사용합니다.")
-    
-    if model_available:
-        try:
-            ml_result = classify_workflow_request(query)
+    # ML 모델 사용 가능 여부 확인 (조용히 시도)
+    try:
+        if is_model_available():
+            # ML 모델로 분류 (동기 함수이지만 빠르므로 await 불필요)
+            result = classify_workflow_request(query)
+            
             step_elapsed = (time.time() - step_start) * 1000
             
-            if ml_result.get("method") == "ml":
-                print(f"✅ 1단계 분류 (ML 모델): {'워크플로우' if ml_result['is_workflow_request'] else '일반 요청'} (신뢰도: {ml_result['confidence']:.2f}, {step_elapsed/1000:.2f}초)")
-                _routing_logger.info(f"[1단계 분류 ML 모델] {step_elapsed:.2f}ms, confidence={ml_result['confidence']:.2f}")
+            if result.get('method') == 'ml':
+                step_elapsed_sec = step_elapsed / 1000
+                print(f"✅ 1단계 분류 (ML): {'워크플로우' if result['is_workflow_request'] else '일반 요청'} (신뢰도: {result['confidence']:.2f}, {step_elapsed_sec:.2f}초)")
                 return {
-                    "is_workflow_request": ml_result["is_workflow_request"],
-                    "confidence": ml_result["confidence"]
+                    "is_workflow_request": result['is_workflow_request'],
+                    "confidence": result['confidence']
                 }
-            else:
-                # ML 모델 fallback (모델 로드 실패 등)
-                print(f"⚠️ [1단계 분류] ML 모델 fallback 감지 (method={ml_result.get('method')}), LLM으로 전환")
-        except Exception as e:
-            print(f"⚠️ [1단계 분류] ML 모델 분류 중 오류 발생: {e}, LLM으로 fallback")
-            _routing_logger.warning(f"[1단계 분류 ML 모델 실패] error={str(e)}")
+            # ML 모델 fallback 발생 시 조용히 LLM으로 전환 (로그 없음)
+    except Exception as e:
+        # ML 모델 오류 시 조용히 LLM으로 fallback
+        logging.debug(f"ML 모델 분류 실패: {e}, LLM으로 fallback")
     
-    # 2. LLM fallback (ML 모델이 사용 불가능하거나 실패한 경우)
+    # LLM fallback
     classification_config = load_workflow_classification_config()
     request_classification = classification_config.get("request_classification", {})
     
@@ -310,9 +307,7 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         )
         
         step_elapsed = (time.time() - step_start) * 1000
-        print(f"✅ 1단계 분류 (LLM fallback): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
-        _routing_logger.info(f"[1단계 분류 LLM fallback] {step_elapsed:.2f}ms, confidence={result.confidence:.2f}")
-
+        print(f"✅ 1단계 분류 (LLM): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
         return {
             "is_workflow_request": result.is_workflow_request,
             "confidence": result.confidence
@@ -320,8 +315,6 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
     except Exception as e:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        _routing_logger.warning(f"[1단계 분류 실패] {step_elapsed:.2f}ms, error={str(e)}")
-
         return {"is_workflow_request": False, "confidence": 0.5}
 
 
@@ -718,6 +711,13 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     last_domain = state.get("last_domain")
     conversation_history = state.get("conversation_history", [])
     
+    # user_message를 먼저 정의 (워크플로우 체크 전에)
+    user_message: Message = {
+        "role": "user",
+        "content": query,
+        "timestamp": datetime.now().isoformat()
+    }
+    
     # 현재 날짜와 시간 정보 설정 (모든 agent가 공통으로 사용) - YAML 설정 사용
     config = load_orchestrator_config()
     date_time_config = config.get("date_time", {})
@@ -744,6 +744,233 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     search_params = config.get("search_params", {})
     query_preview_length = search_params.get("query_preview_length", 50)
     _routing_logger.info(f"[라우팅 시작] query='{query[:query_preview_length]}...', session_id={session_id}, current_date={current_date_info['current_date']}")
+    
+    # 워크플로우 진행 중인지 먼저 확인 (최우선 처리)
+    # 1. state에서 직접 확인
+    workflow_in_progress = state.get("workflow_in_progress", False)
+    workflow_type = state.get("workflow_type")
+    workflow_steps = state.get("workflow_steps", [])
+    current_step_index = state.get("current_workflow_step_index", 0)
+    workflow_temp_data = state.get("workflow_temp_data", {})
+    
+    # 디버깅: 워크플로우 상태 확인
+    print(f"🔍 [워크플로우 상태 확인] workflow_in_progress={workflow_in_progress}, workflow_type={workflow_type}, workflow_steps={workflow_steps}, current_step_index={current_step_index}, last_domain={last_domain}")
+    
+    # 2. 워크플로우 관련 필드가 있으면 워크플로우 진행 중으로 간주 (Redis에서 로드 시 누락될 수 있음)
+    if not workflow_in_progress:
+        # workflow_type이나 workflow_steps가 있으면 워크플로우 진행 중으로 복구
+        if workflow_type and workflow_steps:
+            workflow_in_progress = True
+            print(f"🔄 워크플로우 상태 복구: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)}) from state fields")
+            state["workflow_in_progress"] = True
+        # Redis에서 세션 데이터를 직접 로드하여 워크플로우 상태 확인
+        elif session_id:
+            try:
+                from agents.session_manager import get_session_manager
+                session_manager = await get_session_manager()
+                if session_manager:
+                    employee_id = state.get("employee_id")
+                    if employee_id:
+                        session_data = await session_manager.load_session_data(session_id, employee_id)
+                        if session_data:
+                            redis_workflow_type = session_data.get("workflow_type")
+                            redis_workflow_steps = session_data.get("workflow_steps")
+                            redis_current_step = session_data.get("current_workflow_step_index", 0)
+                            redis_last_domain = session_data.get("last_domain")
+                            redis_workflow_temp_data = session_data.get("workflow_temp_data", {})
+                            
+                            # workflow_type과 workflow_steps가 있으면 복구
+                            if redis_workflow_type and redis_workflow_steps:
+                                workflow_type = redis_workflow_type
+                                workflow_steps = redis_workflow_steps
+                                current_step_index = redis_current_step
+                                workflow_in_progress = True
+                                if redis_workflow_temp_data:
+                                    workflow_temp_data = redis_workflow_temp_data
+                                print(f"🔄 워크플로우 상태 복구: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)}) from Redis session")
+                                state["workflow_in_progress"] = True
+                                state["workflow_type"] = workflow_type
+                                state["workflow_steps"] = workflow_steps
+                                state["current_workflow_step_index"] = current_step_index
+                                if redis_workflow_temp_data:
+                                    state["workflow_temp_data"] = redis_workflow_temp_data
+                            # workflow_temp_data가 있으면 워크플로우 진행 중일 가능성이 높음
+                            elif redis_workflow_temp_data:
+                                # workflow_temp_data가 있으면 워크플로우 진행 중으로 간주
+                                # last_domain에서 워크플로우 정보 추출 시도
+                                if redis_last_domain and "step" in redis_last_domain.lower():
+                                    last_domain = redis_last_domain
+                                    workflow_temp_data = redis_workflow_temp_data
+                            # last_domain에서 워크플로우 정보 복구
+                            elif redis_last_domain and "step" in redis_last_domain.lower():
+                                last_domain = redis_last_domain
+            except Exception as e:
+                print(f"⚠️ Redis에서 워크플로우 상태 복구 실패: {e}")
+        
+        # last_domain에서 워크플로우 정보 복구
+        if not workflow_in_progress and last_domain and "step" in last_domain.lower():
+            # last_domain이 "Apply for a business trip step1" 형식이면 워크플로우 진행 중으로 간주
+            # 워크플로우 타입 추출
+            if "business trip" in last_domain.lower() or "출장" in last_domain:
+                workflow_type = "business_trip"
+            elif "recruitment" in last_domain.lower() or "채용" in last_domain:
+                workflow_type = "recruitment"
+            elif "meeting preparation" in last_domain.lower() or "회의 준비" in last_domain:
+                workflow_type = "meeting_preparation"
+            
+            # step 번호 추출
+            step_match = re.search(r'step\s*(\d+)', last_domain, re.IGNORECASE)
+            if step_match:
+                current_step_index = int(step_match.group(1)) - 1  # step1 -> index 0
+                
+                # 워크플로우 설정에서 steps 가져오기
+                if workflow_type:
+                    workflows = load_workflows_config()
+                    workflow_config = workflows.get("workflows", {}).get(workflow_type)
+                    if workflow_config:
+                        steps = workflow_config.get("steps", [])
+                        workflow_steps = [step.get("domain") for step in steps if step.get("domain")]
+                        
+                        if workflow_steps and 0 <= current_step_index < len(workflow_steps):
+                            workflow_in_progress = True
+                            print(f"🔄 워크플로우 상태 복구: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)}) from last_domain={last_domain}")
+                            # state 업데이트
+                            state["workflow_in_progress"] = True
+                            state["workflow_type"] = workflow_type
+                            state["workflow_steps"] = workflow_steps
+                            state["current_workflow_step_index"] = current_step_index
+    
+    if workflow_in_progress:
+        next_domain = state.get("next_domain")
+        
+        print(f"🔄 워크플로우 진행 중 감지: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)})")
+        
+        # "진행" 또는 "취소"/"종료" 버튼 선택 확인
+        proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
+        cancel_keywords = ["취소", "중단", "그만", "stop", "cancel", "아니오", "아니", "종료"]
+        
+        is_proceed = any(kw in query for kw in proceed_keywords)
+        is_cancel = any(kw in query.lower() for kw in cancel_keywords)
+        
+        # "진행" 선택 시 다음 단계로 진행
+        if is_proceed and not is_cancel:
+            workflow_handler = get_workflow_handler(workflow_type)
+            next_step_index = current_step_index + 1
+            
+            if workflow_handler:
+                if not workflow_handler.validate_step_transition(current_step_index, next_step_index, workflow_steps):
+                    print(f"❌ 워크플로우 인덱스 검증 실패: {current_step_index} → {next_step_index}")
+                    return {
+                        "final_response": f"❌ 워크플로우 진행 오류: 유효하지 않은 단계 전환입니다.",
+                        "messages": ["워크플로우 진행 오류가 발생했습니다."],
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+            
+            if next_domain and next_domain in MASTER_GRAPHS:
+                print(f"✅ 워크플로우 진행: '{query}' → 다음 단계 {next_domain} (step {next_step_index + 1}/{len(workflow_steps)})")
+                return {
+                    "domain": next_domain,
+                    "workflow_type": workflow_type,
+                    "workflow_steps": workflow_steps,
+                    "current_workflow_step_index": next_step_index,
+                    "workflow_in_progress": True,
+                    "requires_input": False,
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+            elif next_step_index < len(workflow_steps):
+                next_domain = workflow_steps[next_step_index]
+                if next_domain:
+                    print(f"✅ 워크플로우 진행: '{query}' → 다음 단계 {next_domain} (step {next_step_index + 1}/{len(workflow_steps)})")
+                    return {
+                        "domain": next_domain,
+                        "workflow_type": workflow_type,
+                        "workflow_steps": workflow_steps,
+                        "current_workflow_step_index": next_step_index,
+                        "next_domain": next_domain,
+                        "workflow_in_progress": True,
+                        "requires_input": False,
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+        
+        # 취소 요청 확인
+        if is_cancel:
+            print(f"⚠️ 워크플로우 취소 요청: {workflow_type}")
+            if workflow_type == "business_trip" and any(kw in query for kw in ["출장", "business_trip"]):
+                return {
+                    "workflow_type": None,
+                    "workflow_steps": None,
+                    "current_workflow_step_index": None,
+                    "workflow_completed_steps": None,
+                    "workflow_in_progress": False,
+                    "next_domain": None,
+                    "domain": "schedule",
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+            return {
+                "workflow_type": None,
+                "workflow_steps": None,
+                "current_workflow_step_index": None,
+                "workflow_completed_steps": None,
+                "workflow_in_progress": False,
+                "next_domain": None,
+                "domain": None,
+                "final_response": f"워크플로우({workflow_type})가 취소되었습니다.",
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+        
+        # next_domain이 None이면 현재 단계에서 사용자 입력 대기 중
+        # 현재 도메인으로 다시 라우팅하여 사용자 입력 처리
+        if not next_domain and current_step_index < len(workflow_steps):
+            current_domain = workflow_steps[current_step_index] if current_step_index < len(workflow_steps) else None
+            if current_domain and current_domain in MASTER_GRAPHS:
+                print(f"⏸️ 워크플로우 진행 중 - 사용자 입력 수신, 현재 단계({current_domain}, step {current_step_index + 1}/{len(workflow_steps)})로 라우팅")
+                return {
+                    "domain": current_domain,
+                    "workflow_type": workflow_type,
+                    "workflow_steps": workflow_steps,
+                    "current_workflow_step_index": current_step_index,
+                    "workflow_in_progress": True,
+                    "requires_input": False,
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+        
+        # 다음 단계 도메인 설정
+        if next_domain and next_domain in MASTER_GRAPHS:
+            print(f"✅ 워크플로우 다음 단계: {next_domain} (step {current_step_index + 1}/{len(workflow_steps)})")
+            return {
+                "domain": next_domain,
+                "workflow_type": workflow_type,
+                "workflow_steps": workflow_steps,
+                "current_workflow_step_index": current_step_index,
+                "workflow_in_progress": True,
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+        else:
+            # 워크플로우 완료
+            print(f"✅ 워크플로우 완료: {workflow_type}")
+            workflows = load_workflows_config()
+            workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+            completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
+            return {
+                "workflow_type": None,
+                "workflow_steps": None,
+                "current_workflow_step_index": None,
+                "workflow_completed_steps": None,
+                "workflow_in_progress": False,
+                "next_domain": None,
+                "domain": None,
+                "workflow_temp_data": {},
+                "final_response": completion_message,
+                "conversation_history": [user_message],
+                **current_date_info
+            }
     
     # "n번" 같은 요청이면 Redis에서 last_domain을 가져와서 사용
     number_selection_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기)?', re.IGNORECASE)
@@ -780,12 +1007,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         except Exception as e:
             print(f"⚠️ Redis에서 last_domain 조회 실패: {e}, LLM으로 분류 계속 진행")
     
-    # 대화 히스토리에 사용자 메시지 추가
-    user_message: Message = {
-        "role": "user",
-        "content": query,
-        "timestamp": datetime.now().isoformat()
-    }
+    # user_message는 이미 위에서 정의됨 (워크플로우 체크 전에)
     
     # 번호 선택 패턴이고 recruitment 컨텍스트가 있으면 recruitment로 우선 라우팅
     if is_number_selection:
@@ -803,19 +1025,64 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     **current_date_info
                 }
     
-    # 워크플로우 진행 중인지 확인
-    workflow_in_progress = state.get("workflow_in_progress", False)
-    
-    # 워크플로우 진행 중이면 다음 단계로 진행
-    if workflow_in_progress:
+    # 워크플로우 진행 중인지 확인 (이미 위에서 체크했으므로 여기서는 건너뜀)
+    # 워크플로우 진행 중이면 위에서 이미 처리되었으므로 여기서는 일반 요청 처리로 진행
         workflow_type = state.get("workflow_type")
         workflow_steps = state.get("workflow_steps", [])
         current_step_index = state.get("current_workflow_step_index", 0)
         next_domain = state.get("next_domain")
         
+        # "진행" 또는 "취소"/"종료" 버튼 선택 확인
+        proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
+        cancel_keywords = ["취소", "중단", "그만", "stop", "cancel", "아니오", "아니", "종료"]
+        
+        is_proceed = any(kw in query for kw in proceed_keywords)
+        is_cancel = any(kw in query.lower() for kw in cancel_keywords)
+        
+        # "진행" 선택 시 다음 단계로 진행
+        if is_proceed and not is_cancel:
+            # 워크플로우 핸들러를 통한 인덱스 검증
+            workflow_handler = get_workflow_handler(workflow_type)
+            next_step_index = current_step_index + 1
+            
+            # 인덱스 검증
+            if workflow_handler:
+                if not workflow_handler.validate_step_transition(
+                    current_step_index, next_step_index, workflow_steps
+                ):
+                    print(f"❌ 워크플로우 인덱스 검증 실패: {current_step_index} → {next_step_index}")
+                    return {
+                        "final_response": f"❌ 워크플로우 진행 오류: 유효하지 않은 단계 전환입니다.",
+                        "messages": ["워크플로우 진행 오류가 발생했습니다."],
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+            
+            if next_domain and next_domain in MASTER_GRAPHS:
+                print(f"✅ 워크플로우 진행 확인: '{query}' → 다음 단계 {next_domain}로 진행 (step {next_step_index + 1}/{len(workflow_steps)})")
+                return {
+                    "domain": next_domain,
+                    "current_workflow_step_index": next_step_index,  # 명시적으로 인덱스 업데이트
+                    "requires_input": False,  # 진행 명령이므로 리셋
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+            elif next_step_index < len(workflow_steps):
+                # next_domain이 없지만 아직 단계가 남아있으면 다음 단계로
+                next_domain = workflow_steps[next_step_index]
+                if next_domain:
+                    print(f"✅ 워크플로우 진행 확인: '{query}' → 다음 단계 {next_domain}로 진행 (step {next_step_index + 1}/{len(workflow_steps)})")
+                    return {
+                        "domain": next_domain,
+                        "current_workflow_step_index": next_step_index,
+                        "next_domain": next_domain,
+                        "requires_input": False,  # 진행 명령이므로 리셋
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+        
         # 취소 요청 확인
-        cancel_keywords = ["취소", "중단", "그만", "stop", "cancel"]
-        if any(kw in query.lower() for kw in cancel_keywords):
+        if is_cancel:
             print(f"⚠️ 워크플로우 취소 요청 감지: {workflow_type}")
             
             # 출장 관련 워크플로우이고 "출장 취소" 요청이면 출장 취소 처리
@@ -847,16 +1114,53 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 **current_date_info
             }
         
+        # next_domain이 None이면 현재 단계에서 사용자 입력 대기 중
+        # 현재 도메인으로 다시 라우팅하여 사용자 입력 처리
+        if not next_domain and current_step_index < len(workflow_steps):
+            current_domain = workflow_steps[current_step_index] if current_step_index < len(workflow_steps) else None
+            if current_domain and current_domain in MASTER_GRAPHS:
+                print(f"⏸️ 워크플로우 진행 중 - 사용자 입력 수신, 현재 단계({current_domain}, step {current_step_index + 1}/{len(workflow_steps)})로 라우팅하여 처리")
+                return {
+                    "domain": current_domain,
+                    "workflow_type": workflow_type,  # 워크플로우 타입 유지
+                    "workflow_steps": workflow_steps,  # 워크플로우 단계 유지
+                    "current_workflow_step_index": current_step_index,  # 현재 단계 유지
+                    "workflow_in_progress": True,  # 워크플로우 진행 중 유지
+                    "requires_input": False,  # 사용자 입력을 받았으므로 리셋
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+        
         # 다음 단계 도메인 설정
         if next_domain and next_domain in MASTER_GRAPHS:
             print(f"✅ 워크플로우 다음 단계: {next_domain} (step {current_step_index + 1}/{len(workflow_steps)})")
             return {
                 "domain": next_domain,
+                "workflow_type": workflow_type,  # 워크플로우 타입 유지
+                "workflow_steps": workflow_steps,  # 워크플로우 단계 유지
+                "current_workflow_step_index": current_step_index,  # 현재 단계 유지
+                "workflow_in_progress": True,  # 워크플로우 진행 중 유지
                 "conversation_history": [user_message],
                 **current_date_info
             }
-        else:
-            # 워크플로우 완료
+        
+        # next_domain이 None이고 아직 단계가 남아있으면 현재 단계로 라우팅
+        if current_step_index < len(workflow_steps):
+            current_domain = workflow_steps[current_step_index] if current_step_index < len(workflow_steps) else None
+            if current_domain and current_domain in MASTER_GRAPHS:
+                print(f"⏸️ 워크플로우 진행 중 - 현재 단계({current_domain}, step {current_step_index + 1}/{len(workflow_steps)})로 라우팅")
+                return {
+                    "domain": current_domain,
+                    "workflow_type": workflow_type,
+                    "workflow_steps": workflow_steps,
+                    "current_workflow_step_index": current_step_index,
+                    "workflow_in_progress": True,
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+        
+        # 모든 단계 완료 - 워크플로우 완료 (마지막에 체크)
+        if current_step_index >= len(workflow_steps):
             print(f"✅ 워크플로우 완료: {workflow_type}")
             workflows = load_workflows_config()
             workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
@@ -870,10 +1174,35 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "workflow_in_progress": False,
                 "next_domain": None,
                 "domain": None,
+                "workflow_temp_data": {},  # 워크플로우 완료 시 임시 데이터 초기화
                 "final_response": completion_message,
                 "conversation_history": [user_message],
                 **current_date_info
             }
+        
+        # 예상치 못한 상황
+        print(f"⚠️ 워크플로우 라우팅 오류: current_step_index={current_step_index}, workflow_steps={workflow_steps}, next_domain={next_domain}")
+        # 워크플로우 진행 중이므로 현재 단계로 라우팅 시도
+        if workflow_steps and current_step_index < len(workflow_steps):
+            current_domain = workflow_steps[current_step_index]
+            if current_domain and current_domain in MASTER_GRAPHS:
+                print(f"⚠️ 워크플로우 오류 복구: 현재 단계({current_domain})로 라우팅")
+                return {
+                    "domain": current_domain,
+                    "workflow_type": workflow_type,
+                    "workflow_steps": workflow_steps,
+                    "current_workflow_step_index": current_step_index,
+                    "workflow_in_progress": True,
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+        
+        return {
+            "final_response": "❌ 워크플로우 진행 중 오류가 발생했습니다.",
+            "messages": ["워크플로우 진행 오류가 발생했습니다."],
+            "conversation_history": [user_message],
+            **current_date_info
+        }
     
     # ============================================
     # 1단계: 워크플로우 vs 일반 요청 분류
@@ -892,7 +1221,8 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     # ============================================
     
     # 2-1. 워크플로우 요청인 경우
-    if is_workflow_request and classification_confidence >= 0.7:
+    # 단, 워크플로우 진행 중이 아닐 때만 새 워크플로우 감지 시도
+    if is_workflow_request and classification_confidence >= 0.7 and not workflow_in_progress:
         print(f"--- [Orchestrator] 2단계: 워크플로우 감지 및 처리 ---")
         step_start = time.time()
         workflow_detection_result = await detect_workflow_type(query)
@@ -952,7 +1282,8 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         return tech_result
     
     # 이전 대화 확인 질문 감지 및 처리
-    if conversation_history:
+    # 단, 워크플로우 진행 중이면 건너뛰기 (워크플로우 진행이 우선)
+    if conversation_history and not workflow_in_progress:
         is_history_check_query, history_check_result = await detect_history_check_query(
             query=query,
             conversation_history=conversation_history,
@@ -1255,17 +1586,21 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     # 조건부 라우팅: 도메인에 따라 해당 마스터그래프로 라우팅
     def route_to_master_graph(state: OrchestratorState) -> str:
         """도메인에 따라 마스터그래프로 라우팅."""
-        # 이전 대화 확인 질문은 orchestrator에서 직접 처리하므로 END로 이동
-        final_response = state.get("final_response")
+        # domain 변수를 먼저 state에서 가져오기
         domain = state.get("domain")
         
-        # final_response가 있고 domain이 None이면 이전 대화 확인 질문으로 간주
-        if final_response and (domain is None or domain == ""):
-            print("✅ 이전 대화 확인 질문 - orchestrator에서 직접 처리 완료, END로 이동")
-            return END
-        
-        # 워크플로우 진행 중인지 확인
+        # 워크플로우 진행 중인지 먼저 확인 (최우선)
         workflow_in_progress = state.get("workflow_in_progress", False)
+        
+        # 워크플로우 진행 중이면 이전 대화 확인 질문 체크를 건너뛰기
+        if not workflow_in_progress:
+            # 이전 대화 확인 질문은 orchestrator에서 직접 처리하므로 END로 이동
+            final_response = state.get("final_response")
+            
+            # final_response가 있고 domain이 None이면 이전 대화 확인 질문으로 간주
+            if final_response and (domain is None or domain == ""):
+                print("✅ 이전 대화 확인 질문 - orchestrator에서 직접 처리 완료, END로 이동")
+                return END
         
         if workflow_in_progress:
             # 워크플로우 진행 중인 경우, next_domain 또는 domain 확인
@@ -1283,13 +1618,22 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
                 print(f"--- [Orchestrator] 워크플로우 첫 단계 라우팅: {domain} ---")
                 return domain
             
+            # domain도 없으면 workflow_steps에서 현재 단계 도메인 가져오기
+            if current_step_index < len(workflow_steps):
+                current_domain = workflow_steps[current_step_index]
+                if current_domain and current_domain in MASTER_GRAPHS:
+                    print(f"--- [Orchestrator] 워크플로우 현재 단계 라우팅: {current_domain} (step {current_step_index + 1}/{len(workflow_steps)}) ---")
+                    return current_domain
+            
             # 워크플로우가 완료되었거나 모든 단계가 끝났는지 확인
             if current_step_index >= len(workflow_steps):
                 print("✅ 워크플로우 완료 - END로 이동")
                 return END
             
-            # 예상치 못한 경우
-            print(f"⚠️ 워크플로우 라우팅 오류: domain={domain}, next_domain={next_domain}, step_index={current_step_index}")
+            # 예상치 못한 경우 - 워크플로우 진행 중이지만 라우팅할 도메인을 찾을 수 없음
+            print(f"⚠️ 워크플로우 라우팅 오류: domain={domain}, next_domain={next_domain}, step_index={current_step_index}, workflow_steps={workflow_steps}")
+            # 워크플로우 진행 중이므로 END로 이동하여 사용자 입력 대기
+            return END
         
         print(f"--- [Orchestrator] State domain value: {domain} ---")
         print(f"--- [Orchestrator] State keys: {list(state.keys())} ---")
@@ -1329,12 +1673,27 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         
         워크플로우가 진행 중이면 route_to_domain으로 돌아가서 다음 단계를 처리하고,
         그렇지 않으면 END로 이동합니다.
+        
+        requires_input이 True이면 사용자 입력을 기다려야 하므로 END로 이동합니다.
         """
         workflow_in_progress = state.get("workflow_in_progress", False)
+        requires_input = state.get("requires_input", False)
+        next_domain = state.get("next_domain")
+        
+        # 사용자 입력이 필요한 경우 (HITL)
+        if requires_input:
+            print("⏸️ 사용자 입력 대기 중 - END로 이동하여 사용자 응답 대기")
+            return END
         
         if workflow_in_progress:
-            print("✅ 워크플로우 진행 중 - route_to_domain으로 돌아가서 다음 단계 처리")
-            return "route_to_domain"
+            # next_domain이 있으면 다음 단계로 진행
+            if next_domain:
+                print(f"✅ 워크플로우 진행 중 - route_to_domain으로 돌아가서 다음 단계({next_domain}) 처리")
+                return "route_to_domain"
+            else:
+                # next_domain이 없으면 사용자 입력 대기 (현재 단계에서 추가 정보 필요)
+                print("⏸️ 워크플로우 진행 중이지만 사용자 입력 대기 - END로 이동")
+                return END
         else:
             print("✅ 일반 작업 완료 - END로 이동")
             return END
