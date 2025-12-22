@@ -45,6 +45,7 @@ class DocumentMasterGraph(BaseMasterGraph):
         workflow.add_node("route_intent", self.route_intent)  # AI-011: 문서 라우팅 (작업 유형 분류 + 템플릿 매핑)
         workflow.add_node("generate_document", self.generate_document)  # AI-012: 문서 작성 (템플릿 로드 → DB 데이터 매핑 → 초안 생성)
         workflow.add_node("update_document", self.update_document)  # AI-014: 문서 업데이트 (복리후생/식단/메뉴얼 파일 업데이트)
+        workflow.add_node("process_approval", self.process_approval)  # 결재 진행 처리 (출장/휴가 신청서)
         
         # 엣지 설정
         workflow.set_entry_point("route_intent")
@@ -56,12 +57,14 @@ class DocumentMasterGraph(BaseMasterGraph):
             {
                 "generate": "generate_document",  # 문서 작성
                 "update": "update_document",  # 문서 업데이트 (복리후생/식단/메뉴얼)
+                "approval": "process_approval",  # 결재 진행
             }
         )
         
         # 문서 생성 후 바로 종료
         workflow.add_edge("generate_document", END)
         workflow.add_edge("update_document", END)
+        workflow.add_edge("process_approval", END)
         
         return workflow.compile()
     
@@ -77,6 +80,20 @@ class DocumentMasterGraph(BaseMasterGraph):
         step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
+        
+        # 0단계: 결재 진행 요청 확인 (최우선 처리)
+        document_context = state.get("document_context", {})
+        proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
+        is_proceed = any(kw in query for kw in proceed_keywords)
+        
+        if is_proceed and document_context.get("approval_pending"):
+            template_name = document_context.get("template_name")
+            if template_name in ["business_trip_request_form", "vacation_request_form"]:
+                print(f"✅ [route_intent] 결재 진행 요청 감지: {template_name}")
+                return {
+                    "intent": "approval",
+                    "template_name": template_name,
+                }
         
         # 1단계: 작업 유형 분류 (작성/업데이트/변환)
         import re
@@ -291,6 +308,9 @@ class DocumentMasterGraph(BaseMasterGraph):
             # 템플릿명 설정 (출장 신청서)
             template_name = "business_trip_request_form"
             
+            # ⚠️ 중요: state에 template_name 설정 (결재 진행 버튼 표시를 위해)
+            state["template_name"] = template_name
+            
             title = workflow_temp_data.get("title", "출장")
             description = workflow_temp_data.get("description", "")
             
@@ -318,6 +338,8 @@ class DocumentMasterGraph(BaseMasterGraph):
             print(f"   기간: {start_time_str} ~ {end_time_str}")
             print(f"   목적지: {destination}")
             print(f"   사유: {trip_reason}")
+            print(f"   document_title: {document_title}")
+            print(f"   template_name: {template_name}")
         else:
             # 일반 모드 (기존 로직)
             # Redis 기반 컨텍스트 초기화
@@ -553,15 +575,14 @@ class DocumentMasterGraph(BaseMasterGraph):
                 
                 # 워크플로우 모드: 문서 작성 후 결재 진행 여부 확인
                 if workflow_in_progress and workflow_type == "business_trip":
-                    # workflow_temp_data에 description 저장 (이미 저장되어 있지만 확실히)
-                    if workflow_temp_data.get("description"):
-                        # Step 2 완료 메시지 추가
-                        step2_complete_msg = "\n\n✅ [Step 2 완료] 출장 신청서가 생성되었습니다."
-                        # 결재 진행 여부 확인 메시지 추가
-                        approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
-                        final_response = document_content + step2_complete_msg + approval_message
-                        # workflow_temp_data 업데이트
-                        workflow_temp_data["description"] = workflow_temp_data.get("description")
+                    # ⚠️ 수정: description 조건 제거 - 항상 결재 진행 버튼 표시
+                    # Step 2 완료 메시지 추가
+                    step2_complete_msg = "\n\n✅ [Step 2 완료] 출장 신청서가 생성되었습니다."
+                    # 결재 진행 여부 확인 메시지 추가
+                    approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
+                    final_response = document_content + step2_complete_msg + approval_message
+                    # workflow_temp_data 업데이트
+                    workflow_temp_data["description"] = workflow_temp_data.get("description")
                 else:
                     # 일반 요청 모드: 출장/휴가 신청서인 경우 결재 진행 여부 확인
                     doc_type = "출장 신청서" if template_name == "business_trip_request_form" else "휴가 신청서"
@@ -608,6 +629,248 @@ class DocumentMasterGraph(BaseMasterGraph):
             orchestrator_state["document_context"]["template_name"] = template_name
         
         return return_result
+    
+    async def process_approval(self, state: OrchestratorState) -> Dict[str, Any]:
+        """결재 진행 처리 - 출장/휴가 신청서를 RDB에 저장.
+        
+        프로세스:
+        1. document_context에서 필드 값 가져오기
+        2. RDB에 저장 (business_trip 또는 leave_request 테이블)
+        3. 워크플로우 모드인 경우 다음 단계로 진행
+        4. 일반 요청 모드인 경우 완료 메시지 반환
+        
+        Args:
+            state: 오케스트레이터 상태
+            
+        Returns:
+            처리 결과 딕셔너리
+        """
+        print("--- [Document] 결재 진행 처리 ---")
+        
+        from agents.state import Message
+        from datetime import datetime as dt_now
+        
+        query = state.get("query", "")
+        document_context = state.get("document_context", {})
+        template_name = document_context.get("template_name")
+        employee_id = state.get("employee_id")
+        
+        # 워크플로우 정보
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_steps = state.get("workflow_steps", [])
+        current_step_index = state.get("current_workflow_step_index", 0)
+        workflow_temp_data = state.get("workflow_temp_data", {})
+        
+        # 현재 날짜 정보
+        now = dt_now.now()
+        current_date_info = {
+            "current_date": now.strftime("%Y-%m-%d"),
+            "current_time": now.strftime("%H:%M:%S"),
+            "current_datetime": now.isoformat(),
+        }
+        
+        user_message: Message = {
+            "role": "user",
+            "content": query,
+            "timestamp": now.isoformat()
+        }
+        
+        if not template_name or template_name not in ["business_trip_request_form", "vacation_request_form"]:
+            return {
+                "final_response": "❌ 결재 진행 중 오류가 발생했습니다. 유효하지 않은 템플릿입니다.",
+                "messages": ["결재 진행 실패"],
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+        
+        if not employee_id:
+            return {
+                "final_response": "❌ 결재 진행 중 오류가 발생했습니다. 직원 정보를 찾을 수 없습니다.",
+                "messages": ["결재 진행 실패"],
+                "conversation_history": [user_message],
+                **current_date_info
+            }
+        
+        try:
+            # document_context에서 필드 값 가져오기
+            last_variables = document_context.get("last_variables", {})
+            saved_id = None
+            doc_type = "출장 신청서" if template_name == "business_trip_request_form" else "휴가 신청서"
+            
+            if template_name == "business_trip_request_form":
+                from agents.master_graphs.document.generate.db_connector import save_business_trip_request
+                
+                destination = last_variables.get('destination', '')
+                purpose = last_variables.get('purpose', '')
+                start_date = last_variables.get('startDate')
+                end_date = last_variables.get('endDate')
+                reason = last_variables.get('reason', '')
+                request_date = last_variables.get('requestDate')
+                
+                print(f"🔍 [결재 진행] 출장 신청서 저장 정보:")
+                print(f"  - destination: {destination}")
+                print(f"  - purpose: {purpose}")
+                print(f"  - start_date: {start_date}")
+                print(f"  - end_date: {end_date}")
+                print(f"  - reason: {reason}")
+                print(f"  - request_date: {request_date}")
+                print(f"  - employee_id: {employee_id}")
+                
+                if start_date and end_date and destination:
+                    saved_id = save_business_trip_request(
+                        employee_id=employee_id,
+                        destination=destination,
+                        purpose=purpose,
+                        start_date=start_date,
+                        end_date=end_date,
+                        reason=reason,
+                        request_date=request_date,
+                        status="대기"
+                    )
+                    
+                    if saved_id:
+                        print(f"✅ [결재 진행] business_trip 테이블에 저장 완료: id={saved_id}")
+                    else:
+                        print(f"⚠️ [결재 진행] business_trip 테이블 저장 실패")
+                else:
+                    missing_info = []
+                    if not start_date:
+                        missing_info.append('start_date')
+                    if not end_date:
+                        missing_info.append('end_date')
+                    if not destination:
+                        missing_info.append('destination')
+                    print(f"⚠️ [결재 진행] 필수 정보 누락: {missing_info}")
+                    return {
+                        "final_response": f"❌ 결재 진행 중 오류가 발생했습니다. 필수 정보가 누락되었습니다: {', '.join(missing_info)}",
+                        "messages": ["결재 진행 실패"],
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+                    
+            elif template_name == "vacation_request_form":
+                from agents.master_graphs.document.generate.db_connector import save_leave_request
+                
+                leave_type = last_variables.get('vacationType', '연차')
+                start_date = last_variables.get('startDate')
+                end_date = last_variables.get('endDate')
+                reason = last_variables.get('reason', '')
+                request_date = last_variables.get('requestDate')
+                
+                print(f"🔍 [결재 진행] 휴가 신청서 저장 정보:")
+                print(f"  - leave_type: {leave_type}")
+                print(f"  - start_date: {start_date}")
+                print(f"  - end_date: {end_date}")
+                print(f"  - reason: {reason}")
+                print(f"  - request_date: {request_date}")
+                print(f"  - employee_id: {employee_id}")
+                
+                if start_date and end_date:
+                    saved_id = save_leave_request(
+                        employee_id=employee_id,
+                        leave_type=leave_type,
+                        start_date=start_date,
+                        end_date=end_date,
+                        reason=reason,
+                        request_date=request_date,
+                        status="대기"
+                    )
+                    
+                    if saved_id:
+                        print(f"✅ [결재 진행] leave_request 테이블에 저장 완료: id={saved_id}")
+                    else:
+                        print(f"⚠️ [결재 진행] leave_request 테이블 저장 실패")
+                else:
+                    missing_info = []
+                    if not start_date:
+                        missing_info.append('start_date')
+                    if not end_date:
+                        missing_info.append('end_date')
+                    print(f"⚠️ [결재 진행] 필수 정보 누락: {missing_info}")
+                    return {
+                        "final_response": f"❌ 결재 진행 중 오류가 발생했습니다. 필수 정보가 누락되었습니다: {', '.join(missing_info)}",
+                        "messages": ["결재 진행 실패"],
+                        "conversation_history": [user_message],
+                        **current_date_info
+                    }
+            
+            if saved_id:
+                # 결재 완료 메시지
+                approval_complete_msg = f"\n\n✅ {doc_type} 결재가 완료되었습니다. (ID: {saved_id})"
+                
+                # document_context 업데이트
+                document_context["approval_pending"] = False
+                document_context["approval_id"] = saved_id
+                # last_variables에도 저장된 ID 추가
+                if template_name == "business_trip_request_form":
+                    last_variables["business_trip_request_id"] = saved_id
+                elif template_name == "vacation_request_form":
+                    last_variables["leave_request_id"] = saved_id
+                document_context["last_variables"] = last_variables
+                
+                # 워크플로우 모드인 경우 step 3(email)로 진행
+                is_workflow_mode = workflow_in_progress and workflow_type == "business_trip"
+                
+                if is_workflow_mode:
+                    # 워크플로우 step 3 (email 도메인)로 진행
+                    next_step_index = current_step_index + 1
+                    if next_step_index < len(workflow_steps):
+                        next_domain = workflow_steps[next_step_index]
+                        print(f"✅ [결재 진행] 워크플로우 step 3로 진행: {next_domain} (step {next_step_index + 1}/{len(workflow_steps)})")
+                        
+                        # workflow_temp_data 업데이트 (결재 ID 추가)
+                        if workflow_temp_data:
+                            if template_name == "business_trip_request_form":
+                                workflow_temp_data["business_trip_request_id"] = saved_id
+                            elif template_name == "vacation_request_form":
+                                workflow_temp_data["leave_request_id"] = saved_id
+                        
+                        return {
+                            "domain": next_domain,
+                            "workflow_type": workflow_type,
+                            "workflow_steps": workflow_steps,
+                            "current_workflow_step_index": next_step_index,
+                            "workflow_in_progress": True,
+                            "workflow_temp_data": workflow_temp_data,
+                            "next_domain": next_domain,
+                            "final_response": approval_complete_msg + f"\n\n다음 단계(부재중 이메일 설정)로 진행합니다.",
+                            "messages": ["결재가 완료되었습니다. 다음 단계로 진행합니다."],
+                            "document_context": document_context,
+                            "conversation_history": [user_message],
+                            **current_date_info
+                        }
+                
+                # 일반 요청 모드: 도메인 라우팅 중단
+                return {
+                    "domain": None,  # 도메인 라우팅 중단 - 다른 대화를 이어나갈 수 있도록
+                    "final_response": approval_complete_msg,
+                    "messages": ["결재가 완료되었습니다."],
+                    "document_context": document_context,
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+            else:
+                print(f"⚠️ [결재 진행] RDB 저장 실패")
+                return {
+                    "domain": None,  # 도메인 라우팅 중단
+                    "final_response": "❌ 결재 진행 중 오류가 발생했습니다. 다시 시도해주세요.",
+                    "messages": ["결재 진행 실패"],
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+                
+        except Exception as e:
+            import traceback
+            print(f"⚠️ [결재 진행] 오류 발생: {e}")
+            print(traceback.format_exc())
+            return {
+                "domain": None,  # 도메인 라우팅 중단
+                "final_response": f"❌ 결재 진행 중 오류가 발생했습니다: {str(e)}",
+                "messages": ["결재 진행 실패"],
+                "conversation_history": [user_message],
+                **current_date_info
+            }
     
     async def _fetch_db_data_for_template(
         self, 
