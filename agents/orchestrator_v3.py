@@ -379,16 +379,8 @@ async def detect_workflow_type(query: str) -> Optional[Dict[str, Any]]:
     return llm_result
 
 
-async def extract_workflow_data(query: str, workflow_type: str) -> Dict[str, Any]:
-    """워크플로우 실행에 필요한 데이터를 추출합니다.
-    
-    Args:
-        query: 사용자 쿼리
-        workflow_type: 워크플로우 타입
-        
-    Returns:
-        추출된 데이터 딕셔너리
-    """
+async def extract_workflow_data(query: str, workflow_type: str, current_datetime: Optional[datetime] = None) -> Dict[str, Any]:
+    """워크플로우 실행에 필요한 데이터를 추출합니다."""
     workflows = load_workflows_config()
     workflow_config = workflows.get("workflows", {}).get(workflow_type)
     
@@ -420,6 +412,20 @@ async def extract_workflow_data(query: str, workflow_type: str) -> Dict[str, Any
                 extracted_data["destination"] = result.destination
             if result.reason:
                 extracted_data["reason"] = result.reason
+            
+            # 현재 날짜 정보를 프롬프트에 추가
+            if current_datetime:
+                from datetime import datetime
+                now = current_datetime
+                today_str = now.strftime("%Y-%m-%d")
+                data_extraction_prompt = f"""{data_extraction_prompt}
+
+**⚠️ 매우 중요: 현재 날짜 정보**
+- 현재 날짜: {today_str}
+- 현재 연도: {now.year}년
+- 반드시 현재 연도({now.year}년)를 사용하여 날짜를 추출하세요.
+- 2023년, 2024년 등 과거 연도를 절대 사용하지 마세요.
+"""
             
             return extracted_data
     except Exception as e:

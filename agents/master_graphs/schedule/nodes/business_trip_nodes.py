@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Literal, List
+from typing import Any, Dict, Optional, Literal, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -931,24 +931,63 @@ async def _handle_workflow_step1_check_conflicts(
     if start_time_str:
         try:
             if isinstance(start_time_str, str):
-                start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                parsed_start = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                # ⚠️ 중요: state에서 가져온 날짜가 유효한지 검증
+                if parsed_start.tzinfo is None:
+                    parsed_start = parsed_start.replace(tzinfo=local_tz)
+                
+                # 날짜 유효성 검증: 과거 날짜이거나 잘못된 연도면 무시
+                days_diff = (parsed_start.date() - current_datetime.date()).days
+                if days_diff >= -1 and parsed_start.year == current_datetime.year:
+                    start_time = parsed_start
+                    print(f"✅ [business_trip] state에서 유효한 날짜 사용: {start_time.date()}")
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜가 유효하지 않음: {parsed_start.date()} (오늘: {current_datetime.date()}, 연도: {parsed_start.year} vs {current_datetime.year}), 무시하고 사용자 입력에서 파싱")
+                    start_time_str = None  # 무시
             elif isinstance(start_time_str, datetime):
-                start_time = start_time_str
+                # datetime 객체도 검증
+                if start_time_str.tzinfo is None:
+                    start_time_str = start_time_str.replace(tzinfo=local_tz)
+                days_diff = (start_time_str.date() - current_datetime.date()).days
+                if days_diff >= -1 and start_time_str.year == current_datetime.year:
+                    start_time = start_time_str
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜 객체가 유효하지 않음: {start_time_str.date()}, 무시")
+                    start_time_str = None
         except Exception as e:
             print(f"⚠️ start_time 파싱 실패: {e}")
     
     if end_time_str:
         try:
             if isinstance(end_time_str, str):
-                end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+                parsed_end = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+                if parsed_end.tzinfo is None:
+                    parsed_end = parsed_end.replace(tzinfo=local_tz)
+                
+                # 날짜 유효성 검증
+                days_diff = (parsed_end.date() - current_datetime.date()).days
+                if days_diff >= -1 and parsed_end.year == current_datetime.year:
+                    end_time = parsed_end
+                    print(f"✅ [business_trip] state에서 유효한 날짜 사용: {end_time.date()}")
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜가 유효하지 않음: {end_time_str}, 무시")
+                    end_time_str = None
             elif isinstance(end_time_str, datetime):
-                end_time = end_time_str
+                if end_time_str.tzinfo is None:
+                    end_time_str = end_time_str.replace(tzinfo=local_tz)
+                days_diff = (end_time_str.date() - current_datetime.date()).days
+                if days_diff >= -1 and end_time_str.year == current_datetime.year:
+                    end_time = end_time_str
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜 객체가 유효하지 않음: {end_time_str.date()}, 무시")
+                    end_time_str = None
         except Exception as e:
             print(f"⚠️ end_time 파싱 실패: {e}")
     
-    # 날짜가 없으면 사용자 입력에서 파싱 시도
+    # 날짜가 없거나 유효하지 않으면 사용자 입력에서 파싱 시도
     if not start_time or not end_time:
-        print("🔍 날짜 정보 부족 - 사용자 입력에서 파싱 시도")
+        print("🔍 날짜 정보 부족 또는 유효하지 않음 - 사용자 입력에서 파싱 시도")
+        print(f"🔍 [business_trip] 현재 상태: start_time={start_time}, end_time={end_time}")
         start_date_obj, end_date_obj = await parse_korean_date_with_llm(
             query, 
             current_datetime=current_datetime  # orchestrator의 현재 시간 전달
@@ -964,8 +1003,9 @@ async def _handle_workflow_step1_check_conflicts(
             
             # 과거 날짜이거나 너무 오래된 날짜면 무시
             days_diff = (start_date_obj.date() - now.date()).days
-            if days_diff < 0 or start_date_obj.year < 2024:
-                print(f"⚠️ 파싱된 날짜가 유효하지 않음: {start_date_obj.date()} (오늘: {now.date()})")
+            # 더 엄격한 검증: days_diff < 0 (과거) 또는 연도가 다르면 거부
+            if days_diff < 0 or start_date_obj.year != now.year:
+                print(f"⚠️ 파싱된 날짜가 유효하지 않음: {start_date_obj.date()} (오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date_obj.year}, 현재 연도: {now.year})")
                 start_date_obj = None
                 end_date_obj = None
             else:
@@ -982,25 +1022,6 @@ async def _handle_workflow_step1_check_conflicts(
                 else:
                     # 종료일이 없으면 시작일과 동일하게 설정
                     end_time = start_date_obj.replace(hour=18, minute=0)
-    
-    # 날짜가 여전히 없거나 정확하지 않으면 재요청 (일정 조회 전에)
-    # 정확한 날짜 확인: datetime 객체가 있고, 미래 날짜인지 확인
-    if not start_time or not end_time:
-        buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
-        ❌ 종료
-    </button>
-</div>
-"""
-        question = "출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
-        return {
-            "final_response": question,
-            "messages": [question],
-            "workflow_temp_data": workflow_temp_data,
-            "schedule_context": state.get("schedule_context", {}),
-            "requires_input": True,  # 사용자 입력 대기
-        }
     
     # 날짜가 정확한지 확인 (미래 날짜인지, 시작일이 종료일보다 이전인지)
     # orchestrator의 현재 시간 사용

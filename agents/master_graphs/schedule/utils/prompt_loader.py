@@ -129,3 +129,10 @@ def format_prompt_template(template: str, **kwargs) -> str:
     """
     return template.format(**kwargs)
 
+
+def clear_prompts_cache():
+    """프롬프트 캐시를 초기화합니다. (디버깅 및 개발용)"""
+    global _prompts_cache
+    _prompts_cache = None
+    print("✅ [Schedule Prompts] 프롬프트 캐시 초기화 완료")
+

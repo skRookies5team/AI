@@ -58,6 +58,18 @@ async def parse_korean_date_with_llm(
         today_str = now.strftime("%Y-%m-%d %H:%M")
         today_weekday = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'][now.weekday()]
         
+        # 이번주 월요일 계산 (이번주 시작일)
+        days_since_monday = now.weekday()  # 0=월요일, 6=일요일
+        this_week_monday = now - timedelta(days=days_since_monday)
+        this_week_monday_str = this_week_monday.strftime("%Y-%m-%d")
+        
+        # 이번주 각 요일 날짜 계산 (월요일부터 일요일까지)
+        weekday_names = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
+        this_week_dates = {}
+        for i, weekday_name in enumerate(weekday_names):
+            date = this_week_monday + timedelta(days=i)
+            this_week_dates[weekday_name] = date.strftime("%Y-%m-%d")
+        
         # 다음주 월요일 계산 (예시용)
         days_until_next_monday = (7 - now.weekday()) % 7
         if days_until_next_monday == 0:
@@ -75,21 +87,78 @@ async def parse_korean_date_with_llm(
         # 템플릿 변수 준비
         today_date = today_str.split()[0]  # 날짜 부분만 추출
         
-        # 프롬프트 포맷팅
-        prompt = format_prompt_template(
-            prompt_template,
-            today_str=today_str,
-            today_weekday=today_weekday,
-            now_year=now.year,
-            now_month=now.month,
-            next_monday_str=next_monday_str,
-            next_wednesday_str=next_wednesday_str,
-            query=query,
-            today_date=today_date
-        )
+        # 프롬프트 포맷팅 (예외 처리 추가)
+        try:
+            prompt = format_prompt_template(
+                prompt_template,
+                today_str=today_str,
+                today_weekday=today_weekday,
+                now_year=now.year,
+                now_month=now.month,
+                next_monday_str=next_monday_str,
+                next_wednesday_str=next_wednesday_str,
+                this_week_monday_str=this_week_monday_str,
+                this_week_monday=this_week_dates['월요일'],
+                this_week_tuesday=this_week_dates['화요일'],
+                this_week_wednesday=this_week_dates['수요일'],
+                this_week_thursday=this_week_dates['목요일'],
+                this_week_friday=this_week_dates['금요일'],
+                this_week_saturday=this_week_dates['토요일'],
+                this_week_sunday=this_week_dates['일요일'],
+                query=query,
+                today_date=today_date
+            )
+        except KeyError as e:
+            print(f"❌ [date_parser] 프롬프트 변수 누락: {e}")
+            print(f"❌ [date_parser] 누락된 변수로 인해 프롬프트 포맷팅 실패, Fallback 사용")
+            # 프롬프트 템플릿에 누락된 변수 정보 출력
+            import re
+            missing_vars = re.findall(r'\{(\w+)\}', prompt_template)
+            provided_vars = set(['today_str', 'today_weekday', 'now_year', 'now_month', 
+                                'next_monday_str', 'next_wednesday_str', 'this_week_monday_str',
+                                'this_week_monday', 'this_week_tuesday', 'this_week_wednesday',
+                                'this_week_thursday', 'this_week_friday', 'this_week_saturday',
+                                'this_week_sunday', 'query', 'today_date'])
+            missing = set(missing_vars) - provided_vars
+            if missing:
+                print(f"❌ [date_parser] 누락된 변수: {missing}")
+            return _fallback_date_parsing(query, current_datetime=now)
+        except Exception as e:
+            print(f"❌ [date_parser] 프롬프트 포맷팅 실패: {e}")
+            print(f"❌ [date_parser] 예외 타입: {type(e).__name__}")
+            import traceback
+            print(f"❌ [date_parser] 트레이스백: {traceback.format_exc()}")
+            return _fallback_date_parsing(query, current_datetime=now)
+
+        # 디버깅: 프롬프트에 변수가 제대로 치환되었는지 확인
+        if "{this_week_tuesday}" in prompt or "{this_week_monday}" in prompt:
+            print(f"⚠️ [date_parser] 프롬프트에 치환되지 않은 변수 발견!")
+            print(f"⚠️ [date_parser] 프롬프트에서 발견된 미치환 변수:")
+            import re
+            unsubstituted = re.findall(r'\{(\w+)\}', prompt)
+            print(f"⚠️ [date_parser] 미치환 변수 목록: {unsubstituted}")
+            # Fallback 사용
+            return _fallback_date_parsing(query, current_datetime=now)
+
+        # 디버깅: 실제 전달되는 프롬프트의 일부 확인 (너무 길면 잘라서)
+        print(f"🔍 [date_parser] 실제 전달되는 프롬프트 (처음 800자):")
+        print(prompt[:800])
+        print(f"🔍 [date_parser] 실제 전달되는 프롬프트 (마지막 800자):")
+        print(prompt[-800:])
+        
+        # 디버깅: LLM에 전달되는 프롬프트의 주요 날짜 정보 확인
+        print(f"🔍 [date_parser] LLM 프롬프트 날짜 정보:")
+        print(f"  - 현재 날짜/시간: {today_str} ({today_weekday})")
+        print(f"  - 현재 연도: {now.year}년")
+        print(f"  - 이번주 화요일: {this_week_dates['화요일']}")
+        print(f"  - 이번주 목요일: {this_week_dates['목요일']}")
+        print(f"  - 사용자 쿼리: {query}")
 
         response = llm.invoke(prompt)
         content = response.content.strip()
+        
+        # 디버깅: LLM 원본 응답 확인
+        print(f"🔍 [date_parser] LLM 원본 응답: {content[:300]}...")
         
         import json, re
         # JSON 추출 시 더 넓은 범위로 검색 (중첩된 JSON도 처리)
