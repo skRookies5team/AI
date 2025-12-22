@@ -18,17 +18,12 @@ from agents.orchestrator_v3 import get_orchestrator_graph
 from agents.session_manager import get_session_manager
 from agents.notifications import get_notification_queue
 import asyncio
-import sys
 import threading
 from datetime import datetime, timedelta
 import time
 from typing import Dict, Tuple
 
 from google_auth_oauthlib.flow import Flow
-
-# Windows에서 SelectorEventLoop 정책 설정 (Redis asyncio 호환성)
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Orchestrator 그래프 캐시 (앱 시작 시 한 번만 생성)
 _orchestrator_graph = None
@@ -589,13 +584,21 @@ async def chat_stream_endpoint(
                 "employee_id": employee_id,
                 "conversation_history": session_data.get("conversation_history", []),
                 "email_search_context": session_data.get("email_search_context", {}),
-                # Redis/세션에서 null(None)로 들어오는 경우 방어
                 "email_compose_context": session_data.get("email_compose_context") or {},
                 "qa_search_context": session_data.get("qa_search_context", {}),
                 "tech_search_context": session_data.get("tech_search_context", {}),
                 "schedule_context": session_data.get("schedule_context", {}),
                 "document_context": session_data.get("document_context", {}),
-                "recruitment_context": session_data.get("recruitment_context", {})
+                "recruitment_context": session_data.get("recruitment_context", {}),
+                # ⚠️ 워크플로우 관련 필드 추가
+                "workflow_temp_data": session_data.get("workflow_temp_data", {}),
+                "workflow_type": session_data.get("workflow_type"),
+                "workflow_steps": session_data.get("workflow_steps", []),
+                "current_workflow_step_index": session_data.get("current_workflow_step_index", 0),
+                "workflow_completed_steps": session_data.get("workflow_completed_steps", []),
+                "workflow_in_progress": session_data.get("workflow_in_progress", False),
+                "next_domain": session_data.get("next_domain"),
+                "last_domain": session_data.get("last_domain"),
             }
             
             config = {"configurable": {"thread_id": session_id}}
@@ -775,6 +778,10 @@ async def chat_stream_endpoint(
                             conversation_history.append(assistant_message)
                     
                     # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
+                    # ⚠️ 디버깅: final_state에서 workflow_temp_data 확인
+                    workflow_temp_data_from_final = final_state.get("workflow_temp_data", {})
+                    print(f"🔍 [FastAPI] final_state에서 가져온 workflow_temp_data: {list(workflow_temp_data_from_final.keys()) if workflow_temp_data_from_final else '비어있음'}")
+                    
                     session_state = {
                         "conversation_history": conversation_history,
                         "email_search_context": final_state.get("email_search_context", {}),
@@ -785,10 +792,22 @@ async def chat_stream_endpoint(
                         "schedule_context": final_state.get("schedule_context", {}),
                         "document_context": final_state.get("document_context", {}),
                         "recruitment_context": final_state.get("recruitment_context", {}),
-                        "last_domain": final_state.get("last_domain"),  # last_domain 저장
-                        "employee_id": employee_id  # employee_id 추가
+                        "last_domain": final_state.get("last_domain"),
+                        "employee_id": employee_id,
+                        # ⚠️ 워크플로우 관련 필드 추가
+                        "workflow_temp_data": final_state.get("workflow_temp_data", {}),
+                        "workflow_type": final_state.get("workflow_type"),
+                        "workflow_steps": final_state.get("workflow_steps", []),
+                        "current_workflow_step_index": final_state.get("current_workflow_step_index", 0),
+                        "workflow_completed_steps": final_state.get("workflow_completed_steps", []),
+                        "workflow_in_progress": final_state.get("workflow_in_progress", False),
+                        "next_domain": final_state.get("next_domain"),
+                        "title": final_state.get("title"),
                     }
-                    # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
+                    
+                    # ⚠️ 디버깅: session_state 확인
+                    print(f"🔍 [FastAPI] session_state에 포함된 workflow_temp_data: {list(session_state.get('workflow_temp_data', {}).keys()) if session_state.get('workflow_temp_data') else '비어있음'}")
+                    
                     await session_manager.save_session_state(session_id, session_state)
         
         except Exception as exc:
@@ -877,13 +896,21 @@ async def chat_endpoint(
             "employee_id": employee_id,
             "conversation_history": session_data.get("conversation_history", []),
             "email_search_context": session_data.get("email_search_context", {}),
-            # Redis/세션에서 null(None)로 들어오는 경우 방어
             "email_compose_context": session_data.get("email_compose_context") or {},
             "qa_search_context": session_data.get("qa_search_context", {}),
             "tech_search_context": session_data.get("tech_search_context", {}),
             "schedule_context": session_data.get("schedule_context", {}),
             "document_context": session_data.get("document_context", {}),
-            "recruitment_context": session_data.get("recruitment_context", {})
+            "recruitment_context": session_data.get("recruitment_context", {}),
+            # ⚠️ 워크플로우 관련 필드 추가
+            "workflow_temp_data": session_data.get("workflow_temp_data", {}),
+            "workflow_type": session_data.get("workflow_type"),
+            "workflow_steps": session_data.get("workflow_steps", []),
+            "current_workflow_step_index": session_data.get("current_workflow_step_index", 0),
+            "workflow_completed_steps": session_data.get("workflow_completed_steps", []),
+            "workflow_in_progress": session_data.get("workflow_in_progress", False),
+            "next_domain": session_data.get("next_domain"),
+            "last_domain": session_data.get("last_domain"),
         }
         # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
         
@@ -971,6 +998,10 @@ async def chat_endpoint(
                     conversation_history.append(assistant_message)
             
             # 세션 state 전체 저장 (conversation_history + 모든 컨텍스트)
+            # ⚠️ 디버깅: final_state에서 workflow_temp_data 확인
+            workflow_temp_data_from_final = final_state.get("workflow_temp_data", {})
+            print(f"🔍 [FastAPI] final_state에서 가져온 workflow_temp_data: {list(workflow_temp_data_from_final.keys()) if workflow_temp_data_from_final else '비어있음'}")
+            
             session_state = {
                 "conversation_history": conversation_history,
                 "email_search_context": final_state.get("email_search_context", {}),
@@ -981,10 +1012,22 @@ async def chat_endpoint(
                 "schedule_context": final_state.get("schedule_context", {}),
                 "document_context": final_state.get("document_context", {}),
                 "recruitment_context": final_state.get("recruitment_context", {}),
-                "last_domain": final_state.get("last_domain"),  # last_domain 저장
-                "employee_id": employee_id  # employee_id 추가
+                "last_domain": final_state.get("last_domain"),
+                "employee_id": employee_id,
+                # ⚠️ 워크플로우 관련 필드 추가
+                "workflow_temp_data": final_state.get("workflow_temp_data", {}),
+                "workflow_type": final_state.get("workflow_type"),
+                "workflow_steps": final_state.get("workflow_steps", []),
+                "current_workflow_step_index": final_state.get("current_workflow_step_index", 0),
+                "workflow_completed_steps": final_state.get("workflow_completed_steps", []),
+                "workflow_in_progress": final_state.get("workflow_in_progress", False),
+                "next_domain": final_state.get("next_domain"),
+                "title": final_state.get("title"),
             }
-            # 디버그 메시지 제거 (프로덕션 환경에서는 불필요)
+            
+            # ⚠️ 디버깅: session_state 확인
+            print(f"�� [FastAPI] session_state에 포함된 workflow_temp_data: {list(session_state.get('workflow_temp_data', {}).keys()) if session_state.get('workflow_temp_data') else '비어있음'}")
+            
             await session_manager.save_session_state(session_id, session_state)
         
         # Process Output

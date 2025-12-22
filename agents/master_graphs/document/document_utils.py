@@ -154,3 +154,24 @@ def get_update_document_prompt() -> str:
     
     return structured_prompt.strip()
 
+
+def get_business_trip_info_extraction_prompt() -> str:
+    """출장 정보 추출을 위한 Structured Output 프롬프트를 가져옵니다.
+    
+    Returns:
+        Structured Output 프롬프트 문자열
+    """
+    prompts = load_document_prompts()
+    utils = prompts.get("utils", {})
+    extraction_prompt = utils.get("business_trip_info_extraction", "")
+    
+    if not extraction_prompt:
+        # 기본 프롬프트 (fallback)
+        return """사용자 입력에서 출장 신청서 작성을 위한 정보를 추출하세요.
+- 출장 사유 (description): 출장 목적이나 사유
+- 출장지 (destination): 출장 목적지
+
+사용자가 쉼표로 구분하여 입력한 경우, 장소 이름은 destination으로, 나머지는 description으로 추출하세요."""
+    
+    return extraction_prompt.strip()
+

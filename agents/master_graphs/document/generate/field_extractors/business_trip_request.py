@@ -16,7 +16,8 @@ def extract_business_trip_request_fields(
     requirements: str,
     document_title: str,
     db_data: Optional[Dict[str, Any]] = None,
-    employee_id: Optional[int] = None
+    employee_id: Optional[int] = None,
+    orchestrator_state: Optional[Dict[str, Any]] = None
 ) -> None:
     """출장 신청서 템플릿의 필드 값을 요구사항과 DB에서 추출합니다.
     
@@ -26,10 +27,58 @@ def extract_business_trip_request_fields(
         document_title: 문서 제목
         db_data: DB 데이터 (선택사항, orchestrator_state에서 전달)
         employee_id: 로그인한 직원 ID (선택사항)
+        orchestrator_state: 오케스트레이터 상태 (workflow_temp_data 포함)
     """
     print(f"🔍 [business_trip_request_form] 필드 값 추출 시작...")
     print(f"  - employee_id: {employee_id}")
     print(f"  - requirements: {requirements[:100] if requirements else None}...")
+    
+    # workflow_temp_data에서 정보 추출 (우선순위 1)
+    workflow_temp_data = {}
+    if orchestrator_state:
+        workflow_temp_data = orchestrator_state.get("workflow_temp_data", {})
+        print(f"🔍 [business_trip_request_form] workflow_temp_data 확인: {list(workflow_temp_data.keys())}")
+    
+    # workflow_temp_data에서 날짜 정보 추출 (우선적으로 사용)
+    if workflow_temp_data.get("start_time"):
+        try:
+            from datetime import datetime as dt
+            start_time_str = workflow_temp_data["start_time"]
+            # ISO 형식 파싱 (예: "2025-12-24T09:00:00+09:00")
+            if isinstance(start_time_str, str):
+                start_dt = dt.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                start_date = start_dt.strftime("%Y-%m-%d")
+                field_values['startDate'] = start_date
+                print(f"✅ workflow_temp_data에서 startDate 추출: {start_date}")
+        except Exception as e:
+            print(f"⚠️ workflow_temp_data의 start_time 파싱 실패: {e}")
+    
+    if workflow_temp_data.get("end_time"):
+        try:
+            from datetime import datetime as dt
+            end_time_str = workflow_temp_data["end_time"]
+            if isinstance(end_time_str, str):
+                end_dt = dt.fromisoformat(end_time_str.replace('Z', '+00:00'))
+                end_date = end_dt.strftime("%Y-%m-%d")
+                field_values['endDate'] = end_date
+                print(f"✅ workflow_temp_data에서 endDate 추출: {end_date}")
+        except Exception as e:
+            print(f"⚠️ workflow_temp_data의 end_time 파싱 실패: {e}")
+    
+    # workflow_temp_data에서 destination 추출
+    if workflow_temp_data.get("destination"):
+        field_values['destination'] = workflow_temp_data["destination"]
+        print(f"✅ workflow_temp_data에서 destination 추출: {workflow_temp_data['destination']}")
+    
+    # workflow_temp_data에서 description 추출 (reason 필드로 설정)
+    if workflow_temp_data.get("description"):
+        field_values['reason'] = workflow_temp_data["description"]
+        print(f"✅ workflow_temp_data에서 reason(description) 추출: {workflow_temp_data['description']}")
+    
+    # workflow_temp_data에서 title 추출 (purpose 필드로 사용 가능)
+    if workflow_temp_data.get("title") and not field_values.get('purpose'):
+        field_values['purpose'] = workflow_temp_data["title"]
+        print(f"✅ workflow_temp_data에서 purpose(title) 추출: {workflow_temp_data['title']}")
     
     # 1. 로그인한 사용자 정보 조회 (employee 테이블)
     applicant_info = None

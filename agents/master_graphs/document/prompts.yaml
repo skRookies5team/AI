@@ -269,3 +269,40 @@ prompts:
         }}
     }}
 
+utils:
+  business_trip_info_extraction: |
+    당신은 출장 신청서 작성을 위한 정보 추출 전문가입니다.
+    
+    사용자 입력에서 다음 정보를 추출하세요:
+    1. 출장 사유 (description): 출장 목적이나 사유
+    2. 출장지 (destination): 출장 목적지
+    
+    **추출 규칙:**
+    - 사용자가 쉼표(,)로 여러 정보를 구분한 경우:
+      * "거래처 미팅, 제주도" → description="거래처 미팅", destination="제주도"
+      * "제주도, 거래처 미팅" → description="거래처 미팅", destination="제주도"
+      * "고객 방문, 서울, 다음주" → description="고객 방문", destination="서울"
+    
+    - 키워드가 명시된 경우:
+      * "출장지: 제주도, 사유: 거래처 미팅" → 정확히 추출
+      * "사유 거래처 미팅, 출장지 제주도" → 정확히 추출
+    
+    - 장소 이름으로 판단 가능한 경우 (제주도, 서울, 부산, 인천, 대구, 광주, 대전, 울산 등):
+      * 장소 이름은 destination으로 추출
+      * 나머지는 description으로 추출
+    
+    - 정보가 하나만 있는 경우:
+      * 장소 이름이면 → destination만 추출
+      * 장소 이름이 아니면 → description만 추출
+    
+    **예시:**
+    - "거래처 미팅, 제주도" → {"description": "거래처 미팅", "destination": "제주도"}
+    - "제주도" → {"description": null, "destination": "제주도"}
+    - "거래처 미팅" → {"description": "거래처 미팅", "destination": null}
+    - "제주도, 고객사 방문, 세미나" → {"description": "고객사 방문, 세미나", "destination": "제주도"}
+    - "출장지 서울, 사유 고객 미팅" → {"description": "고객 미팅", "destination": "서울"}
+    
+    사용자 입력: "{query}"
+    
+    위 입력에서 출장 사유와 출장지를 추출하여 JSON으로 반환하세요.
+

@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>출장 신청서</title>
+<title>2025년 연차 휴가 신청서</title>
 <style>
         * {
             margin: 0;
@@ -14,7 +14,7 @@
 
         body {
             font-family: 'Segoe UI', 'Malgun Gothic', '맑은 고딕', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
             padding: 40px 20px;
             min-height: 100vh;
         }
@@ -32,7 +32,7 @@
             text-align: center;
             margin-bottom: 40px;
             padding-bottom: 25px;
-            border-bottom: 3px solid #667eea;
+            border-bottom: 3px solid #4facfe;
         }
 
         .header h1 {
@@ -73,7 +73,7 @@
             background: #f8f9fa;
             padding: 25px;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #4facfe;
         }
 
         .section-title {
@@ -117,14 +117,14 @@
         .info-input:focus,
         .info-select:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
         }
 
         .info-select {
             cursor: pointer;
             appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23667eea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%234facfe' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 12px center;
             padding-right: 35px;
@@ -146,32 +146,49 @@
             flex: 1;
         }
 
-        .trip-info-section {
+        .vacation-type-section {
             background: #f8f9fa;
             padding: 25px;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #4facfe;
         }
 
-        .days-calculator {
+        .radio-group {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
             margin-top: 15px;
-            padding: 15px;
+        }
+
+        .radio-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
             background: white;
+            border: 2px solid #dee2e6;
             border-radius: 6px;
-            border: 2px solid #667eea;
-            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
         }
 
-        .days-label {
+        .radio-item:hover {
+            border-color: #4facfe;
+            background: #f0f8ff;
+        }
+
+        .radio-item input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #4facfe;
+        }
+
+        .radio-item label {
+            cursor: pointer;
             font-size: 14px;
-            color: #6c757d;
-            margin-bottom: 8px;
-        }
-
-        .days-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: #667eea;
+            color: #495057;
+            flex: 1;
         }
 
         .reason-section {
@@ -179,7 +196,7 @@
             background: #f8f9fa;
             padding: 25px;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #4facfe;
         }
 
         .reason-label {
@@ -204,8 +221,8 @@
 
         .reason-textarea:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
         }
 
         .approval-section {
@@ -213,7 +230,7 @@
             background: linear-gradient(135deg, #fff5f6 0%, #ffeef0 100%);
             padding: 25px;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #4facfe;
         }
 
         .approval-table {
@@ -223,7 +240,7 @@
         }
 
         .approval-table th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
             color: white;
             padding: 14px 12px;
             text-align: center;
@@ -254,8 +271,29 @@
 
         .approval-table input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+            border-color: #4facfe;
+            box-shadow: 0 0 0 2px rgba(79, 172, 254, 0.1);
+        }
+
+        .days-calculator {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 2px solid #4facfe;
+            text-align: center;
+        }
+
+        .days-label {
+            font-size: 14px;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .days-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #4facfe;
         }
 
         .actions {
@@ -280,13 +318,13 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
             color: white;
         }
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 6px 12px rgba(79, 172, 254, 0.4);
         }
 
         .btn-primary:active {
@@ -335,6 +373,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .radio-group {
+                grid-template-columns: 1fr;
+            }
+
             .date-row {
                 grid-template-columns: 1fr;
             }
@@ -361,20 +403,20 @@
 <div class="header">
 <div class="form-number">
 <span>신청서 번호:</span>
-<input id="formNumber" type="text" value="BT-20251220-4004"/>
+<input id="formNumber" type="text" value="VAC-20251222-4000"/>
 </div>
-<h1>출장 신청서</h1>
+<h1>2025년 연차 휴가 신청서</h1>
 </div>
 <div class="main-content">
 <div class="info-section">
 <h2 class="section-title">신청자 정보</h2>
 <div class="info-row">
 <span class="info-label">성명</span>
-<input class="info-input" id="applicantName" type="text" value="박은학"/>
+<input class="info-input" id="applicantName" type="text" value="신명철"/>
 </div>
 <div class="info-row">
 <span class="info-label">부서</span>
-<input class="info-input" id="department" type="text" value="경영지원팀2팀"/>
+<input class="info-input" id="department" type="text" value="경영지원팀본부"/>
 </div>
 <div class="info-row">
 <span class="info-label">직급</span>
@@ -382,49 +424,55 @@
 </div>
 <div class="info-row">
 <span class="info-label">사번</span>
-<input class="info-input" id="employeeId" type="text" value="4004"/>
+<input class="info-input" id="employeeId" type="text" value="4000"/>
 </div>
 <div class="info-row">
 <span class="info-label">이메일</span>
-<input class="info-input" id="phone" type="text" value="a01093173185@gmail.com"/>
+<input class="info-input" id="phone" type="text" value="shin3481@gmail.com"/>
 </div>
 <div class="info-row">
 <span class="info-label">신청일</span>
-<input class="info-input" id="requestDate" readonly="" type="text" value="2025-12-20"/>
+<input class="info-input" id="requestDate" readonly="" type="text" value="2025-12-22"/>
 </div>
 </div>
-<div class="trip-info-section">
-<h2 class="section-title">출장 정보</h2>
+<div class="vacation-type-section">
+<h2 class="section-title">휴가 정보</h2>
 <div class="info-row">
-<span class="info-label">출장지</span>
-<input class="info-input" id="destination" type="text" value="부산"/>
+<span class="info-label">휴가 유형</span>
+<select class="info-select" id="vacationType">
+<option value="">선택하세요</option>
+<option selected="selected" value="연차">연차</option>
+<option value="반차(오전)">반차(오전)</option>
+<option value="반차(오후)">반차(오후)</option>
+<option value="병가">병가</option>
+<option value="경조사">경조사</option>
+<option value="출산휴가">출산휴가</option>
+<option value="육아휴직">육아휴직</option>
+<option value="기타">기타</option>
+</select>
 </div>
 <div class="info-row">
-<span class="info-label">출장 목적</span>
-<input class="info-input" id="purpose" type="text" value="전시회 참관"/>
-</div>
-<div class="info-row">
-<span class="info-label">출장 기간</span>
+<span class="info-label">휴가 기간</span>
 <div class="date-row">
 <div class="date-input-group">
-<input class="info-input" id="startDate" type="date" value="2025-12-20"/>
+<input class="info-input" id="startDate" type="date" value="2025-12-26"/>
 <span style="color: #6c757d;">부터</span>
 </div>
 <div class="date-input-group">
-<input class="info-input" id="endDate" type="date" value="2025-12-21"/>
+<input class="info-input" id="endDate" type="date" value="2025-12-26"/>
 <span style="color: #6c757d;">까지</span>
 </div>
 </div>
 </div>
 <div class="days-calculator">
-<div class="days-label">출장 일수</div>
-<div class="days-value" id="tripDays">0일</div>
+<div class="days-label">휴가 일수</div>
+<div class="days-value" id="vacationDays">1일</div>
 </div>
 </div>
 </div>
 <div class="reason-section">
-<label class="reason-label">출장 사유</label>
-<textarea class="reason-textarea" id="reason">IT 전시회 참관 및 신제품 홍보</textarea>
+<label class="reason-label">휴가 사유</label>
+<textarea class="reason-textarea" id="reason">개인 사유</textarea>
 </div>
 <div class="approval-section">
 <h2 class="section-title">결재선</h2>
@@ -440,7 +488,7 @@
 <tbody>
 <tr>
 <td>
-<input id="approver1Name" type="text" value="박은학"/>
+<input id="approver1Name" type="text" value="신명철"/>
 </td>
 <td>
 <input id="approver1Position" type="text" value="차장"/>
@@ -486,17 +534,18 @@
             document.getElementById('requestDate').value = `${year}-${month}-${day}`;
             
             // 신청서 번호 자동 생성
-            const formNumber = `BT-${year}${month}${day}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            const formNumber = `VAC-${year}${month}${day}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
             document.getElementById('formNumber').value = formNumber;
         }
 
-        // 출장 일수 계산
+        // 휴가 일수 계산
         function calculateDays() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            const vacationType = document.getElementById('vacationType').value;
 
             if (!startDate || !endDate) {
-                alert('출장 시작일과 종료일을 선택해주세요.');
+                alert('휴가 시작일과 종료일을 선택해주세요.');
                 return;
             }
 
@@ -508,27 +557,38 @@
                 return;
             }
 
-            // 출장 일수 계산 (주말 포함)
+            // 반차인 경우
+            if (vacationType === '반차(오전)' || vacationType === '반차(오후)') {
+                document.getElementById('vacationDays').textContent = '0.5일';
+                return;
+            }
+
+            // 일반 휴가 일수 계산 (주말 제외)
             let days = 0;
             let currentDate = new Date(start);
             
             while (currentDate <= end) {
-                days++;
+                const dayOfWeek = currentDate.getDay();
+                // 주말(토요일: 6, 일요일: 0) 제외
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                    days++;
+                }
                 currentDate.setDate(currentDate.getDate() + 1);
             }
 
-            document.getElementById('tripDays').textContent = `${days}일`;
+            document.getElementById('vacationDays').textContent = `${days}일`;
         }
 
         // 날짜 변경 시 자동 계산
         document.getElementById('startDate').addEventListener('change', calculateDays);
         document.getElementById('endDate').addEventListener('change', calculateDays);
+        document.getElementById('vacationType').addEventListener('change', calculateDays);
 
         // 폼 초기화
         function resetForm() {
             if (confirm('입력한 모든 내용이 삭제됩니다. 정말 초기화하시겠습니까?')) {
                 document.querySelector('form')?.reset();
-                document.getElementById('tripDays').textContent = '0일';
+                document.getElementById('vacationDays').textContent = '0일';
                 setDefaultDate();
             }
         }
@@ -548,11 +608,10 @@
                 employeeId: document.getElementById('employeeId').value,
                 phone: document.getElementById('phone').value,
                 requestDate: document.getElementById('requestDate').value,
-                destination: document.getElementById('destination').value,
-                purpose: document.getElementById('purpose').value,
+                vacationType: document.getElementById('vacationType').value,
                 startDate: document.getElementById('startDate').value,
                 endDate: document.getElementById('endDate').value,
-                tripDays: document.getElementById('tripDays').textContent,
+                vacationDays: document.getElementById('vacationDays').textContent,
                 reason: document.getElementById('reason').value,
                 approver1Name: document.getElementById('approver1Name').value,
                 approver1Position: document.getElementById('approver1Position').value,
@@ -564,7 +623,7 @@
                 approver2Date: document.getElementById('approver2Date').value
             };
 
-            let csv = '출장 신청서\n\n';
+            let csv = '휴가 신청서\n\n';
             csv += `신청서 번호,${formData.formNumber}\n`;
             csv += `성명,${formData.applicantName}\n`;
             csv += `부서,${formData.department}\n`;
@@ -572,12 +631,11 @@
             csv += `사번,${formData.employeeId}\n`;
             csv += `이메일,${formData.phone}\n`;
             csv += `신청일,${formData.requestDate}\n`;
-            csv += `출장지,${formData.destination}\n`;
-            csv += `출장 목적,${formData.purpose}\n`;
+            csv += `휴가 유형,${formData.vacationType}\n`;
             csv += `시작일,${formData.startDate}\n`;
             csv += `종료일,${formData.endDate}\n`;
-            csv += `출장 일수,${formData.tripDays}\n`;
-            csv += `출장 사유,"${formData.reason}"\n\n`;
+            csv += `휴가 일수,${formData.vacationDays}\n`;
+            csv += `휴가 사유,"${formData.reason}"\n\n`;
             csv += '결재선\n';
             csv += `1차 결재자,${formData.approver1Name},${formData.approver1Position},${formData.approver1Signature},${formData.approver1Date}\n`;
             csv += `2차 결재자,${formData.approver2Name},${formData.approver2Position},${formData.approver2Signature},${formData.approver2Date}\n`;
@@ -586,7 +644,7 @@
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
             link.setAttribute('href', url);
-            const formNum = formData.formNumber || '출장신청서';
+            const formNum = formData.formNumber || '휴가신청서';
             link.setAttribute('download', `${formNum}.csv`);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);

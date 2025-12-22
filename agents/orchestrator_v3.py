@@ -863,6 +863,212 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         
         # "진행" 선택 시 다음 단계로 진행
         if is_proceed and not is_cancel:
+            # ⚠️ 중요: "진행" 시 Redis에서 최신 workflow_temp_data를 다시 로드
+            print(f"🔍 [route_to_domain] '진행' 키워드 감지 - session_id: {session_id}, workflow_temp_data (현재): {list(workflow_temp_data.keys()) if workflow_temp_data else '비어있음'}")
+            
+            # 문서 도메인에서 결재 진행 처리 (일반 요청 모드)
+            last_domain = state.get("last_domain")
+            document_context = state.get("document_context", {})
+            
+            # 결재 완료 상태 확인: approval_pending이 False이고 approval_id가 있으면 이미 결재 완료
+            is_approval_completed = (
+                last_domain == "document" 
+                and not document_context.get("approval_pending", True)
+                and document_context.get("approval_id")
+            )
+            
+            if is_approval_completed:
+                # 결재가 이미 완료된 상태에서는 "진행" 키워드를 일반 대화로 처리
+                print(f"ℹ️ [route_to_domain] 결재가 이미 완료된 상태입니다. 일반 대화로 처리합니다.")
+                # 워크플로우 진행 로직을 건너뛰고 도메인 분류로 진행
+            elif last_domain == "document" and document_context.get("approval_pending"):
+                template_name = document_context.get("template_name")
+                if template_name in ["business_trip_request_form", "vacation_request_form"]:
+                    # 결재 진행: RDB에 저장
+                    print(f"✅ [결재 진행] {template_name} 결재 진행 처리 시작")
+                    
+                    try:
+                        # document_context에서 필드 값 가져오기
+                        last_variables = document_context.get("last_variables", {})
+                        employee_id = state.get("employee_id")
+                        
+                        if not employee_id:
+                            print(f"⚠️ [결재 진행] employee_id를 찾을 수 없습니다.")
+                            return {
+                                "final_response": "❌ 결재 진행 중 오류가 발생했습니다. 직원 정보를 찾을 수 없습니다.",
+                                "messages": ["결재 진행 실패"],
+                                "conversation_history": [user_message],
+                                **current_date_info
+                            }
+                        
+                        saved_id = None
+                        doc_type = "출장 신청서" if template_name == "business_trip_request_form" else "휴가 신청서"
+                        
+                        if template_name == "business_trip_request_form":
+                            from agents.master_graphs.document.generate.db_connector import save_business_trip_request
+                            
+                            destination = last_variables.get('destination', '')
+                            purpose = last_variables.get('purpose', '')
+                            start_date = last_variables.get('startDate')
+                            end_date = last_variables.get('endDate')
+                            reason = last_variables.get('reason', '')
+                            request_date = last_variables.get('requestDate')
+                            
+                            print(f"🔍 [결재 진행] 출장 신청서 저장 정보:")
+                            print(f"  - destination: {destination}")
+                            print(f"  - purpose: {purpose}")
+                            print(f"  - start_date: {start_date}")
+                            print(f"  - end_date: {end_date}")
+                            print(f"  - reason: {reason}")
+                            print(f"  - request_date: {request_date}")
+                            print(f"  - employee_id: {employee_id}")
+                            
+                            if start_date and end_date and destination:
+                                saved_id = save_business_trip_request(
+                                    employee_id=employee_id,
+                                    destination=destination,
+                                    purpose=purpose,
+                                    start_date=start_date,
+                                    end_date=end_date,
+                                    reason=reason,
+                                    request_date=request_date,
+                                    status="대기"
+                                )
+                                
+                                if saved_id:
+                                    print(f"✅ [결재 진행] business_trip 테이블에 저장 완료: id={saved_id}")
+                                else:
+                                    print(f"⚠️ [결재 진행] business_trip 테이블 저장 실패")
+                            else:
+                                missing_info = []
+                                if not start_date:
+                                    missing_info.append('start_date')
+                                if not end_date:
+                                    missing_info.append('end_date')
+                                if not destination:
+                                    missing_info.append('destination')
+                                print(f"⚠️ [결재 진행] 필수 정보 누락: {missing_info}")
+                                return {
+                                    "final_response": f"❌ 결재 진행 중 오류가 발생했습니다. 필수 정보가 누락되었습니다: {', '.join(missing_info)}",
+                                    "messages": ["결재 진행 실패"],
+                                    "conversation_history": [user_message],
+                                    **current_date_info
+                                }
+                                
+                        elif template_name == "vacation_request_form":
+                            from agents.master_graphs.document.generate.db_connector import save_leave_request
+                            
+                            leave_type = last_variables.get('vacationType', '연차')
+                            start_date = last_variables.get('startDate')
+                            end_date = last_variables.get('endDate')
+                            reason = last_variables.get('reason', '')
+                            request_date = last_variables.get('requestDate')
+                            
+                            print(f"🔍 [결재 진행] 휴가 신청서 저장 정보:")
+                            print(f"  - leave_type: {leave_type}")
+                            print(f"  - start_date: {start_date}")
+                            print(f"  - end_date: {end_date}")
+                            print(f"  - reason: {reason}")
+                            print(f"  - request_date: {request_date}")
+                            print(f"  - employee_id: {employee_id}")
+                            
+                            if start_date and end_date:
+                                saved_id = save_leave_request(
+                                    employee_id=employee_id,
+                                    leave_type=leave_type,
+                                    start_date=start_date,
+                                    end_date=end_date,
+                                    reason=reason,
+                                    request_date=request_date,
+                                    status="대기"
+                                )
+                                
+                                if saved_id:
+                                    print(f"✅ [결재 진행] leave_request 테이블에 저장 완료: id={saved_id}")
+                                else:
+                                    print(f"⚠️ [결재 진행] leave_request 테이블 저장 실패")
+                            else:
+                                missing_info = []
+                                if not start_date:
+                                    missing_info.append('start_date')
+                                if not end_date:
+                                    missing_info.append('end_date')
+                                print(f"⚠️ [결재 진행] 필수 정보 누락: {missing_info}")
+                                return {
+                                    "final_response": f"❌ 결재 진행 중 오류가 발생했습니다. 필수 정보가 누락되었습니다: {', '.join(missing_info)}",
+                                    "messages": ["결재 진행 실패"],
+                                    "conversation_history": [user_message],
+                                    **current_date_info
+                                }
+                        
+                        if saved_id:
+                            # 결재 완료 메시지
+                            approval_complete_msg = f"\n\n✅ {doc_type} 결재가 완료되었습니다. (ID: {saved_id})"
+                            
+                            # document_context 업데이트
+                            document_context["approval_pending"] = False
+                            document_context["approval_id"] = saved_id
+                            # last_variables에도 저장된 ID 추가
+                            last_variables = document_context.get("last_variables", {})
+                            if template_name == "business_trip_request_form":
+                                last_variables["business_trip_request_id"] = saved_id
+                            elif template_name == "vacation_request_form":
+                                last_variables["leave_request_id"] = saved_id
+                            document_context["last_variables"] = last_variables
+                            state["document_context"] = document_context
+                            
+                            return {
+                                "domain": None,  # 도메인 라우팅 중단 - 다른 대화를 이어나갈 수 있도록
+                                "final_response": approval_complete_msg,
+                                "messages": ["결재가 완료되었습니다."],
+                                "document_context": document_context,
+                                "conversation_history": [user_message],
+                                **current_date_info
+                            }
+                        else:
+                            print(f"⚠️ [결재 진행] RDB 저장 실패")
+                            return {
+                                "domain": None,  # 도메인 라우팅 중단
+                                "final_response": "❌ 결재 진행 중 오류가 발생했습니다. 다시 시도해주세요.",
+                                "messages": ["결재 진행 실패"],
+                                "conversation_history": [user_message],
+                                **current_date_info
+                            }
+                            
+                    except Exception as e:
+                        import traceback
+                        print(f"⚠️ [결재 진행] 오류 발생: {e}")
+                        print(traceback.format_exc())
+                        return {
+                            "domain": None,  # 도메인 라우팅 중단
+                            "final_response": f"❌ 결재 진행 중 오류가 발생했습니다: {str(e)}",
+                            "messages": ["결재 진행 실패"],
+                            "conversation_history": [user_message],
+                            **current_date_info
+                        }
+            
+            if session_id:
+                try:
+                    from agents.session_manager import get_session_manager
+                    session_manager = await get_session_manager()
+                    if session_manager:
+                        employee_id = state.get("employee_id")
+                        if employee_id:
+                            session_data = await session_manager.load_session_data(session_id, employee_id)
+                            if session_data:
+                                redis_workflow_temp_data = session_data.get("workflow_temp_data", {})
+                                print(f"🔍 [route_to_domain] Redis에서 로드한 workflow_temp_data: {list(redis_workflow_temp_data.keys()) if redis_workflow_temp_data else '비어있음'}")
+                                if redis_workflow_temp_data:
+                                    workflow_temp_data = redis_workflow_temp_data
+                                    state["workflow_temp_data"] = redis_workflow_temp_data
+                                    print(f"🔍 [route_to_domain] '진행' 입력 시 Redis에서 최신 workflow_temp_data 로드: {list(workflow_temp_data.keys())}")
+                                else:
+                                    print(f"⚠️ [route_to_domain] Redis에 workflow_temp_data가 없습니다. Step 1에서 저장되지 않았을 수 있습니다.")
+                except Exception as e:
+                    print(f"⚠️ Redis에서 workflow_temp_data 로드 실패: {e}")
+            else:
+                print(f"⚠️ [route_to_domain] session_id가 없어 Redis에서 workflow_temp_data를 로드할 수 없습니다.")
+            
             workflow_handler = get_workflow_handler(workflow_type)
             next_step_index = current_step_index + 1
             
@@ -1498,6 +1704,21 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     if domain not in MASTER_GRAPHS:
         print(f"⚠️ 알 수 없는 도메인: {domain}, {fallback_domain}로 fallback")
         domain = fallback_domain
+    
+    # 결재 완료 상태 확인: document 도메인으로 라우팅되려고 할 때 결재가 이미 완료된 상태인지 확인
+    if domain == "document":
+        document_context = state.get("document_context", {})
+        is_approval_completed = (
+            not document_context.get("approval_pending", True)
+            and document_context.get("approval_id")
+            and document_context.get("template_name") in ["business_trip_request_form", "vacation_request_form"]
+        )
+        
+        if is_approval_completed:
+            # 결재가 이미 완료된 상태에서는 document 도메인으로 라우팅하지 않고 일반 대화로 처리
+            print(f"ℹ️ [route_to_domain] 결재가 이미 완료된 상태입니다. document 도메인으로 라우팅하지 않고 일반 대화로 처리합니다.")
+            # qa 도메인으로 fallback하여 일반 대화로 처리
+            domain = fallback_domain
     
     total_elapsed = (time.time() - route_start_time) * 1000
     print(f"✅ 도메인 결정: {domain}")
