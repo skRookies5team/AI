@@ -663,11 +663,12 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     세부 처리는 각 마스터그래프에서 담당합니다.
     
     라우팅 방법:
-    1. Tech 도메인 ask_source 상태 확인 (특수 케이스)
-    2. 이전 대화 확인 질문 처리 (키워드 기반 + LLM)
-    3. 단순 선택지 처리 (특수 케이스)
-    4. Structured Output Parser (LLM + YAML 프롬프트) - 주요 방법
-    5. LLM 라우터 (LLM + YAML 프롬프트) - fallback
+    1. 이메일 수신자 선택 처리 (우선순위 높음)
+    2. Tech 도메인 ask_source 상태 확인 (특수 케이스)
+    3. 이전 대화 확인 질문 처리 (키워드 기반 + LLM)
+    4. 단순 선택지 처리 (특수 케이스)
+    5. Structured Output Parser (LLM + YAML 프롬프트) - 주요 방법
+    6. LLM 라우터 (LLM + YAML 프롬프트) - fallback
     
     하드코딩된 키워드 매칭은 제거되어 LLM 기반 분류만 사용합니다.
     
@@ -684,6 +685,28 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     session_id = state.get("session_id")
     last_domain = state.get("last_domain")
     conversation_history = state.get("conversation_history", [])
+    
+    # ✅ 이메일 수신자 선택 처리 (우선순위 높음)
+    email_compose_context = state.get("email_compose_context") or {}
+    pending_selection = email_compose_context.get("pending_recipient_selection", {})
+    
+    if pending_selection:
+        pick_pattern = re.compile(r'^\s*(\d+)\s*번?\s*$')
+        match = pick_pattern.match(query)
+        
+        if match:
+            print(f"✅ 이메일 수신자 선택 요청 감지: '{query}' → email 도메인으로 라우팅")
+            _routing_logger.info(f"[라우팅 완료] 이메일 수신자 선택: email (요청: {query})")
+            # 대화 히스토리에 사용자 메시지 추가
+            user_message: Message = {
+                "role": "user",
+                "content": query,
+                "timestamp": datetime.now().isoformat()
+            }
+            return {
+                "domain": "email",
+                "conversation_history": [user_message]
+            }
     
     # 현재 날짜와 시간 정보 설정 (모든 agent가 공통으로 사용) - YAML 설정 사용
     config = load_orchestrator_config()
@@ -713,10 +736,15 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     _routing_logger.info(f"[라우팅 시작] query='{query[:query_preview_length]}...', session_id={session_id}, current_date={current_date_info['current_date']}")
     
     # "n번" 같은 요청이면 Redis에서 last_domain을 가져와서 사용
+    # 단, 동명이인 선택 중이면 건너뜀 (이미 위에서 처리됨)
+    email_compose_context = state.get("email_compose_context") or {}
+    pending_selection = email_compose_context.get("pending_recipient_selection", {})
+    
+    # 숫자 선택 패턴 체크 (동명이인 선택 중이 아닐 때만 last_domain 기반 라우팅 수행)
     number_selection_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기)?', re.IGNORECASE)
     is_number_selection = number_selection_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2)
     
-    if is_number_selection and session_id:
+    if not pending_selection and is_number_selection and session_id:  # 동명이인 선택 중이 아닐 때만
         # Redis에서 last_domain 가져오기
         try:
             from agents.session_manager import get_session_manager

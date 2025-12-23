@@ -17,6 +17,8 @@ from email.utils import parsedate_to_datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from agents.notifications import publish_notification
+from agents.structured_output import extract_structured_output, TeamRecipientParams
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -185,13 +187,61 @@ async def _extract_sender_info_with_llm(query: str) -> Dict[str, Optional[str]]:
 		}
 
 
-async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
+async def _fetch_employees_by_team_name(team_name: str) -> List[Dict[str, Any]]:
+	"""부서명으로 사원 이메일 목록을 조회합니다.
+	
+	Args:
+		team_name: 팀명 (예: "경영지원팀", "기술IT팀") - 뒤의 "1팀", "2팀" 제외한 기본 팀명
+		
+	Returns:
+		사원 정보 리스트 [{"email": "...", "name": "...", "dept": "..."}, ...]
+	"""
+	try:
+		from agents.master_graphs.schedule.services.database_service import DatabaseService
+		
+		db = DatabaseService()
+		
+		# 부서명으로 검색 (LIKE 사용, "1팀", "2팀" 무시)
+		# 예: "경영지원팀" → "경영지원팀1팀", "경영지원팀2팀" 모두 매칭
+		sql = """
+			SELECT email, name, dept
+			FROM ai_agent.employee
+			WHERE dept LIKE :team_pattern
+			  AND email IS NOT NULL
+			  AND email != ''
+			ORDER BY name
+		"""
+		
+		# 팀명 패턴 생성 (예: "경영지원팀%" → "경영지원팀1팀", "경영지원팀2팀" 매칭)
+		team_pattern = f"{team_name}%"
+		
+		async with db._session() as session:
+			result = await session.execute(text(sql), {"team_pattern": team_pattern})
+			rows = result.fetchall()
+			
+			return [
+				{
+					"email": row.email,
+					"name": row.name,
+					"dept": row.dept
+				}
+				for row in rows
+			]
+	except Exception as e:
+		logger.warning(f"팀 사원 조회 실패: {e}")
+		return []
+
+
+async def _extract_recipient_info_with_llm(query: str, employee_id: Optional[int] = None, user_dept: Optional[str] = None) -> Dict[str, Any]:
 	"""LLM을 사용하여 사용자 질의에서 수신자 정보를 추출.
 	
 	이메일 작성 요청에서 수신자 이름, 이메일 주소, CC, BCC 등을 추출합니다.
+	팀 단위 요청도 처리합니다.
 	
 	Args:
 		query: 사용자 질의 문자열
+		employee_id: 사용자 employee_id (우리팀 처리용, 선택사항)
+		user_dept: 사용자 부서명 (우리팀 처리용, 선택사항)
 		
 	Returns:
 		{
@@ -216,6 +266,76 @@ async def _extract_recipient_info_with_llm(query: str) -> Dict[str, Any]:
 			"bcc": None
 		}
 
+	# ✅ 우선순위 2: 팀 요청인지 확인 (LLM 사용)
+	logger.info(f"[DEBUG] [Recipient Extract] 팀 요청 확인 시작 - query: {query}, employee_id: {employee_id}, user_dept: {user_dept}")
+	try:
+		team_params = await extract_structured_output(
+			query=query,
+			model_class=TeamRecipientParams,
+			system_prompt="""사용자의 이메일 작성 요청에서 팀 정보를 추출하세요.
+
+- "경영지원팀한테", "기술IT팀한테" → team_name: "경영지원팀", "기술IT팀"
+- "우리팀한테", "내 팀한테" → is_my_team: True
+- 개인 이름이나 이메일 주소만 있으면 is_team_request: False
+
+팀명은 뒤의 "1팀", "2팀" 같은 숫자를 제외한 기본 팀명만 추출하세요.
+예: "경영지원팀1팀" → "경영지원팀", "기술IT팀2팀" → "기술IT팀"
+""",
+			temperature=0.0
+		)
+		
+		logger.info(f"[DEBUG] [Recipient Extract] LLM 팀 요청 분석 결과 - is_team_request: {team_params.is_team_request}, is_my_team: {team_params.is_my_team}, team_name: {team_params.team_name}")
+		
+		# 팀 요청인 경우
+		if team_params.is_team_request:
+			team_name = None
+			
+			# "우리팀" 처리
+			if team_params.is_my_team:
+				logger.info(f"[DEBUG] [Recipient Extract] '우리팀' 요청 감지 - user_dept: {user_dept}")
+				if user_dept:
+					# "경영지원팀1팀" → "경영지원팀" 추출
+					team_name = re.sub(r'\d+팀$', '', user_dept).strip()
+					logger.info(f"[DEBUG] [Recipient Extract] user_dept '{user_dept}'에서 팀명 추출: '{team_name}'")
+				else:
+					logger.warning("'우리팀' 요청이지만 사용자 부서 정보가 없습니다.")
+					return {"to_emails": [], "to_names": [], "cc": None, "bcc": None}
+			else:
+				team_name = team_params.team_name
+				logger.info(f"[DEBUG] [Recipient Extract] 특정 팀 요청 - team_name: {team_name}")
+			
+			if team_name:
+				# DB에서 팀 사원 이메일 조회
+				logger.info(f"[DEBUG] [Recipient Extract] 팀 '{team_name}'의 사원 조회 시작")
+				team_employees = await _fetch_employees_by_team_name(team_name)
+				logger.info(f"[DEBUG] [Recipient Extract] 팀 '{team_name}' 조회 결과: {len(team_employees)}명")
+				
+				if team_employees:
+					team_emails = [emp["email"] for emp in team_employees if emp.get("email")]
+					team_names = [emp["name"] for emp in team_employees if emp.get("name")]
+					
+					logger.info(f"팀 '{team_name}'에서 {len(team_emails)}명의 이메일을 조회했습니다.")
+					logger.info(f"[DEBUG] [Recipient Extract] 최종 수신자 이메일: {team_emails}")
+					
+					return {
+						"to_emails": team_emails,
+						"to_names": team_names,
+						"cc": None,
+						"bcc": None
+					}
+				else:
+					logger.warning(f"팀 '{team_name}'의 사원을 찾을 수 없습니다.")
+					return {"to_emails": [], "to_names": [], "cc": None, "bcc": None}
+			else:
+				logger.warning(f"[DEBUG] [Recipient Extract] team_name이 None입니다. (is_my_team: {team_params.is_my_team}, user_dept: {user_dept})")
+		else:
+			logger.info(f"[DEBUG] [Recipient Extract] 팀 요청이 아닙니다. (is_team_request: {team_params.is_team_request})")
+	except Exception as e:
+		logger.warning(f"팀 수신자 추출 실패 (개인 수신자 추출로 진행): {e}")
+		import traceback
+		logger.debug(traceback.format_exc())
+
+	# ✅ 우선순위 3: 개인 이름/이메일 추출 (기존 로직)
 	try:
 		api_key = _get_env("OPENAI_API_KEY")
 		if not api_key:

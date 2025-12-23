@@ -232,3 +232,31 @@ class WorkflowDetectionResult(BaseModel):
             "이러한 요청은 기존 작업을 변경/제거하는 것이므로 워크플로우가 아닌 일반 작업입니다."
         )
     )
+
+
+class TeamRecipientParams(BaseModel):
+    """팀 수신자 추출 결과.
+    
+    사용자의 이메일 요청에서 팀 단위 수신자 정보를 추출합니다.
+    """
+    
+    is_team_request: bool = Field(
+        ...,
+        description=(
+            "팀 단위 이메일 요청인지 여부. "
+            "'경영지원팀한테', '기술IT팀한테', '우리팀한테' 같은 표현이 있으면 True. "
+            "개인 이름이나 이메일 주소만 있으면 False."
+        )
+    )
+    team_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "추출된 팀명 (예: '경영지원팀', '기술IT팀'). "
+            "뒤의 '1팀', '2팀' 같은 숫자는 제외한 기본 팀명만 추출하세요. "
+            "'우리팀', '내 팀' 같은 표현이면 None."
+        )
+    )
+    is_my_team: bool = Field(
+        default=False,
+        description="'우리팀', '내 팀', '우리 팀' 같은 표현이면 True."
+    )
