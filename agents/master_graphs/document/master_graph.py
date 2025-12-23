@@ -206,10 +206,12 @@ class DocumentMasterGraph(BaseMasterGraph):
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
+        current_step_index = state.get("current_workflow_step_index", 0)
+        current_step_number = current_step_index + 1
         
-        # 디버깅: Step 2에서 받은 workflow_temp_data 확인
-        print(f"🔍 [Step 2] state에서 받은 workflow_temp_data: {workflow_temp_data}")
-        print(f"🔍 [Step 2] workflow_temp_data keys: {list(workflow_temp_data.keys())}")
+        # 디버깅: Step에서 받은 workflow_temp_data 확인
+        print(f"🔍 [Step {current_step_number}] state에서 받은 workflow_temp_data: {workflow_temp_data}")
+        print(f"🔍 [Step {current_step_number}] workflow_temp_data keys: {list(workflow_temp_data.keys())}")
         
         # 워크플로우 모드이고 business_trip 워크플로우인 경우
         if workflow_in_progress and workflow_type == "business_trip":
@@ -221,19 +223,19 @@ class DocumentMasterGraph(BaseMasterGraph):
             
             # query에서 정보 추출 시도 (LLM 사용) - 기존 값이 없거나 불완전한 경우
             if query and query.strip() and (not description or not destination):
-                print(f"🔍 [Step 2] LLM 추출 시도 - query: '{query.strip()}', 현재 description: '{description}', 현재 destination: '{destination}'")
+                print(f"🔍 [Step {current_step_number}] LLM 추출 시도 - query: '{query.strip()}', 현재 description: '{description}', 현재 destination: '{destination}'")
                 try:
                     from agents.structured_output import extract_structured_output, BusinessTripInfo
                     from agents.master_graphs.document.document_utils import get_business_trip_info_extraction_prompt
                     
                     # 프롬프트 로드
                     extraction_prompt_template = get_business_trip_info_extraction_prompt()
-                    print(f"🔍 [Step 2] 프롬프트 로드 완료: {len(extraction_prompt_template) if extraction_prompt_template else 0}자")
+                    print(f"🔍 [Step {current_step_number}] 프롬프트 로드 완료: {len(extraction_prompt_template) if extraction_prompt_template else 0}자")
                     
                     if extraction_prompt_template:
                         # .format() 대신 .replace() 사용 (JSON 예시의 중괄호와 충돌 방지)
                         extraction_prompt = extraction_prompt_template.replace("{query}", query.strip())
-                        print(f"🔍 [Step 2] LLM 호출 시작... (query: '{query.strip()}')")
+                        print(f"🔍 [Step {current_step_number}] LLM 호출 시작... (query: '{query.strip()}')")
                         
                         # LLM으로 추출
                         extracted_info = await extract_structured_output(
@@ -243,31 +245,31 @@ class DocumentMasterGraph(BaseMasterGraph):
                             temperature=0.0
                         )
                         
-                        print(f"🔍 [Step 2] LLM 응답 수신: description='{extracted_info.description}', destination='{extracted_info.destination}'")
+                        print(f"🔍 [Step {current_step_number}] LLM 응답 수신: description='{extracted_info.description}', destination='{extracted_info.destination}'")
                         
                         # 추출된 정보로 업데이트 (기존 값이 없을 때만)
                         if extracted_info.description and not description:
                             description = extracted_info.description
                             workflow_temp_data["description"] = description
-                            print(f"✅ [Step 2] LLM으로 description 추출: '{description}'")
+                            print(f"✅ [Step {current_step_number}] LLM으로 description 추출: '{description}'")
                         if extracted_info.destination and not destination:
                             destination = extracted_info.destination
                             workflow_temp_data["destination"] = destination
-                            print(f"✅ [Step 2] LLM으로 destination 추출: '{destination}'")
+                            print(f"✅ [Step {current_step_number}] LLM으로 destination 추출: '{destination}'")
                     else:
-                        print(f"⚠️ [Step 2] 프롬프트가 비어있습니다.")
+                        print(f"⚠️ [Step {current_step_number}] 프롬프트가 비어있습니다.")
                 except Exception as e:
                     import traceback
                     error_detail = traceback.format_exc()
-                    print(f"⚠️ [Step 2] LLM 추출 실패: {e}")
-                    print(f"⚠️ [Step 2] 에러 상세 (처음 800자):\n{error_detail[:800]}")
-                    print(f"⚠️ [Step 2] 기존 로직 사용")
+                    print(f"⚠️ [Step {current_step_number}] LLM 추출 실패: {e}")
+                    print(f"⚠️ [Step {current_step_number}] 에러 상세 (처음 800자):\n{error_detail[:800]}")
+                    print(f"⚠️ [Step {current_step_number}] 기존 로직 사용")
             
             # 디버깅: 각 필드 확인
-            print(f"🔍 [Step 2] start_time_str: {start_time_str}")
-            print(f"🔍 [Step 2] end_time_str: {end_time_str}")
-            print(f"🔍 [Step 2] destination: {destination}")
-            print(f"🔍 [Step 2] description: {description}")
+            print(f"🔍 [Step {current_step_number}] start_time_str: {start_time_str}")
+            print(f"🔍 [Step {current_step_number}] end_time_str: {end_time_str}")
+            print(f"🔍 [Step {current_step_number}] destination: {destination}")
+            print(f"🔍 [Step {current_step_number}] description: {description}")
             
             # 필요한 값들 확인 및 누락된 값 수집
             missing_fields = []
@@ -636,11 +638,14 @@ class DocumentMasterGraph(BaseMasterGraph):
                 # 워크플로우 모드: 문서 작성 후 결재 진행 여부 확인
                 if workflow_in_progress and workflow_type == "business_trip":
                     # ⚠️ 수정: description 조건 제거 - 항상 결재 진행 버튼 표시
-                    # Step 2 완료 메시지 추가
-                    step2_complete_msg = "\n\n✅ [Step 2 완료] 출장 신청서가 생성되었습니다."
+                    # 현재 단계 번호 계산
+                    current_step_index = state.get("current_workflow_step_index", 0)
+                    current_step_number = current_step_index + 1
+                    # Step 완료 메시지 추가
+                    step_complete_msg = f"\n\n✅ [Step {current_step_number} 완료] 출장 신청서가 생성되었습니다."
                     # 결재 진행 여부 확인 메시지 추가
                     approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
-                    final_response = document_content + step2_complete_msg + approval_message
+                    final_response = document_content + step_complete_msg + approval_message
                     # workflow_temp_data 업데이트
                     workflow_temp_data["description"] = workflow_temp_data.get("description")
                 else:
@@ -869,15 +874,16 @@ class DocumentMasterGraph(BaseMasterGraph):
                     last_variables["leave_request_id"] = saved_id
                 document_context["last_variables"] = last_variables
                 
-                # 워크플로우 모드인 경우 step 3(email)로 진행
+                # 워크플로우 모드인 경우 step 2(schedule - 캘린더 등록)로 진행
                 is_workflow_mode = workflow_in_progress and workflow_type == "business_trip"
                 
                 if is_workflow_mode:
-                    # 워크플로우 step 3 (email 도메인)로 진행
+                    # 워크플로우 다음 단계로 진행
                     next_step_index = current_step_index + 1
                     if next_step_index < len(workflow_steps):
                         next_domain = workflow_steps[next_step_index]
-                        print(f"✅ [결재 진행] 워크플로우 step 3로 진행: {next_domain} (step {next_step_index + 1}/{len(workflow_steps)})")
+                        next_step_number = next_step_index + 1
+                        print(f"✅ [결재 진행] 워크플로우 step {next_step_number}로 진행: {next_domain} (step {next_step_number}/{len(workflow_steps)})")
                         
                         # workflow_temp_data 업데이트 (결재 ID 추가)
                         if workflow_temp_data:
@@ -894,7 +900,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                             "workflow_in_progress": True,
                             "workflow_temp_data": workflow_temp_data,
                             "next_domain": next_domain,
-                            "final_response": approval_complete_msg + f"\n\n다음 단계(부재중 이메일 설정)로 진행합니다.",
+                            "final_response": approval_complete_msg + f"\n\n다음 단계(캘린더 등록)로 진행합니다.",
                             "messages": ["결재가 완료되었습니다. 다음 단계로 진행합니다."],
                             "document_context": document_context,
                             "conversation_history": [user_message],

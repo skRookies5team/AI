@@ -155,7 +155,7 @@ sub_agents:
         슬롯 스키마:
         - title: 문자열 (일정 제목)
         - description: 문자열 (일정 설명)
-        - location: 문자열 (장소)
+        - destination: 문자열 (장소)
         - start_time: ISO-8601 datetime (예: 2024-12-25T14:00:00)
         - end_time: ISO-8601 datetime
         - selection_index: 정수 (삭제/수정 시 선택 번호)
@@ -171,13 +171,13 @@ sub_agents:
         {{
             "title": "일정 제목" or null,
             "description": "상세 설명" or null,
-            "location": "장소" or null
+            "destination": "장소" or null
         }}
 
         **예시:**
-        - "내일 팀 회의 등록" → {{"title": "팀 회의", "description": null, "location": null}}
-        - "다음주 금요일 프로젝트 킥오프 미팅 추가" → {{"title": "프로젝트 킥오프 미팅", "description": null, "location": null}}
-        - "회의실 A에서 분기 보고회" → {{"title": "분기 보고회", "description": null, "location": null}}
+        - "내일 팀 회의 등록" → {{"title": "팀 회의", "description": null, "destination": null}}
+        - "다음주 금요일 프로젝트 킥오프 미팅 추가" → {{"title": "프로젝트 킥오프 미팅", "description": null, "destination": null}}
+        - "회의실 A에서 분기 보고회" → {{"title": "분기 보고회", "description": null, "destination": "회의실 A"}}
 
         JSON만 출력하세요.
       initial_creation_template: |

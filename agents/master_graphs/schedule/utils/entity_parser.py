@@ -27,7 +27,7 @@ async def extract_schedule_entities(query: str) -> Dict[str, Any]:
         {
             'title': '팀 회의',
             'description': None,
-            'location': None
+            'destination': None
         }
     """
     if not LLM_AVAILABLE:
@@ -116,7 +116,7 @@ def _fallback_schedule_extraction(query: str) -> Dict[str, Any]:
     return {
         "title": title if title else "새 일정",
         "description": None,
-        "location": None
+        "destination": None
     }
 
 

@@ -484,8 +484,11 @@ class EmailMasterGraph(BaseMasterGraph):
 
 감사합니다."""
             
-            # Step 3 완료 메시지 추가
-            step3_complete_msg = "✅ [Step 3 완료] 부재중 자동 응답 초안이 생성되었습니다.\n\n"
+            # 현재 단계 번호 계산
+            current_step_index = state.get("current_workflow_step_index", 0)
+            current_step_number = current_step_index + 1
+            # Step 완료 메시지 추가
+            step_complete_msg = f"✅ [Step {current_step_number} 완료] 부재중 자동 응답 초안이 생성되었습니다.\n\n"
             # 초안 컨펌 요청
             buttons_html = """
 <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -501,7 +504,7 @@ class EmailMasterGraph(BaseMasterGraph):
             message += f"**제목:** {absence_subject}\n\n"
             message += f"**본문:**\n{absence_body}\n\n"
             message += "이 초안을 사용하시겠습니까?" + buttons_html
-            message = step3_complete_msg + message
+            message = step_complete_msg + message
             
             # email_compose_context에 초안 저장
             email_compose_context["email_draft_subject"] = absence_subject

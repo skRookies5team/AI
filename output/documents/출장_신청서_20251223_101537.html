@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>문서</title>
+<title>출장 신청서</title>
 <style>
         * {
             margin: 0;
@@ -361,53 +361,53 @@
 <div class="header">
 <div class="form-number">
 <span>신청서 번호:</span>
-<input id="formNumber" placeholder="자동 생성" type="text"/>
+<input id="formNumber" type="text" value="BT-20251223-4000"/>
 </div>
-<h1>문서</h1>
+<h1>출장 신청서</h1>
 </div>
 <div class="main-content">
 <div class="info-section">
 <h2 class="section-title">신청자 정보</h2>
 <div class="info-row">
 <span class="info-label">성명</span>
-<input class="info-input" id="applicantName" placeholder="성명을 입력하세요" type="text"/>
+<input class="info-input" id="applicantName" type="text" value="신명철"/>
 </div>
 <div class="info-row">
 <span class="info-label">부서</span>
-<input class="info-input" id="department" type="text" value="연구개발부서"/>
+<input class="info-input" id="department" type="text" value="경영지원팀본부"/>
 </div>
 <div class="info-row">
 <span class="info-label">직급</span>
-<input class="info-input" id="position" placeholder="직급을 입력하세요" type="text"/>
+<input class="info-input" id="position" type="text" value="차장"/>
 </div>
 <div class="info-row">
 <span class="info-label">사번</span>
-<input class="info-input" id="employeeId" placeholder="사번을 입력하세요" type="text"/>
+<input class="info-input" id="employeeId" type="text" value="4000"/>
 </div>
 <div class="info-row">
 <span class="info-label">이메일</span>
-<input class="info-input" id="phone" placeholder="이메일을 입력하세요" type="text"/>
+<input class="info-input" id="phone" type="text" value="shin3481@gmail.com"/>
 </div>
 <div class="info-row">
 <span class="info-label">신청일</span>
-<input class="info-input" id="requestDate" placeholder="자동 입력" readonly="" type="text"/>
+<input class="info-input" id="requestDate" readonly="" type="text" value="2025-12-23"/>
 </div>
 </div>
 <div class="trip-info-section">
 <h2 class="section-title">출장 정보</h2>
 <div class="info-row">
 <span class="info-label">출장지</span>
-<input class="info-input" id="destination" placeholder="출장지를 입력하세요" type="text"/>
+<input class="info-input" id="destination" type="text" value="제주도"/>
 </div>
 <div class="info-row">
 <span class="info-label">출장 기간</span>
 <div class="date-row">
 <div class="date-input-group">
-<input class="info-input" id="startDate" type="date"/>
+<input class="info-input" id="startDate" type="date" value="2025-12-29"/>
 <span style="color: #6c757d;">부터</span>
 </div>
 <div class="date-input-group">
-<input class="info-input" id="endDate" type="date"/>
+<input class="info-input" id="endDate" type="date" value="2025-12-31"/>
 <span style="color: #6c757d;">까지</span>
 </div>
 </div>
@@ -420,7 +420,7 @@
 </div>
 <div class="reason-section">
 <label class="reason-label">출장 사유</label>
-<textarea class="reason-textarea" id="reason" placeholder="출장 사유를 상세히 입력하세요"></textarea>
+<textarea class="reason-textarea" id="reason">거래처미팅2</textarea>
 </div>
 <div class="approval-section">
 <h2 class="section-title">결재선</h2>
@@ -436,13 +436,13 @@
 <tbody>
 <tr>
 <td>
-<input id="approver1Name" placeholder="1차 결재자명" type="text"/>
+<input id="approver1Name" type="text" value="신명철"/>
 </td>
 <td>
-<input id="approver1Position" placeholder="직급" type="text"/>
+<input id="approver1Position" type="text" value="차장"/>
 </td>
 <td>
-<input id="approver1Signature" placeholder="서명" type="text"/>
+<input id="approver1Signature" type="text" value="결제대기"/>
 </td>
 <td>
 <input id="approver1Date" placeholder="일자" type="text"/>

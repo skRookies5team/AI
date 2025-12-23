@@ -77,16 +77,15 @@ async def process_business_trip_request(state: OrchestratorState) -> Dict[str, A
         
         if workflow_handler:
             # 워크플로우 핸들러가 해당 단계를 처리할 수 있는지 확인
-            # Step 0과 Step 3만 schedule 도메인에서 처리
+            # Step 0 (일정 조회)와 Step 2 (캘린더 등록)만 schedule 도메인에서 처리
             if current_workflow_step_index == 0:
                 # Step 1: 일정 조회 및 날짜 확인
                 return await _handle_workflow_step1_check_conflicts(state, query, employee_id, user_id)
-            elif current_workflow_step_index == 3:
-                # Step 4: 캘린더 등록 및 RDB 저장
+            elif current_workflow_step_index == 2:
+                # Step 3: 캘린더 등록 및 RDB 저장 (인덱스 2 = Step 3)
                 return await _handle_workflow_step4_register_calendar(state, query, employee_id, user_id)
             else:
-                # Step 2 (document) 또는 Step 3 (email)는 다른 도메인에서 처리
-                # 여기서는 오류 메시지 반환
+                # Step 1 (document) 또는 Step 3 (email)는 다른 도메인에서 처리
                 expected_domain = workflow_steps[current_workflow_step_index] if current_workflow_step_index < len(workflow_steps) else 'unknown'
                 return {
                     "final_response": f"❌ 워크플로우 단계 오류: Step {current_workflow_step_index + 1}는 {expected_domain} 도메인에서 처리되어야 합니다.",
@@ -1083,8 +1082,12 @@ async def _handle_workflow_step1_check_conflicts(
     workflow_temp_data["start_time"] = start_time.isoformat()
     workflow_temp_data["end_time"] = end_time.isoformat()
     
+    # 현재 단계 번호 계산
+    current_step_index = state.get("current_workflow_step_index", 0)
+    current_step_number = current_step_index + 1
+    
     # 디버깅: 저장된 데이터 확인
-    print(f"🔍 [Step 1] workflow_temp_data 저장 직후: {workflow_temp_data}")
+    print(f"🔍 [Step {current_step_number}] workflow_temp_data 저장 직후: {workflow_temp_data}")
     
     # 목적지 및 제목 추출
     destination = workflow_temp_data.get("destination") or state.get("destination")
@@ -1113,8 +1116,8 @@ async def _handle_workflow_step1_check_conflicts(
         workflow_temp_data["title"] = title
     
     # 디버깅: 최종 저장된 데이터 확인
-    print(f"🔍 [Step 1] workflow_temp_data 최종 저장: {workflow_temp_data}")
-    print(f"🔍 [Step 1] return에 포함될 workflow_temp_data keys: {list(workflow_temp_data.keys())}")
+    print(f"🔍 [Step {current_step_number}] workflow_temp_data 최종 저장: {workflow_temp_data}")
+    print(f"🔍 [Step {current_step_number}] return에 포함될 workflow_temp_data keys: {list(workflow_temp_data.keys())}")
     
     # 일정 충돌 체크 (날짜가 정확할 때만 수행)
     scheduler = _get_scheduler()
@@ -1177,8 +1180,12 @@ async def _handle_workflow_step1_check_conflicts(
             except Exception:
                 continue
         
-        # Step 1 완료 메시지 먼저 추가
-        step1_complete_msg = "✅ [Step 1 완료] 일정 조회가 완료되었습니다.\n\n"
+        # 현재 단계 번호 계산
+        current_step_index = state.get("current_workflow_step_index", 0)
+        current_step_number = current_step_index + 1
+        
+        # Step 완료 메시지 먼저 추가
+        step_complete_msg = f"✅ [Step {current_step_number} 완료] 일정 조회가 완료되었습니다.\n\n"
         
         # 휴먼 인 더 루프: 출장 신청서 작성 진행 여부 확인
         # 버튼 형태로 표시하기 위해 HTML 형식 사용
@@ -1196,9 +1203,9 @@ async def _handle_workflow_step1_check_conflicts(
         if conflicting_events:
             conflict_titles = [e.get('title', '제목 없음') for e in conflicting_events[:3]]
             conflict_msg = "\n".join(f"- {title}" for title in conflict_titles)
-            message = step1_complete_msg + f"⚠️ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n출장 신청서 작성을 계속하시겠습니까?" + buttons_html
+            message = step_complete_msg + f"⚠️ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n출장 신청서 작성을 계속하시겠습니까?" + buttons_html
         else:
-            message = step1_complete_msg + f"✅ 해당 기간에 일정 충돌이 없습니다.\n\n출장 기간: {start_aware.strftime('%Y-%m-%d %H:%M')} ~ {end_aware.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?" + buttons_html
+            message = step_complete_msg + f"✅ 해당 기간에 일정 충돌이 없습니다.\n\n출장 기간: {start_aware.strftime('%Y-%m-%d %H:%M')} ~ {end_aware.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?" + buttons_html
         
         return {
             "final_response": message,
@@ -1235,8 +1242,10 @@ async def _handle_workflow_step4_register_calendar(
     employee_id: Optional[int],
     user_id: Optional[str]
 ) -> Dict[str, Any]:
-    """워크플로우 4단계: 캘린더 등록 및 RDB 저장."""
-    print("--- [Business Trip Workflow] Step 4: 캘린더 등록 및 RDB 저장 ---")
+    """워크플로우 Step 3: 캘린더 등록 및 RDB 저장 (인덱스 2 = Step 3)."""
+    current_step_index = state.get("current_workflow_step_index", 0)
+    current_step_number = current_step_index + 1
+    print(f"--- [Business Trip Workflow] Step {current_step_number}: 캘린더 등록 및 RDB 저장 ---")
     
     workflow_temp_data = state.get("workflow_temp_data") or {}
     
@@ -1310,15 +1319,18 @@ async def _handle_workflow_step4_register_calendar(
         
         if created_event:
             gcal_event_id = created_event.get("id")
-            # Step 4 완료 메시지 추가
-            step4_complete_msg = "✅ [Step 4 완료] 캘린더 등록이 완료되었습니다.\n\n"
+            # 현재 단계 번호 계산
+            current_step_index = state.get("current_workflow_step_index", 0)
+            current_step_number = current_step_index + 1
+            # Step 완료 메시지 추가
+            step_complete_msg = f"✅ [Step {current_step_number} 완료] 캘린더 등록이 완료되었습니다.\n\n"
             message = f"✅ 출장 신청이 완료되었습니다!\n\n"
             message += f"기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n"
             if destination:
                 message += f"목적지: {destination}\n"
             message += f"제목: {trip_title}\n"
             message += "\n구글 캘린더에 일정이 등록되었습니다."
-            message = step4_complete_msg + message
+            message = step_complete_msg + message
             
             # 워크플로우 완료 - workflow_temp_data 초기화
             return {
