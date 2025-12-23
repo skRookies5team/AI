@@ -1332,17 +1332,17 @@ async def _handle_workflow_step4_register_calendar(
             message += "\n구글 캘린더에 일정이 등록되었습니다."
             message = step_complete_msg + message
             
-            # 워크플로우 완료 - workflow_temp_data 초기화
+            # 워크플로우 진행 중 - Step 4 (email)로 이동
             return {
                 "ok": True,
                 "final_response": message,
                 "messages": [message],
                 "trip_id": trip_id,
                 "gcal_event_id": gcal_event_id,
-                "workflow_temp_data": {},  # 초기화
-                "workflow_in_progress": False,  # 워크플로우 완료
+                "workflow_temp_data": workflow_temp_data,  # 초기화하지 않고 유지 (Step 4에서 사용)
+                "workflow_in_progress": True,  # 워크플로우 계속 진행
                 "schedule_context": state.get("schedule_context", {}),
-                "next_domain": None,  # 워크플로우 완료
+                "next_domain": "email",  # Step 4로 이동
             }
     except GoogleAuthRequired as auth_error:
         # 캘린더 등록 실패해도 DB 저장은 완료
@@ -1352,10 +1352,10 @@ async def _handle_workflow_step4_register_calendar(
             "final_response": message,
             "messages": [message],
             "trip_id": trip_id,
-            "workflow_temp_data": {},  # 초기화
-            "workflow_in_progress": False,  # 워크플로우 완료
+            "workflow_temp_data": workflow_temp_data,  # 초기화하지 않고 유지 (Step 4에서 사용)
+            "workflow_in_progress": True,  # 워크플로우 계속 진행
             "schedule_context": state.get("schedule_context", {}),
-            "next_domain": None,
+            "next_domain": "email",  # Step 4로 이동
         }
     except Exception as e:
         print(f"⚠️ Google Calendar 이벤트 생성 실패: {e}")
@@ -1365,9 +1365,9 @@ async def _handle_workflow_step4_register_calendar(
             "final_response": message,
             "messages": [message],
             "trip_id": trip_id,
-            "workflow_temp_data": {},  # 초기화
-            "workflow_in_progress": False,  # 워크플로우 완료
+            "workflow_temp_data": workflow_temp_data,  # 초기화하지 않고 유지 (Step 4에서 사용)
+            "workflow_in_progress": True,  # 워크플로우 계속 진행
             "schedule_context": state.get("schedule_context", {}),
-            "next_domain": None,
+            "next_domain": "email",  # Step 4로 이동
         }
 

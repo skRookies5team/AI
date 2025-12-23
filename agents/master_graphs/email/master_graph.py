@@ -432,12 +432,19 @@ class EmailMasterGraph(BaseMasterGraph):
                             workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
                             completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
                             
-                            # ✅ 이메일 발송 완료 및 워크플로우 종료 안내 메시지
-                            email_sent_msg = f"✅ **이메일 발송이 완료되었습니다.**\n\n"
-                            email_sent_msg += f"{result.get('message', '이메일이 성공적으로 발송되었습니다!')}\n\n"
-                            email_sent_msg += f"---\n\n"
-                            email_sent_msg += f"✅ **출장 신청 워크플로우가 종료되었습니다.**\n\n"
-                            email_sent_msg += f"{completion_message}"
+                            # ✅ 이메일 발송 완료 및 워크플로우 종료 안내 메시지 (요청 형식)
+                            raw_send_msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
+                            # 예: "이메일이 성공적으로 발송되었습니다! (수신자: ...)" -> 줄바꿈 형태로 정리
+                            send_msg = raw_send_msg.replace("! (수신자:", "!\n(수신자:").replace(") ---", ")")
+                            if " (수신자:" in send_msg and "\n(수신자:" not in send_msg:
+                                send_msg = send_msg.replace(" (수신자:", "\n(수신자:")
+
+                            email_sent_msg = (
+                                f"{send_msg}\n\n"
+                                f"완료된 작업:\n\n"
+                                f"{completion_message}\n\n"
+                                f"출장 신청 워크플로우가 종료되었습니다."
+                            )
                             
                             return {
                                 "final_response": email_sent_msg,
@@ -454,8 +461,11 @@ class EmailMasterGraph(BaseMasterGraph):
                             }
                         else:
                             # 다음 단계로 진행 (이미 마지막 단계이므로 여기 도달하지 않음)
-                            email_sent_msg = f"✅ **이메일 발송이 완료되었습니다.**\n\n"
-                            email_sent_msg += f"{result.get('message', '이메일이 성공적으로 발송되었습니다!')}"
+                            raw_send_msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
+                            send_msg = raw_send_msg.replace("! (수신자:", "!\n(수신자:").replace(") ---", ")")
+                            if " (수신자:" in send_msg and "\n(수신자:" not in send_msg:
+                                send_msg = send_msg.replace(" (수신자:", "\n(수신자:")
+                            email_sent_msg = send_msg
                             
                             return {
                                 "final_response": email_sent_msg,
