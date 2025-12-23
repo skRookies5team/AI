@@ -401,10 +401,6 @@
                     <input type="text" class="info-input" id="destination" placeholder="출장지를 입력하세요">
                 </div>
                 <div class="info-row">
-                    <span class="info-label">출장 목적</span>
-                    <input type="text" class="info-input" id="purpose" placeholder="출장 목적을 입력하세요">
-                </div>
-                <div class="info-row">
                     <span class="info-label">출장 기간</span>
                     <div class="date-row">
                         <div class="date-input-group">
@@ -554,7 +550,6 @@
                 phone: document.getElementById('phone').value,
                 requestDate: document.getElementById('requestDate').value,
                 destination: document.getElementById('destination').value,
-                purpose: document.getElementById('purpose').value,
                 startDate: document.getElementById('startDate').value,
                 endDate: document.getElementById('endDate').value,
                 tripDays: document.getElementById('tripDays').textContent,
@@ -578,7 +573,6 @@
             csv += `이메일,${formData.phone}\n`;
             csv += `신청일,${formData.requestDate}\n`;
             csv += `출장지,${formData.destination}\n`;
-            csv += `출장 목적,${formData.purpose}\n`;
             csv += `시작일,${formData.startDate}\n`;
             csv += `종료일,${formData.endDate}\n`;
             csv += `출장 일수,${formData.tripDays}\n`;

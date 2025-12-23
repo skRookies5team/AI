@@ -186,7 +186,16 @@ class SessionManager:
                 "qa_search_context": {},
                 "tech_search_context": {},
                 "schedule_context": {},
-                "document_context": {}
+                "document_context": {},
+                "recruitment_context": {},
+                "workflow_temp_data": {},
+                "workflow_type": None,
+                "workflow_steps": [],
+                "current_workflow_step_index": 0,
+                "workflow_completed_steps": [],
+                "workflow_in_progress": False,
+                "next_domain": None,
+                "title": None,
             }
         
         if employee_id is None:
@@ -209,7 +218,15 @@ class SessionManager:
                         "tech_search_context": {},
                         "schedule_context": {},
                         "document_context": {},
-                        "recruitment_context": {}
+                        "recruitment_context": {},
+                        "workflow_temp_data": {},
+                        "workflow_type": None,
+                        "workflow_steps": [],
+                        "current_workflow_step_index": 0,
+                        "workflow_completed_steps": [],
+                        "workflow_in_progress": False,
+                        "next_domain": None,
+                        "title": None,
                     }
                 
                 data = json.loads(value)
@@ -222,7 +239,15 @@ class SessionManager:
                     "schedule_context": data.get("schedule_context") or {},
                     "document_context": data.get("document_context") or {},
                     "recruitment_context": data.get("recruitment_context") or {},
-                    "last_domain": data.get("last_domain")
+                    "last_domain": data.get("last_domain"),
+                    "workflow_temp_data": data.get("workflow_temp_data", {}),
+                    "workflow_type": data.get("workflow_type"),
+                    "workflow_steps": data.get("workflow_steps", []),
+                    "current_workflow_step_index": data.get("current_workflow_step_index", 0),
+                    "workflow_completed_steps": data.get("workflow_completed_steps", []),
+                    "workflow_in_progress": data.get("workflow_in_progress", False),
+                    "next_domain": data.get("next_domain"),
+                    "title": data.get("title"),
                 }
             except asyncio.TimeoutError:
                 print(f"[WARNING] 세션 데이터 로드 타임아웃 (session_id={session_id}): Redis 서버 응답 없음 (5초 초과)")
@@ -235,7 +260,16 @@ class SessionManager:
                     "schedule_context": {},
                     "document_context": {},
                     "recruitment_context": {},
-                    "last_domain": None
+                    "last_domain": None,
+                    # ⚠️ 워크플로우 관련 필드 추가
+                    "workflow_temp_data": {},
+                    "workflow_type": None,
+                    "workflow_steps": [],
+                    "current_workflow_step_index": 0,
+                    "workflow_completed_steps": [],
+                    "workflow_in_progress": False,
+                    "next_domain": None,
+                    "title": None,
                 }
             except Exception as e:
                 print(f"[WARNING] 세션 데이터 로드 실패 (session_id={session_id}): {e}")
@@ -246,7 +280,18 @@ class SessionManager:
                     "qa_search_context": {},
                     "tech_search_context": {},
                     "schedule_context": {},
-                    "document_context": {}
+                    "document_context": {},
+                    "recruitment_context": {},
+                    "last_domain": None,
+                    # ⚠️ 워크플로우 관련 필드 추가
+                    "workflow_temp_data": {},
+                    "workflow_type": None,
+                    "workflow_steps": [],
+                    "current_workflow_step_index": 0,
+                    "workflow_completed_steps": [],
+                    "workflow_in_progress": False,
+                    "next_domain": None,
+                    "title": None,
                 }
     
     async def save_message(self, session_id: str, message: Message) -> None:
@@ -512,6 +557,15 @@ class SessionManager:
                     "document_context": state.get("document_context", existing_data.get("document_context", {})),
                     "recruitment_context": state.get("recruitment_context", existing_data.get("recruitment_context", {})),
                     "last_domain": state.get("last_domain", existing_data.get("last_domain")),  # last_domain 저장
+                    # ⚠️ 워크플로우 관련 필드 추가 (state에 실제 데이터가 있으면 state 값 사용, 없거나 빈 딕셔너리면 existing_data 사용)
+                    "workflow_temp_data": (
+                        state_wtd 
+                        if (state_wtd := state.get("workflow_temp_data")) 
+                           and isinstance(state_wtd, dict) 
+                           and len(state_wtd) > 0
+                        else existing_data.get("workflow_temp_data", {})
+                    ),
+                    "workflow_type": state.get("workflow_type", existing_data.get("workflow_type")),
                     "title": title,
                     "updated_at": now,
                     "last_updated": now  # 호환성을 위해 유지
@@ -644,9 +698,19 @@ class SessionManager:
                 # 디버깅 로그 (프로덕션에서는 제거 가능)
                 print(f"[DEBUG] session_id={session_id}, updated_at={updated_at}, created_at={session_data.get('created_at')}")
                 
+                # ✅ title 처리: session_data에 title이 있으면 사용, 없거나 None이면 생성한 title 사용
+                session_title = session_data.get("title")
+                if not session_title:  # None이거나 빈 문자열인 경우
+                    session_title = title
+                
+                # ✅ 빈 세션 필터링: conversation_history가 비어있고 메시지가 없는 세션은 제외
+                # (선택사항: 필요시 주석 해제)
+                # if not conversation_history:
+                #     continue
+                
                 metadata = {
                     "session_id": session_id,
-                    "title": session_data.get("title", title),
+                    "title": session_title,  # ✅ None 체크 완료
                     "employee_id": employee_id,
                     "message_count": len(conversation_history),
                     "created_at": session_data.get("created_at", datetime.now().isoformat()),
@@ -891,7 +955,15 @@ async def get_session_manager() -> Optional[SessionManager]:
             except (ValueError, AttributeError):
                 redis_timeout = 10  # 기본값: 10초
 
+            # 현재 실행 중인 이벤트 루프 가져오기 (Windows 호환성)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # 이벤트 루프가 실행 중이 아닌 경우 (일반적으로 발생하지 않음)
+                loop = None
+            
             # Redis 연결 풀 설정으로 타임아웃 및 재시도 설정
+            # Windows에서 이벤트 루프 문제를 방지하기 위해 명시적으로 설정
             redis_client = AsyncRedis.from_url(
                 redis_url,
                 decode_responses=False,

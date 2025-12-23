@@ -72,6 +72,19 @@ class ScheduleMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
 
+        # ⚠️ 워크플로우 모드에서 Step 3(schedule - 캘린더 등록)인 경우 강제로 business_trip으로 라우팅
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        current_workflow_step_index = state.get("current_workflow_step_index", 0)
+        workflow_steps = state.get("workflow_steps", [])
+        
+        if workflow_in_progress and workflow_type == "business_trip":
+            # Step 3 (인덱스 2)는 schedule 도메인에서 캘린더 등록 처리
+            if current_workflow_step_index == 2 and len(workflow_steps) > 2 and workflow_steps[2] == "schedule":
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ 워크플로우 모드 Step 3: 캘린더 등록 - business_trip으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                return {"intent": "business_trip"}
+
         schedule_context = state.get("schedule_context") or {}
         meeting_context = schedule_context.get("meeting") or {}
         meeting_slot_state = meeting_context.get("slot_state") or {}

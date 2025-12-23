@@ -2748,6 +2748,13 @@
             handleBotResponse(message);
         }
 
+        // 버튼 클릭 시 메시지 전송 함수
+        function sendMessageFromButton(message) {
+            const input = document.getElementById('chatInput');
+            input.value = message;
+            sendMessage();
+        }
+
         function addUserMessage(text) {
             const messagesContainer = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
