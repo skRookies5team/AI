@@ -561,3 +561,113 @@ templates:
               <br>💡 신청자 정보는 로그인한 사용자 정보로 자동 설정됩니다.
           </div>
       </div>
+
+  interview_evaluation_form:
+    title: "면접 평가서"
+    example: |
+      <div style="font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; line-height: 1.6;">
+          <div style="font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;">
+              📋 <strong>면접 평가서 작성 예시</strong>
+          </div>
+          
+          <div style="color: #495057; margin-bottom: 20px;">
+              다음 형식을 참고하여 제목과 요구사항을 입력해주세요:
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">입력 형식:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 12px 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px; color: #2c3e50;">
+                  제목: [문서 제목]<br>
+                  요구사항: [상세 요구사항]
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 1:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 2024년 신입 개발자 면접 평가서
+      요구사항:
+      - 면접 일시: 2024년 3월 15일 오후 2시
+      - 면접 유형: 1차 면접
+      - 지원자 정보: 김개발, 백엔드 개발자, 경력 2년, 학사
+      - 평가 항목: 기술 역량 85점, 커뮤니케이션 80점, 문제 해결 능력 90점, 팀워크 85점
+      - 종합 평가: 백엔드 개발 경험이 풍부하고 문제 해결 능력이 뛰어남
+      - 면접 결과: 합격
+      - 추천 여부: 강력 추천
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 2:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 프론트엔드 개발자 면접 평가서
+      요구사항:
+      면접 일시: 2024년 4월 10일 오전 10시, 면접 유형: 2차 면접
+      지원자: 박프론트, 프론트엔드 개발자, 신입, 학사
+      평가: 기술 역량 90점, 커뮤니케이션 85점, 문제 해결 88점, 팀워크 90점
+      종합 평가: React와 Vue.js 경험이 풍부하며 학습 능력이 뛰어남
+      결과: 합격, 추천: 추천
+              </div>
+          </div>
+          
+          <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 12px; margin-top: 20px; color: #004085;">
+              💡 위 예시를 참고하여 <strong>제목</strong>과 <strong>요구사항</strong>을 입력해주세요!
+          </div>
+      </div>
+
+  meeting_minutes:
+    title: "회의록"
+    example: |
+      <div style="font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; line-height: 1.6;">
+          <div style="font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;">
+              📋 <strong>회의록 작성 예시</strong>
+          </div>
+          
+          <div style="color: #495057; margin-bottom: 20px;">
+              다음 형식을 참고하여 제목과 요구사항을 입력해주세요:
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">입력 형식:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 12px 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px; color: #2c3e50;">
+                  제목: [문서 제목]<br>
+                  요구사항: [상세 요구사항]
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 1:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 2024년 1분기 프로젝트 킥오프 회의록
+      요구사항:
+      - 회의 일시: 2024년 3월 15일 오후 2시
+      - 회의 유형: 정기 회의
+      - 회의 장소: 본사 회의실 A
+      - 주관자: 김부장, 진행자: 이과장, 기록자: 박대리
+      - 참석자: 김부장, 이과장, 박대리, 최사원, 정사원
+      - 안건: 1) 프로젝트 일정 논의, 2) 예산 계획 수립, 3) 역할 분담
+      - 논의 사항: 프로젝트 기간을 6개월로 확정, 예산은 50억원으로 책정
+      - 결정 사항: 프로젝트 시작일 4월 1일 확정, 팀 구성 완료
+      - 액션 아이템: 1) 프로젝트 계획서 작성 (담당: 이과장, 마감: 3월 25일), 2) 예산 승인 요청 (담당: 김부장, 마감: 3월 20일)
+              </div>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+              <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">예시 2:</div>
+              <div style="background: #f8f9fa; border-left: 4px solid #28a745; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 13px; color: #2c3e50; white-space: pre-wrap;">
+      제목: 신제품 출시 전략 회의록
+      요구사항:
+      회의 일시: 2024년 4월 10일 오전 10시, 회의 유형: 임시 회의
+      장소: 본사 회의실 B, 주관자: 최부장, 진행자: 정과장, 기록자: 신대리
+      참석자: 최부장, 정과장, 신대리, 유사원
+      안건: 신제품 마케팅 전략 수립
+      논의: 타겟 고객층, 마케팅 채널, 예산 배분 논의
+      결정: 젊은 층 타겟, SNS 마케팅 중심, 예산 10억원 배정
+      액션: 마케팅 계획서 작성 (담당: 정과장, 마감: 4월 20일)
+              </div>
+          </div>
+          
+          <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 12px; margin-top: 20px; color: #004085;">
+              💡 위 예시를 참고하여 <strong>제목</strong>과 <strong>요구사항</strong>을 입력해주세요!
+          </div>
+      </div>
