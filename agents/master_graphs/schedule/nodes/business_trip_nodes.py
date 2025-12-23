@@ -434,7 +434,7 @@ async def _parse_business_trip_intent(
     
     if action == "신청" and not awaiting_slots:
         # LLM으로 날짜 파싱 (orchestrator의 현재 시간 전달)
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(
             query,
             current_datetime=current_datetime  # orchestrator의 현재 시간 전달
         )
@@ -465,7 +465,7 @@ async def _parse_business_trip_intent(
         
         # trip_id가 없으면 날짜로 찾기 위해 날짜 파싱 (orchestrator의 현재 시간 전달)
         if not existing_slots.get("trip_id") and not start_time:
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(
                 query,
                 current_datetime=current_datetime  # orchestrator의 현재 시간 전달
             )
@@ -987,11 +987,54 @@ async def _handle_workflow_step1_check_conflicts(
     if not start_time or not end_time:
         print("🔍 날짜 정보 부족 또는 유효하지 않음 - 사용자 입력에서 파싱 시도")
         print(f"🔍 [business_trip] 현재 상태: start_time={start_time}, end_time={end_time}")
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+        start_date_obj, end_date_obj, is_precise = await parse_korean_date_with_llm(
             query, 
             current_datetime=current_datetime  # orchestrator의 현재 시간 전달
         )
         
+        # ✅ 고도화 로직: 날짜가 모호하거나 없는 경우 처리
+        if not start_date_obj or not is_precise:
+            # 제목(title) 추출 시도
+            temp_title = workflow_temp_data.get("title")
+            if not temp_title:
+                # LLM을 사용하여 제목 추출 (간단하게)
+                if "워크샵" in query:
+                    temp_title = "워크샵 출장"
+                elif "출장" in query:
+                    temp_title = "출장"
+                else:
+                    temp_title = query[:20] + "..." if len(query) > 20 else query
+                workflow_temp_data["title"] = temp_title
+                
+            print(f"⚠️ 날짜가 모호하거나 없음 (is_precise={is_precise}). 제목 '{temp_title}' 저장 후 날짜 재요청.")
+            
+            message = (
+                f"✅ [Step 1 진행 중] **{temp_title}** 출장 신청을 위해 정확한 날짜 정보가 필요합니다.\n\n"
+                "언제부터 언제까지 출장을 가시나요?\n\n"
+                "**입력 예시:**\n"
+                "- 12월 29일부터 12월 31일까지\n"
+                "- 2025-12-29 ~ 2025-12-31\n"
+                "- 다음주 월요일부터 수요일까지"
+            )
+            
+            # 사용자 종료 버튼
+            buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
+        ❌ 종료
+    </button>
+</div>
+"""
+            
+            return {
+                "final_response": message + buttons_html,
+                "messages": [message],
+                "workflow_temp_data": workflow_temp_data,
+                "schedule_context": state.get("schedule_context", {}),
+                "requires_input": True,
+                "current_workflow_step_index": 0 # Step 1에 머무름
+            }
+
         if start_date_obj:
             # 파싱된 날짜가 유효한지 즉시 검증
             # orchestrator의 현재 시간 사용
