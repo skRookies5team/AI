@@ -698,9 +698,19 @@ class SessionManager:
                 # 디버깅 로그 (프로덕션에서는 제거 가능)
                 print(f"[DEBUG] session_id={session_id}, updated_at={updated_at}, created_at={session_data.get('created_at')}")
                 
+                # ✅ title 처리: session_data에 title이 있으면 사용, 없거나 None이면 생성한 title 사용
+                session_title = session_data.get("title")
+                if not session_title:  # None이거나 빈 문자열인 경우
+                    session_title = title
+                
+                # ✅ 빈 세션 필터링: conversation_history가 비어있고 메시지가 없는 세션은 제외
+                # (선택사항: 필요시 주석 해제)
+                # if not conversation_history:
+                #     continue
+                
                 metadata = {
                     "session_id": session_id,
-                    "title": session_data.get("title", title),
+                    "title": session_title,  # ✅ None 체크 완료
                     "employee_id": employee_id,
                     "message_count": len(conversation_history),
                     "created_at": session_data.get("created_at", datetime.now().isoformat()),
