@@ -7,7 +7,8 @@ from typing import Any, Dict, Optional
 from ..db_connector import (
     fetch_employee_info,
     fetch_department_manager,
-    fetch_business_trip_request_data
+    fetch_business_trip_request_data,
+    fetch_team_manager
 )
 
 
@@ -319,18 +320,61 @@ def extract_business_trip_request_fields(
         field_values['approver1Date'] = ''
         print(f"✅ 1차 결재자 설정: {field_values['approver1Name']} (결제대기)")
     
-    # 2차 결재자: 부서장
-    dept = field_values.get('department') or (applicant_info.get('dept') if applicant_info else None)
-    if dept:
-        dept_manager = fetch_department_manager(dept)
-        if dept_manager:
-            field_values['approver2Name'] = dept_manager.get('name', '')
-            field_values['approver2Position'] = dept_manager.get('position', '') or dept_manager.get('job_title', '')
-            field_values['approver2Signature'] = '결제대기'  # 서명 대신 결제대기 표시
-            field_values['approver2Date'] = ''
-            print(f"✅ 2차 결재자(부서장) 설정: {field_values['approver2Name']} (결제대기)")
+    # 2차 결재자: 현재 사원의 직급이 "팀원"이면, 같은 팀의 팀장
+    if applicant_info:
+        job_title = applicant_info.get('job_title', '') or applicant_info.get('position', '')
+        dept = applicant_info.get('dept', '')
+        
+        # 직급이 "팀원"인지 확인
+        if job_title and '팀원' in job_title:
+            # dept에서 "팀"이 첫 등장하는 위치까지 추출
+            # 예: "경영지원팀1팀" -> "경영지원팀"
+            team_match = re.search(r'^([^팀]*팀)', dept)
+            if team_match:
+                team_name = team_match.group(1)
+                print(f"🔍 팀명 추출: {dept} -> {team_name}")
+                
+                # 같은 팀의 팀장 조회
+                team_manager = fetch_team_manager(team_name)
+                if team_manager:
+                    field_values['approver2Name'] = team_manager.get('name', '')
+                    field_values['approver2Position'] = team_manager.get('position', '') or team_manager.get('job_title', '')
+                    field_values['approver2Signature'] = '결제대기'
+                    field_values['approver2Date'] = ''
+                    print(f"✅ 2차 결재자(팀장) 설정: {field_values['approver2Name']} (결제대기)")
+                else:
+                    print(f"⚠️ 팀장 정보를 찾을 수 없음: team={team_name}")
+                    # 팀장을 찾을 수 없으면 부서장으로 fallback
+                    dept_manager = fetch_department_manager(dept)
+                    if dept_manager:
+                        field_values['approver2Name'] = dept_manager.get('name', '')
+                        field_values['approver2Position'] = dept_manager.get('position', '') or dept_manager.get('job_title', '')
+                        field_values['approver2Signature'] = '결제대기'
+                        field_values['approver2Date'] = ''
+                        print(f"✅ 2차 결재자(부서장) 설정 (팀장 없음): {field_values['approver2Name']} (결제대기)")
+            else:
+                print(f"⚠️ 팀명을 추출할 수 없음: dept={dept}")
+                # 팀명을 추출할 수 없으면 부서장으로 fallback
+                dept_manager = fetch_department_manager(dept)
+                if dept_manager:
+                    field_values['approver2Name'] = dept_manager.get('name', '')
+                    field_values['approver2Position'] = dept_manager.get('position', '') or dept_manager.get('job_title', '')
+                    field_values['approver2Signature'] = '결제대기'
+                    field_values['approver2Date'] = ''
+                    print(f"✅ 2차 결재자(부서장) 설정 (팀명 추출 실패): {field_values['approver2Name']} (결제대기)")
         else:
-            print(f"⚠️ 부서장 정보를 찾을 수 없음: dept={dept}")
+            # 직급이 "팀원"이 아니면 부서장으로 설정
+            dept = field_values.get('department') or dept
+            if dept:
+                dept_manager = fetch_department_manager(dept)
+                if dept_manager:
+                    field_values['approver2Name'] = dept_manager.get('name', '')
+                    field_values['approver2Position'] = dept_manager.get('position', '') or dept_manager.get('job_title', '')
+                    field_values['approver2Signature'] = '결제대기'
+                    field_values['approver2Date'] = ''
+                    print(f"✅ 2차 결재자(부서장) 설정: {field_values['approver2Name']} (결제대기)")
+                else:
+                    print(f"⚠️ 부서장 정보를 찾을 수 없음: dept={dept}")
     
     # 7. 신청일 자동 설정
     today = datetime.now()

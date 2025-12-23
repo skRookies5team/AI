@@ -334,6 +334,16 @@ class DocumentMasterGraph(BaseMasterGraph):
             
             document_title = title
             
+            # ⚠️ document_title이 없거나 기본값이면 workflow_temp_data에서 가져오기
+            if not document_title or document_title == "출장":
+                document_title = workflow_temp_data.get("title", "출장 신청서")
+                print(f"🔍 [워크플로우 모드] document_title 재설정: {document_title}")
+            
+            # ⚠️ document_title이 여전히 없으면 기본값 설정
+            if not document_title:
+                document_title = "출장 신청서"
+                print(f"⚠️ [워크플로우 모드] document_title이 없어 기본값 사용: {document_title}")
+            
             print(f"✅ [워크플로우 모드] 출장 신청서 작성: {title}")
             print(f"   기간: {start_time_str} ~ {end_time_str}")
             print(f"   목적지: {destination}")
@@ -392,18 +402,53 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 쿼리에서 제목, 요구사항 추출
         import re
         
-        document_title = None
-        requirements = None
-        
-        # "제목: ..." 형식 추출
-        title_match = re.search(r'제목[:\s]+([^.]+?)(?:\.|요구사항|$)', query)
-        if title_match:
-            document_title = title_match.group(1).strip()
-        
-        # "요구사항: ..." 형식 추출
-        req_match = re.search(r'요구사항[:\s]+(.+)', query, re.DOTALL)
-        if req_match:
-            requirements = req_match.group(1).strip()
+        # ⚠️ 워크플로우 모드에서는 workflow_temp_data에서 가져오기
+        if workflow_in_progress and workflow_type == "business_trip":
+            # 워크플로우 모드: document_title은 "출장 신청서"로 고정
+            document_title = "출장 신청서"
+            
+            # requirements는 workflow_temp_data에서 구성
+            start_time_str = workflow_temp_data.get("start_time", "")
+            end_time_str = workflow_temp_data.get("end_time", "")
+            destination = workflow_temp_data.get("destination", "")
+            description = workflow_temp_data.get("description", "")
+            title = workflow_temp_data.get("title", "")
+            
+            # 출장 사유 구성: title과 description을 조합
+            if title and description:
+                trip_reason = f"{title}: {description}"
+            elif title:
+                trip_reason = title
+            elif description:
+                trip_reason = description
+            else:
+                trip_reason = "출장"
+            
+            # requirements 구성
+            requirements = f"출장 기간: {start_time_str} ~ {end_time_str}\n"
+            if destination:
+                requirements += f"목적지: {destination}\n"
+            requirements += f"출장 사유: {trip_reason}\n"
+            if title:
+                requirements += f"제목: {title}"
+            
+            print(f"🔍 [워크플로우 모드] workflow_temp_data에서 requirements 구성:")
+            print(f"   - document_title: {document_title}")
+            print(f"   - requirements: {requirements[:100]}...")
+        else:
+            # 일반 모드: 쿼리에서 추출
+            document_title = None
+            requirements = None
+            
+            # "제목: ..." 형식 추출
+            title_match = re.search(r'제목[:\s]+([^.]+?)(?:\.|요구사항|$)', query)
+            if title_match:
+                document_title = title_match.group(1).strip()
+            
+            # "요구사항: ..." 형식 추출
+            req_match = re.search(r'요구사항[:\s]+(.+)', query, re.DOTALL)
+            if req_match:
+                requirements = req_match.group(1).strip()
         
         print(f"📋 템플릿: {template_name}, 제목: {document_title}")
         print(f"💡 요구사항: {requirements[:100] if requirements else None}...")
@@ -512,8 +557,23 @@ class DocumentMasterGraph(BaseMasterGraph):
         if orchestrator_state.get("document_context") is None:
             orchestrator_state["document_context"] = {}
         
+        # ⚠️ 중요: workflow_temp_data를 orchestrator_state에 저장 (extractor_func에서 사용하기 위해)
+        if workflow_in_progress and workflow_type == "business_trip":
+            orchestrator_state["workflow_temp_data"] = workflow_temp_data
+            print(f"✅ [워크플로우 모드] orchestrator_state에 workflow_temp_data 저장: {list(workflow_temp_data.keys())}")
+            print(f"🔍 [워크플로우 모드] workflow_temp_data 상세:")
+            for key, value in workflow_temp_data.items():
+                print(f"   - {key}: {value}")
+        
         # 대화 히스토리 가져오기
         conversation_history = state.get("conversation_history", [])
+        
+        # ⚠️ 디버깅: doc_generate 호출 전 확인
+        print(f"🔍 [generate_document] doc_generate 호출 전 확인:")
+        print(f"   - template_name: {template_name}")
+        print(f"   - document_title: {document_title}")
+        print(f"   - workflow_in_progress: {workflow_in_progress}")
+        print(f"   - workflow_type: {workflow_type}")
         
         # doc_generate_agent 호출 (DB 데이터 및 Redis 컨텍스트 포함)
         result = doc_generate(
@@ -522,7 +582,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             document_title=document_title,
             requirements=requirements,
             db_data=db_data,  # DB 데이터 전달
-            orchestrator_state=orchestrator_state,  # Redis 컨텍스트 전달
+            orchestrator_state=orchestrator_state,  # Redis 컨텍스트 전달 (workflow_temp_data 포함)
             conversation_history=conversation_history  # 대화 히스토리 전달
         )
         

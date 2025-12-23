@@ -481,8 +481,14 @@ def doc_generate(
         field_values['document_title'] = document_title
     
     # 비어있는 필수 필드에 대해 요구사항에서 직접 추출하여 채우기 (템플릿별 분기)
-    if requirements and requirements != "사용자 요구사항이 없습니다.":
-        print(f"🔍 [4/4] 요구사항에서 필드 값 추출 시작... (템플릿: {template_name})")
+    # ⚠️ 워크플로우 모드에서는 requirements가 없어도 extractor_func 호출
+    is_workflow_mode = orchestrator_state and orchestrator_state.get("workflow_in_progress", False) and orchestrator_state.get("workflow_type") == "business_trip"
+    
+    if (requirements and requirements != "사용자 요구사항이 없습니다.") or (is_workflow_mode and template_name == "business_trip_request_form"):
+        if is_workflow_mode and template_name == "business_trip_request_form":
+            print(f"🔍 [4/4] 워크플로우 모드: 필드 값 추출 시작... (템플릿: {template_name})")
+        else:
+            print(f"🔍 [4/4] 요구사항에서 필드 값 추출 시작... (템플릿: {template_name})")
         
         # 템플릿별 추출 함수 호출
         extractor_func = TEMPLATE_EXTRACTORS.get(template_name)
@@ -539,9 +545,11 @@ def doc_generate(
                     print(f"⚠️ [business_trip_request_form] employee_id를 찾을 수 없습니다. 로그인 정보가 필요합니다.")
                 
                 # extractor_func 호출 (employee_id, orchestrator_state 전달)
+                # ⚠️ 워크플로우 모드에서는 requirements가 없어도 빈 문자열로 전달
+                extractor_requirements = requirements if requirements and requirements != "사용자 요구사항이 없습니다." else ""
                 extractor_func(
                     field_values, 
-                    requirements, 
+                    extractor_requirements, 
                     document_title, 
                     db_data=db_data,
                     employee_id=employee_id,
