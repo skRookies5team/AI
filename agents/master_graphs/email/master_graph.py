@@ -117,6 +117,17 @@ class EmailMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
+        # ✅ 수신자 정보가 있으면 자동으로 compose로 라우팅
+        email_compose_context = state.get("email_compose_context") or {}
+        to_emails = email_compose_context.get("to_emails", [])
+        to_names = email_compose_context.get("to_names", [])
+        pending_selection = email_compose_context.get("pending_recipient_selection", {})
+        
+        # 수신자 정보가 있거나 동명이인 선택 중이면 compose로 라우팅
+        if to_emails or (to_names and not pending_selection) or pending_selection:
+            print(f"✅ 수신자 정보 확인: to_emails={to_emails}, to_names={to_names}, pending_selection={bool(pending_selection)} → compose로 라우팅")
+            return {"intent": "compose"}
+        
         # llm_router를 사용한 LLM 기반 분류
         intent = await asyncio.to_thread(
             classify_intent_with_llm,
@@ -528,9 +539,222 @@ class EmailMasterGraph(BaseMasterGraph):
         # NOTE: Redis/세션에서 null(None)로 들어오는 경우가 있어 .get() 사용 전에 정규화 필요
         email_compose_context = state.get("email_compose_context") or {}
         
-        # LLM을 사용하여 수신자 정보 추출
-        recipient_info = await _extract_recipient_info_with_llm(query)
-        to_emails = recipient_info.get("to_emails", [])
+        # ✅ 동명이인 선택 처리 (사용자가 "1번", "2번" 입력한 경우)
+        pending_selection = email_compose_context.get("pending_recipient_selection", {})
+        if pending_selection:
+            pick_pattern = re.compile(r'^\s*(\d+)\s*번?\s*$')
+            match = pick_pattern.match(query.strip())
+            
+            if match:
+                selection_num = int(match.group(1))
+                current_name = email_compose_context.get("current_recipient_name")
+                
+                if current_name and current_name in pending_selection:
+                    candidates = pending_selection[current_name]
+                    if 1 <= selection_num <= len(candidates):
+                        selected = candidates[selection_num - 1]
+                        selected_email = selected["email"]
+                        
+                        # to_emails에 추가
+                        to_emails = email_compose_context.get("to_emails", [])
+                        if selected_email not in to_emails:
+                            to_emails.append(selected_email)
+                        
+                        # 현재 이름 처리 완료
+                        pending_selection.pop(current_name, None)
+                        
+                        # 다음 동명이인 처리
+                        if pending_selection:
+                            # 다음 이름 선택 요청
+                            next_name = list(pending_selection.keys())[0]
+                            email_compose_context["current_recipient_name"] = next_name
+                            email_compose_context["to_emails"] = to_emails
+                            email_compose_context["pending_recipient_selection"] = pending_selection
+                            
+                            candidates = pending_selection[next_name]
+                            selection_prompt = f"**{next_name}**님의 이메일을 선택해주세요:\n\n"
+                            for idx, candidate in enumerate(candidates, 1):
+                                dept = candidate.get("dept", "부서 정보 없음")
+                                selection_prompt += f"{idx}. {candidate['email']} ({dept})\n"
+                            selection_prompt += "\n번호를 입력해주세요 (예: 1번, 2번)"
+                            
+                            return {
+                                "final_response": selection_prompt,
+                                "messages": [selection_prompt],
+                                "email_compose_context": email_compose_context,
+                                "requires_input": True
+                            }
+                        else:
+                            # 모든 동명이인 처리 완료
+                            email_compose_context["current_recipient_name"] = None
+                            email_compose_context["to_emails"] = to_emails
+                            email_compose_context["pending_recipient_selection"] = {}
+                            
+                            # 원래 쿼리 복원 (동명이인 선택 완료 후 이메일 작성 시 사용)
+                            original_query = email_compose_context.get("original_query", query)
+                            query = original_query  # query를 원래 쿼리로 업데이트
+                            print(f"[DEBUG] 모든 동명이인 처리 완료: {to_emails}, 원래 쿼리 복원: {original_query}")
+                            
+                            # 이메일 작성 진행 (아래 로직 계속)
+                            to_email = ", ".join(to_emails)
+                            # 저장된 이메일을 사용하여 계속 진행
+                            
+                            # 이제 이메일 작성 로직으로 계속 진행하기 위해
+                            # recipient_info를 업데이트하고 나머지 로직 계속
+                            recipient_info = {"to_emails": to_emails, "to_names": email_compose_context.get("to_names", []), "cc": None, "bcc": None}
+                            to_names = email_compose_context.get("to_names", [])  # 원래 이름들 유지
+                            
+                            # 나머지 로직을 계속 진행하기 위해 변수 설정
+                            # (아래 코드에서 to_emails와 to_email을 사용)
+                            # 이제 아래의 LLM 추출 로직을 건너뛰고 바로 이메일 작성으로 진행
+                            skip_recipient_extraction = True
+                    else:
+                        return {
+                            "final_response": f"잘못된 번호입니다. 1번부터 {len(candidates)}번까지 선택할 수 있습니다.",
+                            "messages": [f"잘못된 번호입니다. 1번부터 {len(candidates)}번까지 선택할 수 있습니다."],
+                            "email_compose_context": email_compose_context,
+                            "requires_input": True
+                        }
+        
+        # LLM을 사용하여 수신자 정보 추출 (팀 처리 포함)
+        employee_id = state.get("employee_id")
+        user_dept = None
+        print(f"[DEBUG] [Email Master] employee_id: {employee_id}")
+        
+        if employee_id:
+            # 사용자 부서 정보 조회 (우리팀 처리용)
+            try:
+                from agents.master_graphs.schedule.services.database_service import DatabaseService
+                from sqlalchemy import text
+                db = DatabaseService()
+                async with db._session() as session:
+                    sql = "SELECT dept FROM ai_agent.employee WHERE employee_id = :employee_id"
+                    result = await session.execute(text(sql), {"employee_id": employee_id})
+                    row = result.fetchone()
+                    if row:
+                        user_dept = row.dept
+                        print(f"[DEBUG] [Email Master] user_dept 조회 성공: {user_dept}")
+                    else:
+                        print(f"[DEBUG] [Email Master] employee_id {employee_id}에 해당하는 부서 정보가 DB에 없습니다.")
+            except Exception as e:
+                print(f"⚠️ 사용자 부서 정보 조회 실패: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"[DEBUG] [Email Master] employee_id가 state에 없습니다.")
+        
+        print(f"[DEBUG] [Email Master] 최종 - employee_id: {employee_id}, user_dept: {user_dept}")
+        
+        # 동명이인 선택 처리 후에는 recipient_info를 다시 추출하지 않음
+        if "skip_recipient_extraction" not in locals() or not skip_recipient_extraction:
+            recipient_info = await _extract_recipient_info_with_llm(query, employee_id=employee_id, user_dept=user_dept)
+            to_emails = recipient_info.get("to_emails", [])
+            to_names = recipient_info.get("to_names", [])
+        
+        # ✅ 이름만 있고 이메일이 없으면 DB에서 조회
+        if not to_emails and to_names:
+            try:
+                from agents.master_graphs.schedule.services.database_service import DatabaseService
+                from sqlalchemy import text
+                
+                db = DatabaseService()
+                async with db._session() as session:
+                    # 각 이름별로 조회 (동명이인 처리)
+                    name_to_candidates = {}
+                    
+                    for name in to_names:
+                        sql = """
+                            SELECT email, name, dept, employee_id
+                            FROM ai_agent.employee
+                            WHERE name = :name
+                              AND email IS NOT NULL
+                              AND email != ''
+                        """
+                        result = await session.execute(text(sql), {"name": name})
+                        rows = result.fetchall()
+                        
+                        candidates = [
+                            {
+                                "email": row.email,
+                                "name": row.name,
+                                "dept": row.dept,
+                                "employee_id": row.employee_id
+                            }
+                            for row in rows
+                        ]
+                        
+                        name_to_candidates[name] = candidates
+                    
+                    # 동명이인 처리
+                    pending_selection = {}
+                    resolved_emails = []
+                    unresolved_names = []
+                    
+                    for name in to_names:
+                        candidates = name_to_candidates.get(name, [])
+                        
+                        if len(candidates) == 0:
+                            # 매칭 없음
+                            print(f"[DEBUG] '{name}'에 해당하는 이메일을 찾을 수 없습니다.")
+                            unresolved_names.append(name)
+                        elif len(candidates) == 1:
+                            # 단일 매칭 - 바로 사용
+                            resolved_emails.append(candidates[0]["email"])
+                            print(f"[DEBUG] '{name}' → {candidates[0]['email']} (단일 매칭)")
+                        else:
+                            # 동명이인 - 사용자 선택 필요
+                            print(f"[DEBUG] '{name}'에 {len(candidates)}명의 동명이인이 있습니다.")
+                            pending_selection[name] = candidates
+                    
+                    # 동명이인이 있으면 사용자에게 선택 요청
+                    if pending_selection:
+                        # 첫 번째 이름부터 선택 요청
+                        first_name = list(pending_selection.keys())[0]
+                        candidates = pending_selection[first_name]
+                        
+                        selection_prompt = f"**{first_name}**님의 이메일을 선택해주세요:\n\n"
+                        for idx, candidate in enumerate(candidates, 1):
+                            dept = candidate.get("dept", "부서 정보 없음")
+                            selection_prompt += f"{idx}. {candidate['email']} ({dept})\n"
+                        selection_prompt += "\n번호를 입력해주세요 (예: 1번, 2번)"
+                        
+                        # email_compose_context에 저장
+                        email_compose_context["to_names"] = to_names
+                        email_compose_context["to_emails"] = resolved_emails  # 이미 확정된 이메일들
+                        email_compose_context["pending_recipient_selection"] = pending_selection
+                        email_compose_context["current_recipient_name"] = first_name
+                        email_compose_context["original_query"] = query  # 원래 쿼리 저장
+                        
+                        return {
+                            "final_response": selection_prompt,
+                            "messages": [selection_prompt],
+                            "email_compose_context": email_compose_context,
+                            "requires_input": True
+                        }
+                    elif unresolved_names:
+                        # 매칭 없는 이름이 있으면 오류 메시지
+                        return {
+                            "final_response": f"다음 이름에 해당하는 이메일을 찾을 수 없습니다: {', '.join(unresolved_names)}",
+                            "messages": [f"다음 이름에 해당하는 이메일을 찾을 수 없습니다: {', '.join(unresolved_names)}"],
+                            "email_compose_context": email_compose_context
+                        }
+                    else:
+                        # 모든 이름이 단일 매칭
+                        to_emails = resolved_emails
+                        if to_emails:
+                            print(f"[DEBUG] 이름으로 이메일 조회 성공: {to_names} → {to_emails}")
+                        else:
+                            print(f"[DEBUG] 이름으로 이메일 조회 실패: {to_names}")
+                            
+            except Exception as e:
+                print(f"⚠️ 이름으로 이메일 조회 실패: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # 이미 확정된 이메일이 있으면 사용
+        if not to_emails:
+            to_emails = email_compose_context.get("to_emails", [])
+        
         to_email = ", ".join(to_emails) if to_emails else ""
         cc = recipient_info.get("cc") or state.get("cc") or email_compose_context.get("cc")
         bcc = recipient_info.get("bcc") or state.get("bcc") or email_compose_context.get("bcc")
@@ -564,7 +788,16 @@ class EmailMasterGraph(BaseMasterGraph):
         print(f"  - 전체 email_compose_context 키: {list(email_compose_context.keys())}")
         
         # 사용자 쿼리에서 승인/거부/피드백 감지
-        is_approval_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
+        # 저장된 초안이 있을 때만 "보내"를 발송 명령으로 인식
+        has_stored_draft = bool(stored_draft_subject and stored_draft_body)
+        
+        if has_stored_draft:
+            # 저장된 초안이 있으면 "보내"도 발송 명령으로 인식
+            is_approval_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
+        else:
+            # 저장된 초안이 없으면 "보내"는 새 작성 요청으로 처리 (제외)
+            is_approval_command = any(k in query.lower() for k in ["발송", "전송", "send", "승인", "ok", "좋아"])
+        
         is_reject_command = any(k in query.lower() for k in ["거부", "안 보내", "취소", "reject", "cancel"])
         is_revision_command = any(k in query.lower() for k in ["수정", "다시", "revision", "추가", "변경"])
         
@@ -623,7 +856,16 @@ class EmailMasterGraph(BaseMasterGraph):
         # email_compose_agent의 compose_and_send_email 호출 (LangGraph 사용)
         try:
             final_to_email = to_email or stored_to_email or state.get("to_email", "")
-            final_user_message = user_message or email_compose_context.get("user_message") or query
+            # 원래 쿼리를 우선 사용 (동명이인 선택 완료 후에도 원래 요청 내용 사용)
+            original_query = email_compose_context.get("original_query")
+            if original_query:
+                # 원래 쿼리에서 이메일 주소와 불필요한 단어 제거
+                final_user_message = original_query
+                if to_email:
+                    final_user_message = final_user_message.replace(to_email, "").strip()
+                final_user_message = re.sub(r'\s*(에게|에게\s+보내|보내줘|보내|전송|작성|작성해줘)\s*', '', final_user_message).strip()
+            else:
+                final_user_message = user_message or email_compose_context.get("user_message") or query
             
             # 디버그: compose_and_send_email 호출 파라미터
             print(f"[EMAIL COMPOSE DEBUG] compose_and_send_email 호출 파라미터:")
@@ -666,6 +908,8 @@ class EmailMasterGraph(BaseMasterGraph):
                 # 초안 생성 완료 시 컨텍스트에 저장
                 compose_context = {
                     "to_email": to_email or stored_to_email or state.get("to_email", ""),
+                    "to_emails": to_emails if to_emails else email_compose_context.get("to_emails", []),
+                    "to_names": to_names if to_names else email_compose_context.get("to_names", []),
                     "user_message": user_message or email_compose_context.get("user_message") or query,
                     "email_draft_subject": result.get("draft", {}).get("subject") if result.get("draft") else None,
                     "email_draft_body": result.get("draft", {}).get("body") if result.get("draft") else None,
@@ -675,6 +919,9 @@ class EmailMasterGraph(BaseMasterGraph):
                     "user_feedback": user_feedback,
                     "cc": state.get("cc") or email_compose_context.get("cc"),
                     "bcc": state.get("bcc") or email_compose_context.get("bcc"),
+                    # 동명이인 선택 관련 정보도 유지
+                    "pending_recipient_selection": email_compose_context.get("pending_recipient_selection", {}),
+                    "current_recipient_name": email_compose_context.get("current_recipient_name"),
                 }
                 
                 # 디버그: 초안 생성 완료, 컨텍스트 저장
