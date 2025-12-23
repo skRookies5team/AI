@@ -83,6 +83,11 @@ async def extract_structured_output(
         result = parser.parse(response.content)
         return result
     except Exception as e:
+        # 더 자세한 에러 정보 출력
+        print(f"⚠️ [structured_output] 파싱 실패 - 에러 타입: {type(e).__name__}")
+        print(f"⚠️ [structured_output] 에러 메시지: {str(e)}")
+        print(f"⚠️ [structured_output] LLM 응답 전체: {response.content}")
+        print(f"⚠️ [structured_output] 모델 클래스: {model_class.__name__}")
         raise ValueError(f"구조화된 출력 파싱 실패: {e}\n응답: {response.content}")
 
 
@@ -188,6 +193,27 @@ class DocumentUpdateParams(BaseModel):
     document_title: str = Field(..., description="업데이트할 문서 제목. 사용자가 명시적으로 입력한 제목을 정확히 반영하세요 (예: 복리후생, 식단, 메뉴얼, 이력서)")
     file_path: Optional[str] = Field(default=None, description="업데이트할 파일 경로 (선택적, 없으면 사용자에게 요청)")
     document_type: str = Field(..., description="문서 타입 (반드시 '복리후생', '식단', '메뉴얼', '이력서' 중 하나로 판단)")
+
+
+class BusinessTripInfo(BaseModel):
+    """출장 신청서 작성을 위한 정보 추출."""
+    
+    description: Optional[str] = Field(
+        default=None,
+        description=(
+            "출장 사유/목적. "
+            "예: '거래처 미팅', '고객 방문', '세미나 참석' 등. "
+            "사용자가 쉼표로 구분하여 여러 정보를 입력한 경우, 사유 부분만 추출하세요."
+        )
+    )
+    destination: Optional[str] = Field(
+        default=None,
+        description=(
+            "출장지. "
+            "예: '제주도', '서울', '부산', '거래처 위치' 등. "
+            "사용자가 쉼표로 구분하여 여러 정보를 입력한 경우, 장소 관련 부분만 추출하세요."
+        )
+    )
 
 
 class AgentResponse(BaseModel):

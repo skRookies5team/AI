@@ -200,3 +200,8 @@ pip install transformers torch
 - 학습 노트북: `notebooks/step1_workflow_classifier_training.ipynb`
 - 모델 확인 스크립트: `scripts/check_ml_model.py`
 
+
+
+
+
+

@@ -966,6 +966,42 @@ def fetch_department_manager(dept: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def fetch_team_manager(team_name: str) -> Optional[Dict[str, Any]]:
+    """팀장 정보를 조회합니다.
+    
+    Args:
+        team_name: 팀명 (예: "경영지원팀")
+    
+    Returns:
+        팀장 정보 딕셔너리 또는 None
+    """
+    if not PYMYSQL_AVAILABLE:
+        print("⚠️ pymysql이 사용 불가능하여 DB 조회 건너뜀")
+        return None
+    
+    db_config = get_db_config()
+    if not db_config:
+        print("⚠️ DB 설정이 없어 조회를 건너뜀")
+        return None
+    
+    # 팀장은 dept가 team_name으로 시작하고, job_title에 "팀장"이 포함된 사람
+    query = """
+    SELECT * FROM employee 
+    WHERE dept LIKE %s 
+    AND (job_title LIKE %s OR position LIKE %s)
+    LIMIT 1
+    """
+    params = (f"{team_name}%", "%팀장%", "%팀장%")
+    results = execute_query(query, params)
+    
+    if results and len(results) > 0:
+        print(f"✅ 팀장 정보 조회 성공: team={team_name}")
+        return results[0]
+    else:
+        print(f"⚠️ 팀장 정보를 찾을 수 없음: team={team_name}")
+        return None
+
+
 def fetch_leave_request_data(
     employee_id: Optional[int] = None,
     start_date: Optional[str] = None,

@@ -37,6 +37,7 @@ class OrchestratorState(TypedDict):
     workflow_completed_steps: Optional[List[str]]  # 완료된 워크플로우 단계 도메인 리스트
     workflow_in_progress: Optional[bool]  # 워크플로우 진행 중 여부
     next_domain: Optional[str]  # 워크플로우의 다음 단계 도메인
+    requires_input: Optional[bool]  # 사용자 입력 대기 여부 (Human-in-the-loop)
     
     # Extracted Data (Entities)
     employee_id: Optional[int]
@@ -46,6 +47,17 @@ class OrchestratorState(TypedDict):
     destination: Optional[str]
     topic: Optional[str] # For research or meeting
     participants: List[str]
+    
+    # Workflow Temporary Data (워크플로우 진행 중 임시 저장)
+    workflow_temp_data: Optional[Dict[str, Any]]  # 워크플로우 진행 중 임시 저장 데이터
+    # 구조: {
+    #   "start_time": str,  # ISO 형식 (예: "2025-12-03T00:00:00")
+    #   "end_time": str,  # ISO 형식 (예: "2025-12-05T23:59:59")
+    #   "title": str,  # 출장 제목 (예: "제주도 워크샵")
+    #   "description": str,  # 출장 사유/설명 (예: "거래처 미팅")
+    #   "trip_purpose": Optional[str],  # 출장 목적
+    #   "destination": Optional[str],  # 출장 목적지
+    # }
     
     # Intermediate Artifacts
     schedule_conflicts: List[Dict[str, Any]]

@@ -359,11 +359,178 @@ class EmailMasterGraph(BaseMasterGraph):
                 }
     
     async def generate_reply(self, state: OrchestratorState) -> Dict[str, Any]:
-        """답장/새 메일 초안 생성 및 발송 워크플로우 (AI-026, AI-027)."""
+        """답장/새 메일 초안 생성 및 발송 워크플로우 (AI-026, AI-027).
+        
+        워크플로우 모드 지원:
+        - workflow_temp_data에서 출장 정보 가져오기
+        - 부재중 자동 응답 초안 생성
+        - 초안 컨펌 요청 (휴먼 인 더 루프)
+        """
         print("--- [Email Master] Generating Reply/Compose Email ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
         
+        # 워크플로우 모드 확인
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_temp_data = state.get("workflow_temp_data") or {}
+        
+        # 워크플로우 모드이고 business_trip 워크플로우인 경우
+        if workflow_in_progress and workflow_type == "business_trip":
+            # workflow_temp_data에서 출장 정보 가져오기
+            start_time_str = workflow_temp_data.get("start_time")
+            end_time_str = workflow_temp_data.get("end_time")
+            destination = workflow_temp_data.get("destination", "")
+            description = workflow_temp_data.get("description", "출장")
+            
+            if not start_time_str or not end_time_str:
+                return {
+                    "final_response": "❌ 출장 정보가 없습니다. 워크플로우를 처음부터 다시 시작해주세요.",
+                    "messages": ["출장 정보가 없습니다."],
+                    "email_compose_context": state.get("email_compose_context", {}),
+                }
+            
+            # 부재중 자동 응답 초안 생성
+            from datetime import datetime
+            try:
+                start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+            except Exception as e:
+                return {
+                    "final_response": f"❌ 날짜 정보를 파싱할 수 없습니다: {e}",
+                    "messages": ["날짜 정보를 파싱할 수 없습니다."],
+                    "email_compose_context": state.get("email_compose_context", {}),
+                }
+            
+            # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
+            email_compose_context = state.get("email_compose_context") or {}
+            stored_draft_subject = email_compose_context.get("email_draft_subject")
+            stored_draft_body = email_compose_context.get("email_draft_body")
+            
+            # "발송" 또는 "수정" 명령 확인
+            is_send_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
+            is_revision_command = any(k in query.lower() for k in ["수정", "다시", "revision", "추가", "변경"])
+            
+            # "발송" 명령이 있고 초안이 있으면 발송 처리
+            if is_send_command and stored_draft_subject and stored_draft_body:
+                # compose_and_send_email 호출하여 발송
+                try:
+                    result = await compose_and_send_email(
+                        user_id=state.get("user_id"),
+                        to_email="",  # 부재중 자동 응답은 수신자 없음 (자동 응답 설정)
+                        subject=stored_draft_subject,
+                        body=stored_draft_body,
+                        cc=None,
+                        bcc=None,
+                        is_reply=False,
+                        original_subject=None,
+                        original_sender=None,
+                        original_body=None,
+                        user_message=query,
+                        email_draft_subject=stored_draft_subject,
+                        email_draft_body=stored_draft_body,
+                    )
+                    
+                    if result.get("ok"):
+                        # 발송 완료 - 다음 단계로 진행
+                        return {
+                            "final_response": result.get("message", "부재중 자동 응답이 설정되었습니다."),
+                            "messages": [result.get("message", "")],
+                            "email_compose_context": {},  # 컨텍스트 초기화
+                            "workflow_temp_data": workflow_temp_data,
+                            "requires_input": False,  # 다음 단계로 진행
+                        }
+                    else:
+                        return {
+                            "final_response": result.get("message", "이메일 발송에 실패했습니다."),
+                            "messages": [result.get("message", "")],
+                            "email_compose_context": email_compose_context,
+                            "workflow_temp_data": workflow_temp_data,
+                            "requires_input": True,
+                        }
+                except Exception as e:
+                    print(f"⚠️ 이메일 발송 실패: {e}")
+                    return {
+                        "final_response": f"이메일 발송 중 오류가 발생했습니다: {str(e)}",
+                        "messages": [f"오류: {str(e)}"],
+                        "email_compose_context": email_compose_context,
+                        "workflow_temp_data": workflow_temp_data,
+                        "requires_input": True,
+                    }
+            
+            # "수정" 명령이면 사용자에게 수정 요청
+            if is_revision_command:
+                message = "초안을 수정하시겠습니까? 수정할 내용을 알려주세요.\n\n예: '제목을 변경해줘', '본문에 연락처 추가해줘' 등"
+                return {
+                    "final_response": message,
+                    "messages": [message],
+                    "email_compose_context": email_compose_context,
+                    "workflow_temp_data": workflow_temp_data,
+                    "requires_input": True,
+                }
+            
+            # 초안이 이미 있고 명령이 없으면 초안 표시
+            if stored_draft_subject and stored_draft_body:
+                message = f"📧 **부재중 자동 응답 초안**\n\n"
+                message += f"**제목:** {stored_draft_subject}\n\n"
+                message += f"**본문:**\n{stored_draft_body}\n\n"
+                message += "이 초안을 사용하시겠습니까?\n\n[발송] 또는 [수정]을 선택해주세요."
+                
+                return {
+                    "final_response": message,
+                    "messages": [message],
+                    "email_compose_context": email_compose_context,
+                    "workflow_temp_data": workflow_temp_data,
+                    "requires_input": True,
+                }
+            
+            # 초안 생성
+            absence_subject = "부재중 자동 응답"
+            absence_body = f"""안녕하세요.
+
+{start_time.strftime('%Y년 %m월 %d일')}부터 {end_time.strftime('%Y년 %m월 %d일')}까지 출장으로 인해 부재 중입니다.
+
+{destination} 출장으로 인해 이메일 확인이 지연될 수 있습니다.
+긴급한 사항은 전화로 연락 부탁드립니다.
+
+감사합니다."""
+            
+            # 현재 단계 번호 계산
+            current_step_index = state.get("current_workflow_step_index", 0)
+            current_step_number = current_step_index + 1
+            # Step 완료 메시지 추가
+            step_complete_msg = f"✅ [Step {current_step_number} 완료] 부재중 자동 응답 초안이 생성되었습니다.\n\n"
+            # 초안 컨펌 요청
+            buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('발송')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
+        📧 발송
+    </button>
+    <button onclick="sendMessageFromButton('수정')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+        ✏️ 수정
+    </button>
+</div>
+"""
+            message = f"📧 **부재중 자동 응답 초안**\n\n"
+            message += f"**제목:** {absence_subject}\n\n"
+            message += f"**본문:**\n{absence_body}\n\n"
+            message += "이 초안을 사용하시겠습니까?" + buttons_html
+            message = step_complete_msg + message
+            
+            # email_compose_context에 초안 저장
+            email_compose_context["email_draft_subject"] = absence_subject
+            email_compose_context["email_draft_body"] = absence_body
+            email_compose_context["approval_status"] = "pending"
+            
+            return {
+                "final_response": message,
+                "messages": [message],
+                "email_compose_context": email_compose_context,
+                "workflow_temp_data": workflow_temp_data,
+                "requires_input": True,
+            }
+        
+        # 일반 모드 (기존 로직)
         # 사용자 쿼리에서 이메일 주소, 메시지 추출 시도 (LLM 사용)
         # 예: "user@example.com에게 내일 회의 시간 변경 요청 메일 보내줘"
         #     "답장해줘: 내일 가능해요"

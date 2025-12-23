@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Literal, List
+from typing import Any, Dict, Optional, Literal, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -27,34 +27,13 @@ APPLICATION_SLOT_DESCRIPTIONS = {
     "trip_title": "출장 제목 (선택, 없으면 자동 생성)",
 }
 
-# Slot Manager 프롬프트
-BUSINESS_TRIP_SLOT_MANAGER_PROMPT = """당신은 출장 신청 도우미입니다.
+# Slot Manager 프롬프트는 YAML에서 로드
+from agents.master_graphs.schedule.utils.prompt_loader import get_sub_agent_prompt
 
-사용자 입력과 현재까지 수집된 슬롯 정보를 기반으로 다음을 판단하세요:
-1. 필요한 슬롯 중 아직 채워지지 않은 항목을 missing_slots에 명시
-2. 추가 질문이 필요하면 should_ask=True로 설정하고 followup_question에 자연스러운 질문 작성
-3. followup_question은 한 번에 하나의 슬롯만 묻습니다.
-4. 날짜 표현(예: "내일", "12월 25일", "다음주 월요일")이 있으면 start_time과 end_time으로 파싱하세요.
-5. "~까지", "~부터" 같은 표현이 있으면 기간을 정확히 파싱합니다.
-6. 모든 필수 슬롯(start_time, end_time)이 채워졌다면 should_ask=False로 설정하고 action에 "신청"을 지정합니다.
-7. filled_slots에는 현재까지의 슬롯 값을 JSON 형태로 포함합니다.
 
-필수 슬롯:
-- start_time: 출장 시작 일시 (ISO 8601 형식, 예: "2025-01-15T09:00:00")
-- end_time: 출장 종료 일시 (ISO 8601 형식)
-
-권장 슬롯:
-- destination: 출장 목적지
-- trip_purpose: 출장 목적
-- trip_title: 출장 제목 (없으면 자동 생성)
-
-예시:
-- query="다음 주 3일간 제주도로 워크샵 다녀올게"
-  → filled_slots={"start_time": "2025-01-15T09:00:00", "end_time": "2025-01-17T18:00:00", "destination": "제주도", "trip_purpose": "워크샵"}
-- query="1월 15일부터 17일까지 출장 갈게"
-  → filled_slots={"start_time": "2025-01-15T09:00:00", "end_time": "2025-01-17T18:00:00"}
-
-다음 형식의 JSON만 출력하세요."""
+def _get_business_trip_slot_manager_prompt() -> str:
+    """출장 Slot Manager 프롬프트를 YAML에서 로드합니다."""
+    return get_sub_agent_prompt("business_trip", "slot_manager")
 
 
 def _get_scheduler() -> HybridScheduler:
@@ -79,11 +58,42 @@ class ParsedBusinessTripIntent:
 
 
 async def process_business_trip_request(state: OrchestratorState) -> Dict[str, Any]:
-    """출장 요청 처리 - Slot Manager Pattern."""
+    """출장 요청 처리 - Slot Manager Pattern + 워크플로우 모드 지원."""
     query = state.get("query", "")
     employee_id = state.get("employee_id")
     user_id = state.get("user_id") or str(employee_id) if employee_id else None
     
+    # 워크플로우 진행 중인지 확인
+    workflow_in_progress = state.get("workflow_in_progress", False)
+    workflow_type = state.get("workflow_type")
+    current_workflow_step_index = state.get("current_workflow_step_index", 0)
+    
+    # 워크플로우 모드이고 business_trip 워크플로우인 경우
+    if workflow_in_progress and workflow_type == "business_trip":
+        # 워크플로우 핸들러를 통한 단계 처리
+        from agents.workflows import get_workflow_handler
+        workflow_handler = get_workflow_handler(workflow_type)
+        workflow_steps = state.get("workflow_steps", [])
+        
+        if workflow_handler:
+            # 워크플로우 핸들러가 해당 단계를 처리할 수 있는지 확인
+            # Step 0 (일정 조회)와 Step 2 (캘린더 등록)만 schedule 도메인에서 처리
+            if current_workflow_step_index == 0:
+                # Step 1: 일정 조회 및 날짜 확인
+                return await _handle_workflow_step1_check_conflicts(state, query, employee_id, user_id)
+            elif current_workflow_step_index == 2:
+                # Step 3: 캘린더 등록 및 RDB 저장 (인덱스 2 = Step 3)
+                return await _handle_workflow_step4_register_calendar(state, query, employee_id, user_id)
+            else:
+                # Step 1 (document) 또는 Step 3 (email)는 다른 도메인에서 처리
+                expected_domain = workflow_steps[current_workflow_step_index] if current_workflow_step_index < len(workflow_steps) else 'unknown'
+                return {
+                    "final_response": f"❌ 워크플로우 단계 오류: Step {current_workflow_step_index + 1}는 {expected_domain} 도메인에서 처리되어야 합니다.",
+                    "messages": [f"워크플로우 단계 오류: Step {current_workflow_step_index + 1}"],
+                    "schedule_context": state.get("schedule_context", {}),
+                }
+    
+    # 일반 모드 (기존 로직)
     # Redis 기반 컨텍스트 초기화
     if state.get("schedule_context") is None:
         state["schedule_context"] = {}
@@ -136,7 +146,8 @@ async def process_business_trip_request(state: OrchestratorState) -> Dict[str, A
     # 8. ParsedIntent 생성
     parsed = await _parse_business_trip_intent(
         query, employee_id, user_id, normalized_action,
-        business_trip_context, awaiting_slots_ctx, slot_decision, slot_state_payload
+        business_trip_context, awaiting_slots_ctx, slot_decision, slot_state_payload,
+        state=state  # state 전달 추가
     )
     
     # 9. slot_decision 적용
@@ -206,7 +217,7 @@ async def _analyze_business_trip_slots(
     """LLM을 사용하여 출장 슬롯을 분석."""
     try:
         # slot_state 정보를 system_prompt에 포함
-        enhanced_prompt = f"""{BUSINESS_TRIP_SLOT_MANAGER_PROMPT}
+        enhanced_prompt = f"""{_get_business_trip_slot_manager_prompt()}
 
 현재 슬롯 상태:
 {slot_state}"""
@@ -389,9 +400,31 @@ async def _parse_business_trip_intent(
     context: Dict[str, Any],
     awaiting_slots: Optional[List[str]],
     slot_decision: Optional[BusinessTripSlotDecision],
-    slot_state_payload: Dict[str, Any]
+    slot_state_payload: Dict[str, Any],
+    state: Optional[Dict[str, Any]] = None  # state 파라미터 추가
 ) -> ParsedBusinessTripIntent:
     """쿼리에서 출장 의도 파싱."""
+    # orchestrator의 현재 시간 가져오기
+    from zoneinfo import ZoneInfo
+    import os
+    
+    current_datetime = None
+    if state:
+        current_datetime_str = state.get("current_datetime")
+        if current_datetime_str:
+            try:
+                current_datetime = datetime.fromisoformat(current_datetime_str)
+                if current_datetime.tzinfo is None:
+                    local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+                    current_datetime = current_datetime.replace(tzinfo=local_tz)
+            except Exception as e:
+                print(f"⚠️ current_datetime 파싱 실패: {e}, datetime.now() 사용")
+                local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+                current_datetime = datetime.now(local_tz)
+    else:
+        local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+        current_datetime = datetime.now(local_tz)
+    
     # 1. 기존 slots에서 정보 추출
     existing_slots = slot_state_payload.get("slots", {})
     
@@ -400,8 +433,11 @@ async def _parse_business_trip_intent(
     end_time = existing_slots.get("end_time")
     
     if action == "신청" and not awaiting_slots:
-        # LLM으로 날짜 파싱
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+        # LLM으로 날짜 파싱 (orchestrator의 현재 시간 전달)
+        start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+            query,
+            current_datetime=current_datetime  # orchestrator의 현재 시간 전달
+        )
         
         if start_date_obj:
             # 시간이 없으면 기본값 설정 (09:00)
@@ -427,9 +463,12 @@ async def _parse_business_trip_intent(
             except ValueError:
                 pass
         
-        # trip_id가 없으면 날짜로 찾기 위해 날짜 파싱
+        # trip_id가 없으면 날짜로 찾기 위해 날짜 파싱 (orchestrator의 현재 시간 전달)
         if not existing_slots.get("trip_id") and not start_time:
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+                query,
+                current_datetime=current_datetime  # orchestrator의 현재 시간 전달
+            )
             if start_date_obj:
                 start_time = start_date_obj
             if end_date_obj:
@@ -646,10 +685,7 @@ async def _handle_create_trip(
         
         trip_id = await scheduler.db.create_business_trip_request(trip_data)
         
-        # 4. 팀원 이메일 조회
-        team_member_emails = await scheduler.db.get_team_member_emails(parsed.employee_id)
-        
-        # 5. Google Calendar에 이벤트 생성
+        # 4. Google Calendar에 이벤트 생성 (본인 캘린더에만 등록)
         event_description = f"출장 목적: {parsed.trip_purpose or '출장'}\n"
         if parsed.destination:
             event_description += f"목적지: {parsed.destination}\n"
@@ -660,7 +696,7 @@ async def _handle_create_trip(
             "start_time": parsed.start_time.isoformat(),
             "end_time": parsed.end_time.isoformat(),
             "location": parsed.destination or "",
-            "attendees": team_member_emails,  # 팀원에게 자동 초대
+            "attendees": [],  # 본인 캘린더에만 등록 (팀원 초대 없음)
             "schedule_type": "business_trip",
             "employee_id": parsed.employee_id,
         }
@@ -677,8 +713,6 @@ async def _handle_create_trip(
                 message += f"기간: {parsed.start_time.strftime('%Y-%m-%d %H:%M')} ~ {parsed.end_time.strftime('%Y-%m-%d %H:%M')}\n"
                 if parsed.destination:
                     message += f"목적지: {parsed.destination}\n"
-                if team_member_emails:
-                    message += f"팀원 {len(team_member_emails)}명에게 캘린더 초대가 발송되었습니다."
                 
                 return {
                     "ok": True,
@@ -853,4 +887,487 @@ def _determine_business_trip_action(query: str) -> str:
         return "신청"
     else:
         return "신청"  # 기본값은 신청
+
+
+# ========== Workflow Step Handlers ==========
+
+async def _handle_workflow_step1_check_conflicts(
+    state: OrchestratorState,
+    query: str,
+    employee_id: Optional[int],
+    user_id: Optional[str]
+) -> Dict[str, Any]:
+    """워크플로우 1단계: 일정 조회 및 날짜 확인."""
+    print("--- [Business Trip Workflow] Step 1: 일정 조회 및 날짜 확인 ---")
+    
+    # orchestrator에서 전달받은 현재 시간 사용
+    current_datetime_str = state.get("current_datetime")
+    if current_datetime_str:
+        try:
+            current_datetime = datetime.fromisoformat(current_datetime_str)
+            if current_datetime.tzinfo is None:
+                local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+                current_datetime = current_datetime.replace(tzinfo=local_tz)
+        except Exception as e:
+            print(f"⚠️ current_datetime 파싱 실패: {e}, datetime.now() 사용")
+            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+            current_datetime = datetime.now(local_tz)
+    else:
+        local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+        current_datetime = datetime.now(local_tz)
+    
+    # workflow_temp_data 초기화
+    workflow_temp_data = state.get("workflow_temp_data") or {}
+    
+    # 날짜 정보 확인 (workflow_temp_data 또는 state에서)
+    start_time_str = workflow_temp_data.get("start_time") or state.get("start_date")
+    end_time_str = workflow_temp_data.get("end_time") or state.get("end_date")
+    
+    # 날짜 파싱 시도
+    start_time = None
+    end_time = None
+    
+    if start_time_str:
+        try:
+            if isinstance(start_time_str, str):
+                parsed_start = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                # ⚠️ 중요: state에서 가져온 날짜가 유효한지 검증
+                if parsed_start.tzinfo is None:
+                    parsed_start = parsed_start.replace(tzinfo=local_tz)
+                
+                # 날짜 유효성 검증: 과거 날짜이거나 잘못된 연도면 무시
+                days_diff = (parsed_start.date() - current_datetime.date()).days
+                if days_diff >= -1 and parsed_start.year == current_datetime.year:
+                    start_time = parsed_start
+                    print(f"✅ [business_trip] state에서 유효한 날짜 사용: {start_time.date()}")
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜가 유효하지 않음: {parsed_start.date()} (오늘: {current_datetime.date()}, 연도: {parsed_start.year} vs {current_datetime.year}), 무시하고 사용자 입력에서 파싱")
+                    start_time_str = None  # 무시
+            elif isinstance(start_time_str, datetime):
+                # datetime 객체도 검증
+                if start_time_str.tzinfo is None:
+                    start_time_str = start_time_str.replace(tzinfo=local_tz)
+                days_diff = (start_time_str.date() - current_datetime.date()).days
+                if days_diff >= -1 and start_time_str.year == current_datetime.year:
+                    start_time = start_time_str
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜 객체가 유효하지 않음: {start_time_str.date()}, 무시")
+                    start_time_str = None
+        except Exception as e:
+            print(f"⚠️ start_time 파싱 실패: {e}")
+    
+    if end_time_str:
+        try:
+            if isinstance(end_time_str, str):
+                parsed_end = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+                if parsed_end.tzinfo is None:
+                    parsed_end = parsed_end.replace(tzinfo=local_tz)
+                
+                # 날짜 유효성 검증
+                days_diff = (parsed_end.date() - current_datetime.date()).days
+                if days_diff >= -1 and parsed_end.year == current_datetime.year:
+                    end_time = parsed_end
+                    print(f"✅ [business_trip] state에서 유효한 날짜 사용: {end_time.date()}")
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜가 유효하지 않음: {end_time_str}, 무시")
+                    end_time_str = None
+            elif isinstance(end_time_str, datetime):
+                if end_time_str.tzinfo is None:
+                    end_time_str = end_time_str.replace(tzinfo=local_tz)
+                days_diff = (end_time_str.date() - current_datetime.date()).days
+                if days_diff >= -1 and end_time_str.year == current_datetime.year:
+                    end_time = end_time_str
+                else:
+                    print(f"⚠️ [business_trip] state의 날짜 객체가 유효하지 않음: {end_time_str.date()}, 무시")
+                    end_time_str = None
+        except Exception as e:
+            print(f"⚠️ end_time 파싱 실패: {e}")
+    
+    # 날짜가 없거나 유효하지 않으면 사용자 입력에서 파싱 시도
+    if not start_time or not end_time:
+        print("🔍 날짜 정보 부족 또는 유효하지 않음 - 사용자 입력에서 파싱 시도")
+        print(f"🔍 [business_trip] 현재 상태: start_time={start_time}, end_time={end_time}")
+        start_date_obj, end_date_obj = await parse_korean_date_with_llm(
+            query, 
+            current_datetime=current_datetime  # orchestrator의 현재 시간 전달
+        )
+        
+        if start_date_obj:
+            # 파싱된 날짜가 유효한지 즉시 검증
+            # orchestrator의 현재 시간 사용
+            now = current_datetime
+            
+            if start_date_obj.tzinfo is None:
+                start_date_obj = start_date_obj.replace(tzinfo=local_tz)
+            
+            # 과거 날짜이거나 너무 오래된 날짜면 무시
+            days_diff = (start_date_obj.date() - now.date()).days
+            # 더 엄격한 검증: days_diff < 0 (과거) 또는 연도가 다르면 거부
+            if days_diff < 0 or start_date_obj.year != now.year:
+                print(f"⚠️ 파싱된 날짜가 유효하지 않음: {start_date_obj.date()} (오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date_obj.year}, 현재 연도: {now.year})")
+                start_date_obj = None
+                end_date_obj = None
+            else:
+                if start_date_obj.hour == 0 and start_date_obj.minute == 0:
+                    start_date_obj = start_date_obj.replace(hour=9, minute=0)
+                start_time = start_date_obj
+                
+                if end_date_obj:
+                    if end_date_obj.tzinfo is None:
+                        end_date_obj = end_date_obj.replace(tzinfo=local_tz)
+                    if end_date_obj.hour == 0 and end_date_obj.minute == 0:
+                        end_date_obj = end_date_obj.replace(hour=18, minute=0)
+                    end_time = end_date_obj
+                else:
+                    # 종료일이 없으면 시작일과 동일하게 설정
+                    end_time = start_date_obj.replace(hour=18, minute=0)
+    
+    # 날짜가 정확한지 확인 (미래 날짜인지, 시작일이 종료일보다 이전인지)
+    # orchestrator의 현재 시간 사용
+    now = current_datetime
+    local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+    
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=local_tz)
+    if end_time.tzinfo is None:
+        end_time = end_time.replace(tzinfo=local_tz)
+    
+    # 날짜 유효성 검사
+    # 1. 시작일이 종료일보다 이전이어야 함
+    # 2. 시작일이 과거 날짜가 아니어야 함 (현재 날짜보다 1일 이상 과거면 재요청)
+    # 3. 날짜가 너무 오래된 경우 (예: 2023년) 재요청
+    buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
+        ❌ 종료
+    </button>
+</div>
+"""
+    
+    # 시작일이 종료일보다 이전이어야 함
+    if start_time >= end_time:
+        question = f"출장 종료일({end_time.strftime('%Y-%m-%d')})이 시작일({start_time.strftime('%Y-%m-%d')})보다 이전이거나 같습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    
+    # 시작일이 과거 날짜인지 확인 (현재 날짜보다 1일 이상 과거면 재요청)
+    days_diff = (start_time.date() - now.date()).days
+    if days_diff < -1:
+        question = f"출장 시작일({start_time.strftime('%Y-%m-%d')})이 과거 날짜입니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    
+    # 날짜가 너무 오래된 경우 (2024년 이전이면 재요청)
+    if start_time.year < 2024:
+        question = f"출장 날짜({start_time.strftime('%Y-%m-%d')})가 너무 오래되었습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        return {
+            "final_response": question,
+            "messages": [question],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    
+    # workflow_temp_data에 저장
+    workflow_temp_data["start_time"] = start_time.isoformat()
+    workflow_temp_data["end_time"] = end_time.isoformat()
+    
+    # 현재 단계 번호 계산
+    current_step_index = state.get("current_workflow_step_index", 0)
+    current_step_number = current_step_index + 1
+    
+    # 디버깅: 저장된 데이터 확인
+    print(f"🔍 [Step {current_step_number}] workflow_temp_data 저장 직후: {workflow_temp_data}")
+    
+    # 목적지 및 제목 추출
+    destination = workflow_temp_data.get("destination") or state.get("destination")
+    if not destination:
+        # 쿼리에서 목적지 추출 시도
+        if "제주" in query or "제주도" in query:
+            destination = "제주도"
+        elif "부산" in query:
+            destination = "부산"
+        elif "서울" in query:
+            destination = "서울"
+        elif "울산" in query:
+            destination = "울산"
+        if destination:
+            workflow_temp_data["destination"] = destination
+    
+    # 제목 추출
+    title = workflow_temp_data.get("title")
+    if not title:
+        if destination:
+            title = f"{destination} 출장"
+        elif "워크샵" in query:
+            title = "워크샵 출장"
+        else:
+            title = "출장"
+        workflow_temp_data["title"] = title
+    
+    # 디버깅: 최종 저장된 데이터 확인
+    print(f"🔍 [Step {current_step_number}] workflow_temp_data 최종 저장: {workflow_temp_data}")
+    print(f"🔍 [Step {current_step_number}] return에 포함될 workflow_temp_data keys: {list(workflow_temp_data.keys())}")
+    
+    # 일정 충돌 체크 (날짜가 정확할 때만 수행)
+    scheduler = _get_scheduler()
+    try:
+        start_aware = start_time
+        end_aware = end_time
+        
+        start_utc = start_aware.astimezone(ZoneInfo("UTC"))
+        end_utc = end_aware.astimezone(ZoneInfo("UTC"))
+        start_date_str = start_utc.strftime('%Y-%m-%dT%H:%M:%S') + "Z"
+        end_date_str = end_utc.strftime('%Y-%m-%dT%H:%M:%S') + "Z"
+        
+        events = await scheduler.get_events(
+            user_id=user_id,
+            start_date=start_date_str,
+            end_date=end_date_str
+        )
+        
+        # 출장 일정 제외
+        conflicting_events = []
+        for event in events:
+            if event.get('schedule_type') == 'business_trip':
+                continue
+            
+            event_start_str = event.get('start_time')
+            event_end_str = event.get('end_time')
+            
+            if not event_start_str or not event_end_str:
+                continue
+            
+            try:
+                if 'T' in event_start_str:
+                    if event_start_str.endswith('Z'):
+                        event_start = datetime.fromisoformat(event_start_str.replace('Z', '+00:00'))
+                    else:
+                        event_start = datetime.fromisoformat(event_start_str)
+                else:
+                    event_start = datetime.fromisoformat(event_start_str).replace(tzinfo=ZoneInfo("UTC"))
+                
+                if 'T' in event_end_str:
+                    if event_end_str.endswith('Z'):
+                        event_end = datetime.fromisoformat(event_end_str.replace('Z', '+00:00'))
+                    else:
+                        event_end = datetime.fromisoformat(event_end_str)
+                else:
+                    event_end = datetime.fromisoformat(event_end_str).replace(tzinfo=ZoneInfo("UTC")) + timedelta(days=1)
+                
+                if event_start.tzinfo is None:
+                    event_start = event_start.replace(tzinfo=ZoneInfo("UTC"))
+                if event_end.tzinfo is None:
+                    event_end = event_end.replace(tzinfo=ZoneInfo("UTC"))
+                
+                event_start_local = event_start.astimezone(local_tz)
+                event_end_local = event_end.astimezone(local_tz)
+                
+                is_overlapping = start_aware < event_end_local and end_aware > event_start_local
+                
+                if is_overlapping:
+                    conflicting_events.append(event)
+            except Exception:
+                continue
+        
+        # 현재 단계 번호 계산
+        current_step_index = state.get("current_workflow_step_index", 0)
+        current_step_number = current_step_index + 1
+        
+        # Step 완료 메시지 먼저 추가
+        step_complete_msg = f"✅ [Step {current_step_number} 완료] 일정 조회가 완료되었습니다.\n\n"
+        
+        # 휴먼 인 더 루프: 출장 신청서 작성 진행 여부 확인
+        # 버튼 형태로 표시하기 위해 HTML 형식 사용
+        buttons_html = """
+<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
+        ✅ 진행
+    </button>
+    <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+        ❌ 취소
+    </button>
+</div>
+"""
+        
+        if conflicting_events:
+            conflict_titles = [e.get('title', '제목 없음') for e in conflicting_events[:3]]
+            conflict_msg = "\n".join(f"- {title}" for title in conflict_titles)
+            message = step_complete_msg + f"⚠️ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n출장 신청서 작성을 계속하시겠습니까?" + buttons_html
+        else:
+            message = step_complete_msg + f"✅ 해당 기간에 일정 충돌이 없습니다.\n\n출장 기간: {start_aware.strftime('%Y-%m-%d %H:%M')} ~ {end_aware.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?" + buttons_html
+        
+        return {
+            "final_response": message,
+            "messages": [message],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,  # 버튼 표시를 위한 플래그
+        }
+    except GoogleAuthRequired as auth_error:
+        # 인증 필요 시 경고 후 진행
+        message = f"⚠️ Google Calendar 인증이 필요합니다. (일정 충돌 체크 생략)\n\n출장 기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?\n\n[진행] 또는 [취소]를 선택해주세요."
+        return {
+            "final_response": message,
+            "messages": [message],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+    except Exception as e:
+        print(f"⚠️ 일정 조회 실패: {e}")
+        message = f"⚠️ 일정 조회 중 오류가 발생했습니다.\n\n출장 기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?\n\n[진행] 또는 [취소]를 선택해주세요."
+        return {
+            "final_response": message,
+            "messages": [message],
+            "workflow_temp_data": workflow_temp_data,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_input": True,
+        }
+
+
+async def _handle_workflow_step4_register_calendar(
+    state: OrchestratorState,
+    query: str,
+    employee_id: Optional[int],
+    user_id: Optional[str]
+) -> Dict[str, Any]:
+    """워크플로우 Step 3: 캘린더 등록 및 RDB 저장 (인덱스 2 = Step 3)."""
+    current_step_index = state.get("current_workflow_step_index", 0)
+    current_step_number = current_step_index + 1
+    print(f"--- [Business Trip Workflow] Step {current_step_number}: 캘린더 등록 및 RDB 저장 ---")
+    
+    workflow_temp_data = state.get("workflow_temp_data") or {}
+    
+    if not workflow_temp_data.get("start_time") or not workflow_temp_data.get("end_time"):
+        return {
+            "final_response": "❌ 출장 정보가 없습니다. 워크플로우를 처음부터 다시 시작해주세요.",
+            "messages": ["출장 정보가 없습니다."],
+            "schedule_context": state.get("schedule_context", {}),
+        }
+    
+    try:
+        start_time = datetime.fromisoformat(workflow_temp_data["start_time"].replace("Z", "+00:00"))
+        end_time = datetime.fromisoformat(workflow_temp_data["end_time"].replace("Z", "+00:00"))
+    except Exception as e:
+        print(f"❌ 날짜 파싱 실패: {e}")
+        return {
+            "final_response": f"❌ 날짜 정보를 파싱할 수 없습니다: {e}",
+            "messages": ["날짜 정보를 파싱할 수 없습니다."],
+            "schedule_context": state.get("schedule_context", {}),
+        }
+    
+    title = workflow_temp_data.get("title", "출장")
+    description = workflow_temp_data.get("description", workflow_temp_data.get("trip_purpose", "출장"))
+    destination = workflow_temp_data.get("destination", "")
+    
+    scheduler = _get_scheduler()
+    
+    # 출장 제목 자동 생성
+    trip_title = title
+    if not trip_title:
+        if destination:
+            trip_title = f"{destination} 출장"
+        elif description:
+            trip_title = f"{description} 출장"
+        else:
+            trip_title = "출장"
+    
+    # DB에 출장 저장
+    trip_data = {
+        "employee_id": employee_id,
+        "trip_title": trip_title,
+        "trip_purpose": description,
+        "destination": destination,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
+    
+    trip_id = await scheduler.db.create_business_trip_request(trip_data)
+    
+    # Google Calendar에 이벤트 생성
+    event_description = f"출장 목적: {description}\n"
+    if destination:
+        event_description += f"목적지: {destination}\n"
+    
+    event_data = {
+        "title": trip_title,
+        "description": event_description.strip(),
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+        "location": destination or "",
+        "attendees": [],  # 본인 캘린더에만 등록
+        "schedule_type": "business_trip",
+        "employee_id": employee_id,
+    }
+    
+    try:
+        created_event = await scheduler.create_event(
+            user_id=user_id,
+            event_data=event_data
+        )
+        
+        if created_event:
+            gcal_event_id = created_event.get("id")
+            # 현재 단계 번호 계산
+            current_step_index = state.get("current_workflow_step_index", 0)
+            current_step_number = current_step_index + 1
+            # Step 완료 메시지 추가
+            step_complete_msg = f"✅ [Step {current_step_number} 완료] 캘린더 등록이 완료되었습니다.\n\n"
+            message = f"✅ 출장 신청이 완료되었습니다!\n\n"
+            message += f"기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}\n"
+            if destination:
+                message += f"목적지: {destination}\n"
+            message += f"제목: {trip_title}\n"
+            message += "\n구글 캘린더에 일정이 등록되었습니다."
+            message = step_complete_msg + message
+            
+            # 워크플로우 완료 - workflow_temp_data 초기화
+            return {
+                "ok": True,
+                "final_response": message,
+                "messages": [message],
+                "trip_id": trip_id,
+                "gcal_event_id": gcal_event_id,
+                "workflow_temp_data": {},  # 초기화
+                "workflow_in_progress": False,  # 워크플로우 완료
+                "schedule_context": state.get("schedule_context", {}),
+                "next_domain": None,  # 워크플로우 완료
+            }
+    except GoogleAuthRequired as auth_error:
+        # 캘린더 등록 실패해도 DB 저장은 완료
+        message = f"✅ 출장 신청이 완료되었습니다 (캘린더 등록은 Google 인증 후 가능합니다).\n\n기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}"
+        return {
+            "ok": True,
+            "final_response": message,
+            "messages": [message],
+            "trip_id": trip_id,
+            "workflow_temp_data": {},  # 초기화
+            "workflow_in_progress": False,  # 워크플로우 완료
+            "schedule_context": state.get("schedule_context", {}),
+            "next_domain": None,
+        }
+    except Exception as e:
+        print(f"⚠️ Google Calendar 이벤트 생성 실패: {e}")
+        message = f"✅ 출장 신청이 완료되었습니다 (캘린더 등록 실패).\n\n기간: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')}"
+        return {
+            "ok": True,
+            "final_response": message,
+            "messages": [message],
+            "trip_id": trip_id,
+            "workflow_temp_data": {},  # 초기화
+            "workflow_in_progress": False,  # 워크플로우 완료
+            "schedule_context": state.get("schedule_context", {}),
+            "next_domain": None,
+        }
 

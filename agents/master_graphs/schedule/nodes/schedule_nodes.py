@@ -16,18 +16,22 @@ from agents.master_graphs.schedule.utils.entity_parser import extract_schedule_e
 from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
 from agents.master_graphs.schedule.models.schedule_models import ScheduleSlotDecision
 from agents.master_graphs.schedule.utils.schedule_slot_manager import analyze_schedule_slots
+from agents.master_graphs.schedule.utils.prompt_loader import (
+    get_sub_agent_prompt,
+    format_prompt_template
+)
 
 
 _scheduler = None
 
 # 일정 등록 필수 정보 정의
-CREATION_SLOT_ORDER = ["title", "start_time", "end_time", "description", "location"]
+CREATION_SLOT_ORDER = ["title", "start_time", "end_time", "description", "destination"]
 CREATION_SLOT_DESCRIPTIONS = {
     "title": "일정 제목",
     "start_time": "시작 일시 (예: 2025-12-13 14:00)",
     "end_time": "종료 일시 (예: 2025-12-13 15:00)",
     "description": "일정 설명",
-    "location": "장소 (선택사항)",
+    "destination": "장소 (선택사항)",
 }
 
 
@@ -45,7 +49,7 @@ class ParsedScheduleIntent:
     action: Literal["조회", "생성", "삭제", "수정"]
     title: Optional[str] = None
     description: Optional[str] = None
-    location: Optional[str] = None
+    destination: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     user_id: Optional[str] = None
@@ -96,7 +100,7 @@ async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
     # 7. ParsedIntent 생성
     parsed = await _parse_schedule_intent(
         query, user_id, normalized_action,
-        schedule_context, awaiting_slots_ctx, slot_decision, slot_state_payload
+        schedule_context, awaiting_slots_ctx, slot_decision, slot_state_payload, state
     )
     
     # 8. slot_decision 적용
@@ -262,7 +266,7 @@ def _apply_slot_decision(
     for slot_name in (slot_decision.missing_slots or []):
         if slot_name not in merged_slots or merged_slots[slot_name] is None:
             recalculated_missing.append(slot_name)
-        elif slot_name in ["title", "description", "location"] and not str(merged_slots[slot_name]).strip():
+        elif slot_name in ["title", "description", "destination"] and not str(merged_slots[slot_name]).strip():
             recalculated_missing.append(slot_name)
     
     context["slot_state"] = {
@@ -293,7 +297,7 @@ def _apply_slot_decision(
             slot_descriptions = [
                 CREATION_SLOT_DESCRIPTIONS.get(slot, slot)
                 for slot in recalculated_missing
-                if slot != "location"  # location은 선택사항
+                if slot != "destination"  # destination은 선택사항
             ]
             if slot_descriptions:
                 combined_question = "다음 정보를 알려주세요:\n" + "\n".join(
@@ -345,7 +349,7 @@ def _export_parsed_slots(parsed: ParsedScheduleIntent) -> Dict[str, Any]:
     return {
         "title": parsed.title,
         "description": parsed.description,
-        "location": parsed.location,
+        "destination": parsed.destination,
         "start_time": parsed.start_time.isoformat() if parsed.start_time else None,
         "end_time": parsed.end_time.isoformat() if parsed.end_time else None,
         "event_id": parsed.event_id,
@@ -442,17 +446,18 @@ def _collect_creation_missing(parsed: ParsedScheduleIntent, context: Dict[str, A
 
 def _build_initial_creation_prompt(missing_slots: List[str]) -> str:
     """일정 생성을 위한 초기 프롬프트를 생성한다."""
-    lines = ["일정을 등록하려면 아래 정보가 필요합니다:", ""]
+    # YAML에서 템플릿 로드
+    template = get_sub_agent_prompt("schedule", "initial_creation_template")
     
-    for slot_name in CREATION_SLOT_ORDER:
-        if slot_name in missing_slots:
-            desc = CREATION_SLOT_DESCRIPTIONS.get(slot_name, slot_name)
-            lines.append(f"- {desc}")
+    # 누락된 슬롯 목록 생성
+    missing_slots_list = "\n".join([
+        f"- {CREATION_SLOT_DESCRIPTIONS.get(slot_name, slot_name)}"
+        for slot_name in CREATION_SLOT_ORDER
+        if slot_name in missing_slots
+    ])
     
-    lines.append("")
-    lines.append("차례대로 알려주시면 곧바로 등록을 진행하겠습니다.")
-    
-    return "\n".join(lines)
+    # 템플릿 포맷팅
+    return format_prompt_template(template, missing_slots_list=missing_slots_list)
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -487,7 +492,8 @@ async def _parse_schedule_intent(
     context: Dict[str, Any],
     awaiting_slots: Optional[List[str]],
     slot_decision: Optional[ScheduleSlotDecision],
-    slot_state_payload: Dict[str, Any]
+    slot_state_payload: Dict[str, Any],
+    state: Optional[OrchestratorState] = None
 ) -> ParsedScheduleIntent:
     """쿼리에서 일정 의도 파싱."""
     existing_slots = slot_state_payload.get("slots", {})
@@ -498,7 +504,7 @@ async def _parse_schedule_intent(
         entities = await extract_schedule_entities(query)
         
         # 쉼표로 구분된 입력 처리 (예: "제목, 설명, 장소")
-        if ("title" in awaiting_set or "description" in awaiting_set or "location" in awaiting_set) and "," in query:
+        if ("title" in awaiting_set or "description" in awaiting_set or "destination" in awaiting_set) and "," in query:
             parts = [part.strip() for part in query.split(",")]
             idx = 0
             if "title" in awaiting_set and idx < len(parts):
@@ -509,9 +515,9 @@ async def _parse_schedule_intent(
                 entities["description"] = parts[idx]
                 print(f"[쉼표 파싱] description: {parts[idx]}")
                 idx += 1
-            if "location" in awaiting_set and idx < len(parts):
-                entities["location"] = parts[idx]
-                print(f"[쉼표 파싱] location: {parts[idx]}")
+            if "destination" in awaiting_set and idx < len(parts):
+                entities["destination"] = parts[idx]
+                print(f"[쉼표 파싱] destination: {parts[idx]}")
                 idx += 1
     else:
         entities = {}
@@ -561,11 +567,26 @@ async def _parse_schedule_intent(
         selection_index = _extract_selection_index(query)
         print(f"[삭제 선택 인덱스 추출] query='{query}', index={selection_index}")
     
+    # destination 우선순위: entities > workflow_temp_data.destination > existing_slots
+    destination_value = entities.get("destination")
+    if not destination_value and state:
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_temp_data = state.get("workflow_temp_data") or {}
+        
+        if workflow_in_progress and workflow_type == "business_trip":
+            destination_value = workflow_temp_data.get("destination")
+            if destination_value:
+                print(f"✅ [워크플로우 모드] workflow_temp_data에서 destination 사용: {destination_value}")
+    
+    if not destination_value:
+        destination_value = existing_slots.get("destination")
+    
     return ParsedScheduleIntent(
         action=action,
         title=entities.get("title") or existing_slots.get("title"),
         description=entities.get("description") or existing_slots.get("description"),
-        location=entities.get("location") or existing_slots.get("location"),
+        destination=destination_value,
         start_time=start_time,
         end_time=end_time,
         user_id=str(user_id) if user_id else None,
@@ -616,11 +637,11 @@ async def _handle_query(
                 for idx, event in enumerate(events[:10], 1):
                     title = event.get('title', '제목 없음')
                     start = event.get('start_time', '')
-                    location = event.get('location', '')
+                    destination = event.get('location', '') or event.get('destination', '')  # DB에서는 location으로 저장됨
                     
                     message += f"{idx}. {title}\n   🕐 {start}\n"
-                    if location:
-                        message += f"   🏢 {location}\n"
+                    if destination:
+                        message += f"   🏢 {destination}\n"
                     message += "\n"
                 
                 if len(events) > 10:
@@ -658,7 +679,7 @@ async def _handle_create(
         'description': parsed.description or '',
         'start_time': start_time.isoformat(),
         'end_time': end_time.isoformat(),
-        'location': parsed.location or '',
+        'location': parsed.destination or '',  # 외부 API는 location 사용
         'attendees': [],
         'schedule_type': 'general',
         'employee_id': employee_id,
@@ -788,8 +809,8 @@ async def _handle_update(
         
         if entities.get('title'):
             update_data['title'] = entities['title']
-        if entities.get('location'):
-            update_data['location'] = entities['location']
+        if entities.get('destination'):
+            update_data['location'] = entities['destination']  # 외부 API는 location 사용
         if start_date:
             update_data['start_time'] = start_date.isoformat()
             update_data['end_time'] = (end_date or (start_date + timedelta(hours=1))).isoformat()

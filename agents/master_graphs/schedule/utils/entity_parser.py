@@ -11,6 +11,11 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
 
+from agents.master_graphs.schedule.utils.prompt_loader import (
+    get_sub_agent_prompt,
+    format_prompt_template
+)
+
 
 async def extract_schedule_entities(query: str) -> Dict[str, Any]:
     """일정 생성/수정에 필요한 정보 추출.
@@ -22,7 +27,7 @@ async def extract_schedule_entities(query: str) -> Dict[str, Any]:
         {
             'title': '팀 회의',
             'description': None,
-            'location': None
+            'destination': None
         }
     """
     if not LLM_AVAILABLE:
@@ -35,23 +40,9 @@ async def extract_schedule_entities(query: str) -> Dict[str, Any]:
     try:
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
         
-        prompt = f"""사용자 질문: "{query}"
-
-위 질문에서 일정 정보를 추출하여 JSON으로 반환하세요.
-
-**출력 형식 (JSON만):**
-{{
-    "title": "일정 제목" or null,
-    "description": "상세 설명" or null,
-    "location": "장소" or null
-}}
-
-**예시:**
-- "내일 팀 회의 등록" → {{"title": "팀 회의", "description": null, "location": null}}
-- "다음주 금요일 프로젝트 킥오프 미팅 추가" → {{"title": "프로젝트 킥오프 미팅", "description": null, "location": null}}
-- "회의실 A에서 분기 보고회" → {{"title": "분기 보고회", "description": null, "location": null}}
-
-JSON만 출력하세요."""
+        # YAML에서 프롬프트 로드
+        prompt_template = get_sub_agent_prompt("schedule", "entity_extraction")
+        prompt = format_prompt_template(prompt_template, query=query)
 
         response = llm.invoke(prompt)
         content = response.content.strip()
@@ -93,29 +84,9 @@ async def extract_leave_entities(query: str) -> Dict[str, Any]:
     try:
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
         
-        prompt = f"""사용자 질문: "{query}"
-
-위 질문에서 연차 정보를 추출하여 JSON으로 반환하세요.
-
-**휴가 종류:**
-- 연차: 일반 연차
-- 반차: 반일 휴가 (0.5일)
-- 병가: 병가
-- 경조사: 경조사 휴가
-
-**출력 형식 (JSON만):**
-{{
-    "leave_type": "연차" | "반차" | "병가" | "경조사",
-    "total_days": number or null,
-    "reason": "사유" or null
-}}
-
-**예시:**
-- "내일 연차 신청" → {{"leave_type": "연차", "total_days": 1.0, "reason": null}}
-- "다음주 월요일 반차" → {{"leave_type": "반차", "total_days": 0.5, "reason": null}}
-- "개인 사정으로 연차" → {{"leave_type": "연차", "total_days": null, "reason": "개인 사정"}}
-
-JSON만 출력하세요."""
+        # YAML에서 프롬프트 로드
+        prompt_template = get_sub_agent_prompt("leave", "entity_extraction")
+        prompt = format_prompt_template(prompt_template, query=query)
 
         response = llm.invoke(prompt)
         content = response.content.strip()
@@ -145,7 +116,7 @@ def _fallback_schedule_extraction(query: str) -> Dict[str, Any]:
     return {
         "title": title if title else "새 일정",
         "description": None,
-        "location": None
+        "destination": None
     }
 
 
@@ -180,36 +151,10 @@ async def extract_meeting_room_entities(query: str) -> Dict[str, Any]:
     
     try:
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
-        prompt = f"""
-사용자 입력: "{query}"
-
-회의실 예약/조회에 필요한 정보를 JSON으로 추출하세요.
-
-출력 형식(JSON만):
-{{
-  "title": "회의 제목" or null,
-  "purpose": "회의 목적" or null,
-  "participants": number or null,
-  "capacity": number or null,
-  "duration_minutes": number or null,
-  "room_code": "회의실 코드" or null,
-  "room_name": "회의실 이름" or null,
-  "floor": number or null,
-  "requires_video": true | false | null,
-  "requires_projector": true | false | null,
-  "requires_whiteboard": true | false | null,
-  "attendees": ["이메일", ...] or [],
-  "start_time_str": "시작 시간 표현" or null,
-  "end_time_str": "종료 시간 표현" or null
-}}
-
-주의사항:
-- 참가 인원이 명시되면 participants와 capacity에 모두 반영하세요.
-- 화상/프로젝터/화이트보드 요구사항을 인식하세요.
-- start_time_str과 end_time_str은 원문 그대로 추출하세요 (예: "내일 오후 2시", "12월 10일 14시")
-- 정보가 없다면 null을 사용하세요.
-JSON 외 다른 텍스트는 출력하지 마세요.
-"""
+        
+        # YAML에서 프롬프트 로드
+        prompt_template = get_sub_agent_prompt("meeting", "entity_extraction")
+        prompt = format_prompt_template(prompt_template, query=query)
         response = llm.invoke(prompt)
         content = response.content.strip()
         import json, re  # pylint: disable=import-outside-toplevel

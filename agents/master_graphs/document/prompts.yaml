@@ -208,6 +208,101 @@ classification_criteria: |
   - email_auto_reply: 이메일, 메일, 자동응답 관련 (참고: 실제로는 email 도메인으로 라우팅)
 output_format: '{"intent": "doc_generate|update_document|email_auto_reply"}'
 
+prompts:
+  field_extraction: |
+    당신은 문서 생성 시스템의 필드 값 추출 전문가입니다.
+    사용자의 요구사항과 문서 제목을 분석하여 템플릿 필드에 맞는 값을 JSON 형식으로 추출하세요.
 
+    **규칙:**
+    1. 사용자가 명시적으로 제공한 정보를 우선적으로 사용하세요.
+    2. DB 데이터가 제공되면 이를 활용하세요.
+    3. 필드 타입에 맞는 형식으로 값을 생성하세요 (날짜, 숫자, 텍스트 등).
+    4. 추출할 수 없는 필드는 null로 설정하거나 생략하세요.
+    5. JSON 형식으로만 응답하세요 (설명 없이).
 
+    **응답 형식:**
+    {{
+      "field_id1": "value1",
+      "field_id2": "value2",
+      ...
+    }}
+  db_query_generation: |
+    사용자의 요구사항을 분석하여 필요한 데이터베이스 테이블과 컬럼 정보를 추출해주세요.
+
+    === 문서 정보 ===
+    템플릿: {template_name}
+    제목: {document_title}
+
+    === 사용자 요구사항 ===
+    {user_requirements}
+
+    === 데이터베이스 스키마 정보 ===
+    {schema_info}
+
+    === 작업 지시 ===
+    1. 사용자 요구사항에서 언급된 제품명, 비교 대상을 정확히 추출하세요.
+       - 예: "iPhone 15 Pro" → product_names: ["iPhone 15 Pro"]
+       - 예: "Galaxy S24 Ultra, Pixel 8 Pro" → product_names: ["Galaxy S24 Ultra", "Pixel 8 Pro"]
+       - 예: "iPhone 15 Pro 512GB, Galaxy S24 Ultra 128GB" → product_names: ["iPhone 15 Pro 512GB", "Galaxy S24 Ultra 128GB"] (저장공간 정보 포함)
+       - 제품명은 Brand + model_name 조합 또는 model_name만으로도 가능합니다.
+       - **중요: 저장공간 정보(128GB, 256GB, 512GB 등)를 포함한 전체 제품명을 그대로 추출하세요.**
+       - model_name 컬럼에는 저장공간 정보가 포함되어 있으므로, 사용자가 입력한 제품명을 그대로 사용해야 정확한 매칭이 가능합니다.
+    2. 위 스키마 정보에서 필요한 테이블과 컬럼을 찾아주세요.
+       - mobile_devices 테이블을 사용하세요.
+       - 비교 항목에 해당하는 컬럼들(Brand, model_name, Price, Weight, Battery, Display_Size, Processor, Camera, Storage, RAM, Operating_System, Network, Color)을 포함하세요.
+    3. 비교 대상 제품들이 mobile_devices 테이블에 있는지 확인하세요.
+    4. 비교 항목(무게, 배터리, 디스플레이 등)에 해당하는 컬럼을 찾아주세요.
+
+    === 응답 형식 ===
+    반드시 JSON 형식으로만 응답하세요. 코드 블록(```json) 없이 JSON만 반환하세요.
+
+    {{
+        "tables": ["테이블1", "테이블2"],
+        "columns": {{
+            "테이블1": ["컬럼1", "컬럼2"],
+            "테이블2": ["컬럼3", "컬럼4"]
+        }},
+        "product_names": ["제품명1", "제품명2"],
+        "where_conditions": {{
+            "테이블1": "조건1",
+            "테이블2": "조건2"
+        }}
+    }}
+
+utils:
+  business_trip_info_extraction: |
+    당신은 출장 신청서 작성을 위한 정보 추출 전문가입니다.
+    
+    사용자 입력에서 다음 정보를 추출하세요:
+    1. 출장 사유 (description): 출장 목적이나 사유
+    2. 출장지 (destination): 출장 목적지
+    
+    **추출 규칙:**
+    - 사용자가 쉼표(,)로 여러 정보를 구분한 경우:
+      * "거래처 미팅, 제주도" → description="거래처 미팅", destination="제주도"
+      * "제주도, 거래처 미팅" → description="거래처 미팅", destination="제주도"
+      * "고객 방문, 서울, 다음주" → description="고객 방문", destination="서울"
+    
+    - 키워드가 명시된 경우:
+      * "출장지: 제주도, 사유: 거래처 미팅" → 정확히 추출
+      * "사유 거래처 미팅, 출장지 제주도" → 정확히 추출
+    
+    - 장소 이름으로 판단 가능한 경우 (제주도, 서울, 부산, 인천, 대구, 광주, 대전, 울산 등):
+      * 장소 이름은 destination으로 추출
+      * 나머지는 description으로 추출
+    
+    - 정보가 하나만 있는 경우:
+      * 장소 이름이면 → destination만 추출
+      * 장소 이름이 아니면 → description만 추출
+    
+    **예시:**
+    - "거래처 미팅, 제주도" → {"description": "거래처 미팅", "destination": "제주도"}
+    - "제주도" → {"description": null, "destination": "제주도"}
+    - "거래처 미팅" → {"description": "거래처 미팅", "destination": null}
+    - "제주도, 고객사 방문, 세미나" → {"description": "고객사 방문, 세미나", "destination": "제주도"}
+    - "출장지 서울, 사유 고객 미팅" → {"description": "고객 미팅", "destination": "서울"}
+    
+    사용자 입력: "{query}"
+    
+    위 입력에서 출장 사유와 출장지를 추출하여 JSON으로 반환하세요.
 
