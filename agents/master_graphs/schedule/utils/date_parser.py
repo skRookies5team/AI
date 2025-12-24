@@ -25,16 +25,16 @@ LOCAL_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
 async def parse_korean_date_with_llm(
     query: str, 
     current_datetime: Optional[datetime] = None
-) -> Tuple[Optional[datetime], Optional[datetime]]:
-    """한국어 날짜 표현을 파싱하여 datetime 객체로 반환.
+) -> Tuple[Optional[datetime], Optional[datetime], bool]:
+    """한국어 날짜 표현을 파싱하여 datetime 객체와 정밀도 여부 반환.
     
     Args:
         query: 사용자 쿼리 (예: "내일 오후 2시", "다음주 월요일", "이번 달")
         current_datetime: 현재 시간 (orchestrator에서 전달, 없으면 datetime.now() 사용)
         
     Returns:
-        (시작 datetime, 종료 datetime) 튜플
-        날짜가 없으면 (None, None) 반환
+        (시작 datetime, 종료 datetime, is_precise) 튜플
+        날짜가 없으면 (None, None, False) 반환
     """
     # orchestrator에서 전달받은 현재 시간 사용, 없으면 기본값 사용
     if current_datetime is None:
@@ -173,6 +173,7 @@ async def parse_korean_date_with_llm(
                 
                 start_str = data.get("start_date")
                 end_str = data.get("end_date")
+                is_precise = data.get("is_precise", False)
                 
                 if start_str:
                     start_date = datetime.strptime(start_str, "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TIMEZONE)
@@ -185,16 +186,16 @@ async def parse_korean_date_with_llm(
                     days_diff = (start_date.date() - now.date()).days
                     
                     # 디버깅: LLM 반환값 확인
-                    print(f"🔍 [date_parser] LLM 반환 날짜: {start_date.date()}, 오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year}")
+                    print(f"🔍 [date_parser] LLM 반환 날짜: {start_date.date()}, 오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year}, 정밀도: {is_precise}")
                     
                     # 과거 날짜이거나 현재 연도가 아니면 즉시 None 반환 (재요청)
                     if days_diff < 0 or start_date.year != now.year:
                         print(f"⚠️ LLM이 잘못된 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year})")
                         print(f"⚠️ 날짜 정보가 불확실하므로 None 반환하여 재요청")
-                        return None, None  # 재요청을 위해 None 반환
+                        return None, None, False  # 재요청을 위해 None 반환
                     
-                    print(f"✅ LLM 날짜 파싱: {start_date} ~ {end_date}")
-                    return start_date, end_date
+                    print(f"✅ LLM 날짜 파싱: {start_date} ~ {end_date} (정밀도: {is_precise})")
+                    return start_date, end_date, is_precise
             except (ValueError, json.JSONDecodeError) as e:
                 print(f"⚠️ LLM 응답 파싱 실패: {e}, Fallback 사용")
                 return _fallback_date_parsing(query, current_datetime=now)
@@ -211,7 +212,7 @@ async def parse_korean_date_with_llm(
 def _fallback_date_parsing(
     query: str, 
     current_datetime: Optional[datetime] = None
-) -> Tuple[Optional[datetime], Optional[datetime]]:
+) -> Tuple[Optional[datetime], Optional[datetime], bool]:
     """키워드 기반 날짜 파싱 (fallback).
     
     Args:
@@ -219,7 +220,7 @@ def _fallback_date_parsing(
         current_datetime: 현재 시간 (orchestrator에서 전달, 없으면 datetime.now() 사용)
         
     Returns:
-        (시작 datetime, 종료 datetime) 튜플
+        (시작 datetime, 종료 datetime, is_precise) 튜플
     """
     # orchestrator에서 전달받은 현재 시간 사용, 없으면 기본값 사용
     if current_datetime is None:
@@ -235,14 +236,14 @@ def _fallback_date_parsing(
     if "오늘" in query:
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-        return start, end
+        return start, end, True
     
     # 내일
     elif "내일" in query:
         tomorrow = now + timedelta(days=1)
         start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
         end = tomorrow.replace(hour=23, minute=59, second=59, microsecond=999999)
-        return start, end
+        return start, end, True
     
     # 이번 주
     elif "이번 주" in query or "이번주" in query:
@@ -250,7 +251,7 @@ def _fallback_date_parsing(
         week_start = now - timedelta(days=days_since_monday)
         week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        return week_start, week_end
+        return week_start, week_end, False
     
     # 이번 달
     elif "이번 달" in query or "이번달" in query:
@@ -260,7 +261,7 @@ def _fallback_date_parsing(
         else:
             next_month = now.replace(month=now.month + 1, day=1)
             month_end = next_month - timedelta(seconds=1)
-        return month_start, month_end
+        return month_start, month_end, False
     
     # 다음 주
     elif "다음 주" in query or "다음주" in query:
@@ -284,11 +285,11 @@ def _fallback_date_parsing(
         # 검증: 파싱된 날짜가 미래인지 확인
         if next_monday.date() < now.date():
             print(f"⚠️ Fallback 파싱 결과가 과거 날짜: {next_monday.date()} (오늘: {now.date()})")
-            return None, None
+            return None, None, False
         
         print(f"✅ Fallback 날짜 파싱 (다음 주): {next_monday.date()} ~ {end_date.date()}")
-        return next_monday, end_date
+        return next_monday, end_date, False
     
     # 날짜 정보 없음
     else:
-        return None, None
+        return None, None, False

@@ -718,13 +718,13 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     last_domain = state.get("last_domain")
     conversation_history = state.get("conversation_history", [])
     
-    # 대화 히스토리에 사용자 메시지 추가 (조건문들 전에 미리 정의)
+    # ✅ user_message를 함수 시작 부분에서 항상 정의 (모든 경로에서 사용 가능하도록)
     user_message: Message = {
         "role": "user",
         "content": query,
         "timestamp": datetime.now().isoformat()
     }
-    
+
     # ✅ 이메일 수신자 선택 처리 (우선순위 높음)
     email_compose_context = state.get("email_compose_context") or {}
     pending_selection = email_compose_context.get("pending_recipient_selection", {})
@@ -736,6 +736,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         if match:
             print(f"✅ 이메일 수신자 선택 요청 감지: '{query}' → email 도메인으로 라우팅")
             _routing_logger.info(f"[라우팅 완료] 이메일 수신자 선택: email (요청: {query})")
+            # 이미 위에서 정의된 user_message 사용 (중복 정의 제거)
             return {
                 "domain": "email",
                 "conversation_history": [user_message]
@@ -1075,6 +1076,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                         if redis_last_domain and redis_last_domain in MASTER_GRAPHS:
                             print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
                             _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
+                            # 이미 함수 시작 부분에서 정의된 user_message 사용 (중복 정의 제거)
                             return {
                                 "domain": redis_last_domain,
                                 "conversation_history": [user_message],
@@ -1084,9 +1086,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     print(f"⚠️ employee_id가 없어서 last_domain 조회 불가")
         except Exception as e:
             print(f"⚠️ Redis에서 last_domain 조회 실패: {e}, LLM으로 분류 계속 진행")
-    
-    # user_message는 이미 위에서 정의됨 (워크플로우 체크 전에)
-    
+
     # 번호 선택 패턴이고 recruitment 컨텍스트가 있으면 recruitment로 우선 라우팅
     if is_number_selection:
         recruitment_context = state.get("recruitment_context", {})
@@ -1102,185 +1102,6 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "conversation_history": [user_message],
                     **current_date_info
                 }
-    
-    # 워크플로우 진행 중인지 확인 (이미 위에서 체크했으므로 여기서는 건너뜀)
-    # 워크플로우 진행 중이면 위에서 이미 처리되었으므로 여기서는 일반 요청 처리로 진행
-        workflow_type = state.get("workflow_type")
-        workflow_steps = state.get("workflow_steps", [])
-        current_step_index = state.get("current_workflow_step_index", 0)
-        next_domain = state.get("next_domain")
-        
-        # "진행" 또는 "취소"/"종료" 버튼 선택 확인
-        proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
-        cancel_keywords = ["취소", "중단", "그만", "stop", "cancel", "아니오", "아니", "종료"]
-
-        is_proceed = any(kw in query for kw in proceed_keywords)
-        is_cancel = any(kw in query.lower() for kw in cancel_keywords)
-
-        # "진행" 선택 시 다음 단계로 진행
-        if is_proceed and not is_cancel:
-            # 워크플로우 핸들러를 통한 인덱스 검증
-            workflow_handler = get_workflow_handler(workflow_type)
-            next_step_index = current_step_index + 1
-
-            # 인덱스 검증
-            if workflow_handler:
-                if not workflow_handler.validate_step_transition(
-                    current_step_index, next_step_index, workflow_steps
-                ):
-                    print(f"❌ 워크플로우 인덱스 검증 실패: {current_step_index} → {next_step_index}")
-                    return {
-                        "final_response": f"❌ 워크플로우 진행 오류: 유효하지 않은 단계 전환입니다.",
-                        "messages": ["워크플로우 진행 오류가 발생했습니다."],
-                        "conversation_history": [user_message],
-                        **current_date_info
-                    }
-
-            if next_domain and next_domain in MASTER_GRAPHS:
-                print(f"✅ 워크플로우 진행 확인: '{query}' → 다음 단계 {next_domain}로 진행 (step {next_step_index + 1}/{len(workflow_steps)})")
-                return {
-                    "domain": next_domain,
-                    "current_workflow_step_index": next_step_index,  # 명시적으로 인덱스 업데이트
-                    "requires_input": False,  # 진행 명령이므로 리셋
-                    "conversation_history": [user_message],
-                    **current_date_info
-                }
-            elif next_step_index < len(workflow_steps):
-                # next_domain이 없지만 아직 단계가 남아있으면 다음 단계로
-                next_domain = workflow_steps[next_step_index]
-                if next_domain:
-                    print(f"✅ 워크플로우 진행 확인: '{query}' → 다음 단계 {next_domain}로 진행 (step {next_step_index + 1}/{len(workflow_steps)})")
-                    return {
-                        "domain": next_domain,
-                        "current_workflow_step_index": next_step_index,
-                        "next_domain": next_domain,
-                        "requires_input": False,  # 진행 명령이므로 리셋
-                        "conversation_history": [user_message],
-                        **current_date_info
-                    }
-
-        # 취소 요청 확인
-        if is_cancel:
-            print(f"⚠️ 워크플로우 취소 요청 감지: {workflow_type}")
-            
-            # 출장 관련 워크플로우이고 "출장 취소" 요청이면 출장 취소 처리
-            if workflow_type == "business_trip" and any(kw in query for kw in ["출장", "business_trip"]):
-                print(f"✅ 출장 취소 요청 - 워크플로우 중단 후 출장 취소 처리")
-                return {
-                    "workflow_type": None,
-                    "workflow_steps": None,
-                    "current_workflow_step_index": None,
-                    "workflow_completed_steps": None,
-                    "workflow_in_progress": False,
-                    "next_domain": None,
-                    "domain": "schedule",  # schedule 도메인으로 라우팅하여 출장 취소 처리
-                    "conversation_history": [user_message],
-                    **current_date_info
-                }
-            
-            # 일반 워크플로우 취소
-            return {
-                "workflow_type": None,
-                "workflow_steps": None,
-                "current_workflow_step_index": None,
-                "workflow_completed_steps": None,
-                "workflow_in_progress": False,
-                "next_domain": None,
-                "domain": None,
-                "final_response": f"워크플로우({workflow_type})가 취소되었습니다.",
-                "conversation_history": [user_message],
-                **current_date_info
-            }
-        
-        # next_domain이 None이면 현재 단계에서 사용자 입력 대기 중
-        # 현재 도메인으로 다시 라우팅하여 사용자 입력 처리
-        if not next_domain and current_step_index < len(workflow_steps):
-            current_domain = workflow_steps[current_step_index] if current_step_index < len(workflow_steps) else None
-            if current_domain and current_domain in MASTER_GRAPHS:
-                print(f"⏸️ 워크플로우 진행 중 - 사용자 입력 수신, 현재 단계({current_domain}, step {current_step_index + 1}/{len(workflow_steps)})로 라우팅하여 처리")
-                return {
-                    "domain": current_domain,
-                    "workflow_type": workflow_type,  # 워크플로우 타입 유지
-                    "workflow_steps": workflow_steps,  # 워크플로우 단계 유지
-                    "current_workflow_step_index": current_step_index,  # 현재 단계 유지
-                    "workflow_in_progress": True,  # 워크플로우 진행 중 유지
-                    "requires_input": False,  # 사용자 입력을 받았으므로 리셋
-                "conversation_history": [user_message],
-                **current_date_info
-            }
-
-        # 다음 단계 도메인 설정
-        if next_domain and next_domain in MASTER_GRAPHS:
-            print(f"✅ 워크플로우 다음 단계: {next_domain} (step {current_step_index + 1}/{len(workflow_steps)})")
-            return {
-                "domain": next_domain,
-                "workflow_type": workflow_type,  # 워크플로우 타입 유지
-                "workflow_steps": workflow_steps,  # 워크플로우 단계 유지
-                "current_workflow_step_index": current_step_index,  # 현재 단계 유지
-                "workflow_in_progress": True,  # 워크플로우 진행 중 유지
-                "conversation_history": [user_message],
-                **current_date_info
-            }
-
-        # next_domain이 None이고 아직 단계가 남아있으면 현재 단계로 라우팅
-        if current_step_index < len(workflow_steps):
-            current_domain = workflow_steps[current_step_index] if current_step_index < len(workflow_steps) else None
-            if current_domain and current_domain in MASTER_GRAPHS:
-                print(f"⏸️ 워크플로우 진행 중 - 현재 단계({current_domain}, step {current_step_index + 1}/{len(workflow_steps)})로 라우팅")
-                return {
-                    "domain": current_domain,
-                    "workflow_type": workflow_type,
-                    "workflow_steps": workflow_steps,
-                    "current_workflow_step_index": current_step_index,
-                    "workflow_in_progress": True,
-                    "conversation_history": [user_message],
-                    **current_date_info
-                }
-
-        # 모든 단계 완료 - 워크플로우 완료 (마지막에 체크)
-        if current_step_index >= len(workflow_steps):
-            print(f"✅ 워크플로우 완료: {workflow_type}")
-            workflows = load_workflows_config()
-            workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
-            completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
-            
-            return {
-                "workflow_type": None,
-                "workflow_steps": None,
-                "current_workflow_step_index": None,
-                "workflow_completed_steps": None,
-                "workflow_in_progress": False,
-                "next_domain": None,
-                "domain": None,
-                "workflow_temp_data": {},  # 워크플로우 완료 시 임시 데이터 초기화
-                "final_response": completion_message,
-                "conversation_history": [user_message],
-                **current_date_info
-            }
-
-        # 예상치 못한 상황
-        print(f"⚠️ 워크플로우 라우팅 오류: current_step_index={current_step_index}, workflow_steps={workflow_steps}, next_domain={next_domain}")
-        # 워크플로우 진행 중이므로 현재 단계로 라우팅 시도
-        if workflow_steps and current_step_index < len(workflow_steps):
-            current_domain = workflow_steps[current_step_index]
-            if current_domain and current_domain in MASTER_GRAPHS:
-                print(f"⚠️ 워크플로우 오류 복구: 현재 단계({current_domain})로 라우팅")
-                return {
-                    "domain": current_domain,
-                    "workflow_type": workflow_type,
-                    "workflow_steps": workflow_steps,
-                    "current_workflow_step_index": current_step_index,
-                    "workflow_in_progress": True,
-                    "conversation_history": [user_message],
-                    **current_date_info
-                }
-
-        return {
-            "final_response": "❌ 워크플로우 진행 중 오류가 발생했습니다.",
-            "messages": ["워크플로우 진행 오류가 발생했습니다."],
-                "conversation_history": [user_message],
-                **current_date_info
-            }
 
     # ============================================
     # 1단계: 워크플로우 vs 일반 요청 분류

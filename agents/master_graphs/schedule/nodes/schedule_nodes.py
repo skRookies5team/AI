@@ -381,9 +381,16 @@ def _maybe_reset_schedule_context(context: Dict[str, Any], action: str, query: s
     if current_intent and current_intent != action:
         for kw in action_keywords.get(action, []):
             if kw in query:
+                # 명시적으로 다른 액션을 요청하면 모든 컨텍스트 정리
                 context.pop("slot_state", None)
                 context.pop("awaiting_slots", None)
+                context.pop("delete_candidates", None)  # 삭제 후보도 정리
+                context.pop("update_candidates", None)  # 수정 후보도 정리
                 break
+    # 현재 액션이 "삭제"가 아니고 delete_candidates가 있으면 정리 (다른 작업으로 전환)
+    elif action != "삭제" and context.get("delete_candidates"):
+        context.pop("delete_candidates", None)
+        context.pop("awaiting_slots", None)
 
 
 def _extract_selection_index(query: str) -> Optional[int]:
@@ -735,9 +742,18 @@ async def _handle_delete(
                 return {"ok": False, "message": f"🔐 Google 캘린더 인증 필요: {auth_error.auth_url}"}
             
             if success:
-                context.pop("delete_candidates", None)
-                context.pop("awaiting_slots", None)
-                context.pop("slot_state", None)
+                # 삭제된 항목만 제거하고 나머지는 유지 (연속 삭제 지원)
+                context["delete_candidates"] = [
+                    c for c in candidates if c.get('gcal_event_id') != event_id
+                ]
+                # delete_candidates가 비어있으면 완전히 정리
+                if not context["delete_candidates"]:
+                    context.pop("delete_candidates", None)
+                    context.pop("awaiting_slots", None)
+                    context.pop("slot_state", None)
+                # 아직 삭제할 항목이 있으면 awaiting_slots는 유지 (연속 삭제 가능)
+                # 사용자가 다른 작업을 명시적으로 요청하면 _maybe_reset_schedule_context에서 정리됨
+                
                 return {
                     "ok": True,
                     "message": f"✅ 일정이 삭제되었습니다.\n\n- {selected.get('title')}\n- {selected.get('start_time')}"
@@ -770,15 +786,64 @@ async def _handle_delete(
         if not events:
             return {"ok": False, "message": f"{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')} 기간에 삭제 가능한 일정이 없습니다."}
         
-        context["delete_candidates"] = events[:10]
+        # 제목으로 필터링 시도 (사용자가 특정 일정을 언급한 경우)
+        filtered_events = events
+        if parsed.title:
+            title_lower = parsed.title.lower()
+            filtered_events = [
+                e for e in events
+                if title_lower in (e.get('title', '') or '').lower()
+            ]
+            # 필터링 결과가 1개면 바로 삭제 확인
+            if len(filtered_events) == 1:
+                selected = filtered_events[0]
+                event_id = selected.get('gcal_event_id')
+                
+                try:
+                    success = await scheduler.delete_event(
+                        user_id=str(parsed.user_id),
+                        event_id=event_id
+                    )
+                except GoogleAuthRequired as auth_error:
+                    return {"ok": False, "message": f"🔐 Google 캘린더 인증 필요: {auth_error.auth_url}"}
+                
+                if success:
+                    context.pop("delete_candidates", None)
+                    context.pop("awaiting_slots", None)
+                    context.pop("slot_state", None)
+                    return {
+                        "ok": True,
+                        "message": f"✅ '{selected.get('title')}' 일정이 삭제되었습니다.\n\n📅 {selected.get('start_time')}"
+                    }
+            # 필터링 결과가 여러 개면 선택 요청
+            elif len(filtered_events) > 1:
+                context["delete_candidates"] = filtered_events[:10]
+                context["awaiting_slots"] = ["delete_selection"]
+                
+                message = f"📋 '{parsed.title}' 일정이 여러 개 있습니다. 삭제할 일정을 선택해주세요:\n\n"
+                for idx, event in enumerate(filtered_events[:10], 1):
+                    message += f"{idx}. {event.get('title', '제목 없음')}\n   🕐 {event.get('start_time')}\n\n"
+                
+                if len(filtered_events) > 10:
+                    message += f"... 외 {len(filtered_events) - 10}건\n\n"
+                
+                message += "❗ 삭제할 일정의 번호만 입력해주세요. (예: 2)"
+                
+                return {"ok": False, "message": message}
+        
+        # 필터링 결과가 없거나 제목이 없으면 전체 목록 표시
+        if not filtered_events:
+            filtered_events = events
+        
+        context["delete_candidates"] = filtered_events[:10]
         context["awaiting_slots"] = ["delete_selection"]
         
         message = f"📋 삭제 가능한 일정 목록 ({start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}):\n\n"
-        for idx, event in enumerate(events[:10], 1):
+        for idx, event in enumerate(filtered_events[:10], 1):
             message += f"{idx}. {event.get('title', '제목 없음')}\n   🕐 {event.get('start_time')}\n\n"
         
-        if len(events) > 10:
-            message += f"... 외 {len(events) - 10}건\n\n"
+        if len(filtered_events) > 10:
+            message += f"... 외 {len(filtered_events) - 10}건\n\n"
         
         message += "❗ 삭제할 일정의 번호만 입력해주세요. (예: 2)"
         

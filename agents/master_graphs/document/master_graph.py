@@ -862,7 +862,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             
             if saved_id:
                 # 결재 완료 메시지
-                approval_complete_msg = f"\n\n✅ {doc_type} 결재가 완료되었습니다. (ID: {saved_id})"
+                approval_complete_msg = f"✅ {doc_type} 결재 상신이 완료되었습니다. (ID: {saved_id})"
                 
                 # document_context 업데이트
                 document_context["approval_pending"] = False
@@ -907,12 +907,14 @@ class DocumentMasterGraph(BaseMasterGraph):
                             **current_date_info
                         }
                 
-                # 일반 요청 모드: 도메인 라우팅 중단
+                # 일반 요청 모드: 도메인 라우팅 중단 (문서 작성 특화 화면용)
+                # ⚠️ domain을 명시적으로 "document"로 설정하여 다시 라우팅되지 않도록 함
                 return {
-                    "domain": None,  # 도메인 라우팅 중단 - 다른 대화를 이어나갈 수 있도록
-                    "final_response": approval_complete_msg,
-                    "messages": ["결재가 완료되었습니다."],
-                    "document_context": document_context,
+                    "domain": "document",  # None 대신 "document"로 명시적 설정하여 다시 라우팅 방지
+                    "last_domain": "document",  # last_domain도 명시적으로 설정
+                    "final_response": approval_complete_msg,  # 메시지 앞의 \n\n 제거 (깔끔하게)
+                    "messages": ["결재 상신이 완료되었습니다."],  # 메시지 텍스트 일치
+                    "document_context": document_context,  # 업데이트된 document_context 반환
                     "conversation_history": [user_message],
                     **current_date_info
                 }

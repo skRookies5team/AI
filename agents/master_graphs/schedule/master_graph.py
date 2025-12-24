@@ -72,24 +72,50 @@ class ScheduleMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
 
-        # ⚠️ 워크플로우 모드에서 Step 3(schedule - 캘린더 등록)인 경우 강제로 business_trip으로 라우팅
+        # ✅ 워크플로우 모드 확인 (최우선 처리)
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
-        current_workflow_step_index = state.get("current_workflow_step_index", 0)
+        current_step_index = state.get("current_workflow_step_index", 0)
         workflow_steps = state.get("workflow_steps", [])
-        
+
+        # 출장 워크플로우 진행 중인 경우 의도를 business_trip으로 강제
         if workflow_in_progress and workflow_type == "business_trip":
-            # Step 3 (인덱스 2)는 schedule 도메인에서 캘린더 등록 처리
-            if current_workflow_step_index == 2 and len(workflow_steps) > 2 and workflow_steps[2] == "schedule":
+            # 현재 단계가 schedule 도메인이라면 business_trip으로 라우팅 (Step 1 또는 Step 3)
+            if current_step_index < len(workflow_steps) and workflow_steps[current_step_index] == "schedule":
                 step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ 워크플로우 모드 Step 3: 캘린더 등록 - business_trip으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step {current_step_index + 1}) → business_trip으로 의도 강제 ({step_elapsed/1000:.2f}초)")
                 return {"intent": "business_trip"}
 
         schedule_context = state.get("schedule_context") or {}
+        
+        # schedule의 awaiting_slots 체크 (일정 삭제 선택 대기 중)
+        schedule_ctx = schedule_context.get("schedule") or {}
+        schedule_awaiting_slots = schedule_ctx.get("awaiting_slots") or []
+        if schedule_awaiting_slots:
+            # delete_selection이나 update_selection이 있으면 schedule로 강제 라우팅
+            if "delete_selection" in schedule_awaiting_slots or "update_selection" in schedule_awaiting_slots:
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ 일정 삭제/수정 선택 대기 중 - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                return {"intent": "schedule"}
+        
+        # delete_candidates가 있으면 연속 삭제 가능하므로 schedule로 강제 라우팅
+        if schedule_ctx.get("delete_candidates"):
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 일정 삭제 후보가 남아있음 - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+            return {"intent": "schedule"}
+        
+        # meeting의 awaiting_slots 체크
         meeting_context = schedule_context.get("meeting") or {}
         meeting_slot_state = meeting_context.get("slot_state") or {}
         awaiting_slots = meeting_context.get("awaiting_slots") or []
         missing_slots = meeting_slot_state.get("missing_slots") or []
+        
+        # 추천 후 회의실 선택 중이면 무조건 meeting으로 라우팅
+        if meeting_context.get("recommended_rooms"):
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 추천 후 선택 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+            return {"intent": "meeting"}
+        
         if awaiting_slots:
             step_elapsed = (time.time() - step_start) * 1000
             print(f"✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
