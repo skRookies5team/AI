@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import asyncio
+import json
+import os
 import re
 import logging
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import yaml
+
 from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
 
 from agents.state import OrchestratorState
 from agents.llm_router import classify_intent_with_llm
@@ -62,6 +68,171 @@ def _setup_email_logger() -> logging.Logger:
     return logger
 
 logger = _setup_email_logger()
+
+def _strip_html_for_summary(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</p\s*>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</div\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _fallback_two_lines(text: str) -> tuple[str, str]:
+    cleaned = _strip_html_for_summary(text)
+    if not cleaned:
+        return "(요약 없음)", ""
+    lines = [ln.strip() for ln in cleaned.splitlines() if ln.strip()]
+    if not lines:
+        one = re.sub(r"\s+", " ", cleaned).strip()
+        return (one[:90] if one else "(요약 없음)"), ""
+    if len(lines) == 1:
+        return lines[0][:90], ""
+    return lines[0][:90], lines[1][:90]
+
+
+async def _build_email_search_summary_header_from_result(result: Dict[str, Any], max_items: int = 10) -> str:
+    """email_search 결과에서 (n번 제목): 2줄 요약 헤더 생성."""
+    data = result.get("data")
+    if not isinstance(data, dict) or not data:
+        return ""
+
+    top_key = next(iter(data.keys()))
+    email_data = data.get(top_key)
+    if not isinstance(email_data, dict) or not email_data:
+        return ""
+
+    items: list[dict[str, str]] = []
+    for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
+        if len(items) >= max_items:
+            break
+        info = email_data.get(k) or {}
+        subject = str(info.get("subject") or "(제목 없음)").strip()[:120]
+        content = str(info.get("content") or "")
+        excerpt = _strip_html_for_summary(content)[:2500]
+        items.append({"index": str(k), "subject": subject, "excerpt": excerpt})
+
+    if not items:
+        return ""
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        lines: list[str] = []
+        for it in items:
+            l1, l2 = _fallback_two_lines(it.get("excerpt", ""))
+            if l2:
+                lines.append(f"({it['index']}번 {it['subject']}): {l1}\n  {l2}")
+            else:
+                lines.append(f"({it['index']}번 {it['subject']}): {l1}")
+        return "\n".join(lines).strip()
+
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "너는 이메일 요약기다. 각 메일을 2줄로 요약해라.\n"
+                "- 한국어\n"
+                "- 인사말/맺음말/서명/회사정보/AI 자동 안내 문구는 제외\n"
+                "- 각 메일 요약은 정확히 2줄(줄바꿈 포함)\n"
+                "- 출력은 반드시 JSON 배열만: "
+                '[{{"index":"1","line1":"...","line2":"..."}}]',
+            ),
+            ("user", "다음 이메일들을 각각 요약해줘:\n\n{items_json}"),
+        ]
+    )
+
+    chain = prompt | llm
+    resp = await chain.ainvoke({"items_json": json.dumps(items, ensure_ascii=False)})
+
+    by_idx: dict[str, tuple[str, str]] = {}
+    try:
+        raw = (resp.content or "").strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+        arr = json.loads(raw)
+        if isinstance(arr, list):
+            for row in arr:
+                if not isinstance(row, dict):
+                    continue
+                idx = str(row.get("index", "")).strip()
+                l1 = str(row.get("line1", "")).strip()
+                l2 = str(row.get("line2", "")).strip()
+                if idx:
+                    by_idx[idx] = (l1, l2)
+    except Exception:
+        by_idx = {}
+
+    lines: list[str] = []
+    for it in items:
+        idx = it["index"]
+        subject = it["subject"]
+        l1, l2 = by_idx.get(idx, ("", ""))
+        if not l1:
+            l1, l2 = _fallback_two_lines(it.get("excerpt", ""))
+        if l2:
+            lines.append(f"({idx}번 {subject}): {l1}\n  {l2}")
+        else:
+            lines.append(f"({idx}번 {subject}): {l1}")
+
+    return "\n".join(lines).strip()
+
+_email_search_params_cache: dict[str, Any] | None = None
+
+
+def _load_email_search_params_yaml() -> dict[str, Any]:
+    """이메일 검색 파라미터 추출용 YAML 로드(캐시)."""
+    global _email_search_params_cache
+    if _email_search_params_cache is not None:
+        return _email_search_params_cache
+    yaml_path = Path(__file__).parent / "search_params.yaml"
+    if not yaml_path.exists():
+        _email_search_params_cache = {}
+        return _email_search_params_cache
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            _email_search_params_cache = yaml.safe_load(f) or {}
+    except Exception:
+        _email_search_params_cache = {}
+    return _email_search_params_cache
+
+
+def _render_email_search_few_shots(examples: list[dict[str, Any]], fmt: dict[str, str]) -> str:
+    """YAML few_shot_examples를 문자열로 렌더링."""
+    lines: list[str] = []
+    for ex in examples or []:
+        user_in = str(ex.get("input", "")).strip()
+        out = ex.get("output", {}) or {}
+        kw = out.get("keywords", [])
+        frm = out.get("from_address", None)
+        dr = out.get("date_range", None)
+        # date_range 안의 {current_date_iso} 같은 템플릿 치환
+        dr_str = json.dumps(dr, ensure_ascii=False)
+        try:
+            dr_str = dr_str.format(**fmt)
+        except Exception:
+            pass
+        lines.append(f'- "{user_in}" -> keywords: {kw}, from_address: {frm}, date_range: {dr_str}')
+    return "\n".join(lines).strip()
+
+
+def _postfilter_keywords(keywords: list[str], stopwords: set[str]) -> list[str]:
+    """불용어 제거 + 공백 정리 + 중복 제거(순서 유지)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for k in keywords or []:
+        k2 = str(k).strip()
+        if not k2:
+            continue
+        if k2 in stopwords:
+            continue
+        if k2 in seen:
+            continue
+        seen.add(k2)
+        out.append(k2)
+    return out
 
 
 class EmailMasterGraph(BaseMasterGraph):
@@ -278,7 +449,39 @@ class EmailMasterGraph(BaseMasterGraph):
                 current_month = now_dt.month
                 current_day = now_dt.day
 
-                system_prompt = f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
+                # ✅ 이메일 검색 파라미터 추출 프롬프트는 YAML로 관리
+                search_yaml = _load_email_search_params_yaml()
+                stopwords = set(search_yaml.get("stopwords", []) or [])
+                few_shot_examples = search_yaml.get("few_shot_examples", []) or []
+                tmpl = search_yaml.get("system_prompt_template") or ""
+
+                yesterday_date = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+                last_week_start = (now_dt - timedelta(days=now_dt.weekday() + 7)).strftime("%Y-%m-%d")
+                last_week_end = (now_dt - timedelta(days=now_dt.weekday() + 1)).strftime("%Y-%m-%d")
+
+                fmt = {
+                    "current_date": current_date,
+                    "current_date_iso": current_date_iso,
+                    "current_weekday": current_weekday,
+                    "current_datetime": current_datetime,
+                    "current_year": str(current_year),
+                    "current_month": str(current_month),
+                    "current_day": str(current_day),
+                    "yesterday_date": yesterday_date,
+                    "last_week_start": last_week_start,
+                    "last_week_end": last_week_end,
+                }
+
+                few_shots_str = _render_email_search_few_shots(few_shot_examples, fmt)
+
+                if tmpl:
+                    system_prompt = tmpl.format(
+                        **fmt,
+                        few_shots=few_shots_str,
+                    )
+                else:
+                    # YAML이 없으면 기존 프롬프트 유지(하위 호환)
+                    system_prompt = f"""사용자의 이메일 검색 요청을 분석하여 다음 정보를 추출하세요:
 - keywords: 검색할 핵심 키워드 리스트 (불용어 제거)
 - from_address: 특정 발신자 주소 (있는 경우)
 - date_range: 날짜 범위 (시작일, 종료일이 있는 경우)
@@ -291,16 +494,6 @@ class EmailMasterGraph(BaseMasterGraph):
 - 현재 월: {current_month}월
 - 현재 일: {current_day}일
 
-"오늘", "어제", "저번주", "지난주" 같은 상대적 날짜 표현은 반드시 위의 현재 날짜 정보를 기준으로 계산하세요.
-예시 (현재 날짜가 {current_date_iso}인 경우):
-- "오늘 온 메일" → date_range: {{"start": "{current_date_iso}", "end": "{current_date_iso}"}}
-- "어제 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=1)).strftime('%Y-%m-%d')}"}}
-- "저번주에 온 메일" → date_range: {{"start": "{(now_dt - timedelta(days=now_dt.weekday() + 7)).strftime('%Y-%m-%d')}", "end": "{(now_dt - timedelta(days=now_dt.weekday() + 1)).strftime('%Y-%m-%d')}"}}
-
-날짜 범위 형식: {{"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
-날짜 정보가 없으면 date_range는 null로 반환하세요.
-절대로 2023년이나 과거의 잘못된 날짜를 사용하지 마세요. 반드시 현재 날짜({current_date_iso})를 기준으로 계산하세요.
-
 {context}"""
                 
                 params = await extract_structured_output(
@@ -308,16 +501,19 @@ class EmailMasterGraph(BaseMasterGraph):
                     model_class=EmailSearchParams,
                     system_prompt=system_prompt
                 )
+
+                # ✅ stopwords 후처리(LLM이 불용어를 넣어도 제거)
+                filtered_keywords = _postfilter_keywords(params.keywords or [], stopwords)
                 
                 print(f"✅ 구조화된 검색 파라미터 추출 완료:")
-                print(f"   - 키워드: {params.keywords}")
+                print(f"   - 키워드: {filtered_keywords}")
                 print(f"   - 발신자: {params.from_address}")
                 print(f"   - 날짜 범위: {params.date_range}")
                 
                 # 추출된 파라미터로 검색
                 # - email_search는 마스터가 준 파라미터(from/date/keywords)만 사용해 검색합니다.
                 # - keywords가 비어있으면 user_text는 빈 문자열로 전달(원문 query를 SEARCH에 섞지 않음: 한글 ASCII 인코딩 오류 방지)
-                search_query = " ".join(params.keywords) if params.keywords else ""
+                search_query = " ".join(filtered_keywords) if filtered_keywords else ""
                 
                 # 기존 email_search_agent 사용 (Redis 숏텀 메모리 state 전달)
                 # email_search는 이제 비동기 함수이므로 await 사용
@@ -328,13 +524,18 @@ class EmailMasterGraph(BaseMasterGraph):
                     state=state,
                     from_address=params.from_address,  # 추출한 발신자 주소 전달
                     date_range=params.date_range,  # 추출한 날짜 범위 전달
-                    keywords=params.keywords,  # 추출한 키워드 리스트 전달 (마스터 값만 사용)
+                    keywords=filtered_keywords,  # 불용어 제거된 키워드만 전달
                 )
-                
+
+                # ✅ 검색 결과 요약(메일별 2줄) 헤더를 응답 맨 위에 붙임
+                base_message = result.get("message", "이메일 검색 결과를 찾을 수 없습니다.")
+                summary_header = await _build_email_search_summary_header_from_result(result, max_items=10)
+                enhanced_message = f"{summary_header}\n\n{base_message}" if summary_header else base_message
+
                 # Structured Output을 사용한 응답 생성
                 response = AgentResponse(
                     success=True,
-                    message=result.get("message", "이메일 검색 결과를 찾을 수 없습니다."),
+                    message=enhanced_message,
                     data={
                         "keywords": params.keywords,
                         "from_address": params.from_address,
@@ -361,10 +562,14 @@ class EmailMasterGraph(BaseMasterGraph):
                 print(f"⚠️ Structured Output 파싱 실패: {e}, 기본 로직 사용")
                 # Fallback: 기존 로직 사용 (Redis 숏텀 메모리 state 전달)
                 result = await email_search(query, session_id=session_id, state=state)
-                
+
+                base_message = result.get("message", "이메일 검색 결과를 찾을 수 없습니다.")
+                summary_header = await _build_email_search_summary_header_from_result(result, max_items=10)
+                enhanced_message = f"{summary_header}\n\n{base_message}" if summary_header else base_message
+
                 return {
-                    "final_response": result.get("message", "이메일 검색 결과를 찾을 수 없습니다."),
-                    "messages": [result.get("message", "")],
+                    "final_response": enhanced_message,
+                    "messages": [enhanced_message],
                     "search_results": result.get("rows", []),
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨

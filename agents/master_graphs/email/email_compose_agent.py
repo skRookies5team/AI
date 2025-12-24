@@ -453,10 +453,23 @@ def send_email_via_smtp(
 			msg['Cc'] = cc
 		
 		if is_html:
-			msg.attach(MIMEText(body, 'html', 'utf-8'))
-			text_body = re.sub(r'<[^>]+>', '', body)
+			# Plain text 버전 생성 (줄바꿈 유지)
+			text_body = re.sub(r'<br\s*/?>', '\n', body, flags=re.IGNORECASE)  # <br>을 \n으로 변환
+			text_body = re.sub(r'</p>', '\n\n', text_body)  # </p>를 두 줄바꿈으로 변환
+			text_body = re.sub(r'</div>', '\n', text_body)  # </div>를 줄바꿈으로 변환
+			text_body = re.sub(r'<[^>]+>', '', text_body)  # 나머지 HTML 태그 제거
 			text_body = text_body.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-			msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
+			text_body = re.sub(r'\n{3,}', '\n\n', text_body)  # 연속된 줄바꿈 정리
+			
+			# 순서 중요: plain text 먼저, HTML 나중에 (클라이언트가 HTML을 지원하면 HTML을 선택)
+			text_part = MIMEText(text_body.strip(), 'plain', 'utf-8')
+			text_part.set_charset('utf-8')
+			msg.attach(text_part)
+			
+			# HTML 버전 나중에 attach
+			html_part = MIMEText(body, 'html', 'utf-8')
+			html_part.set_charset('utf-8')
+			msg.attach(html_part)
 		else:
 			msg.attach(MIMEText(body, 'plain', 'utf-8'))
 		
