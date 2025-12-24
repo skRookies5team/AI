@@ -78,6 +78,32 @@ async def patent_search(
         original_user_query = patent_context.get("query") if isinstance(patent_context, dict) else None
     original_user_query = original_user_query or keyword
     
+    detected_mode = None
+    if search_mode is None:
+        keyword_lower = keyword.lower()
+        web_keywords = ["웹에서", "인터넷에서", "온라인에서", "kipris", "웹 검색", "인터넷 검색", "웹으로", "인터넷으로"]
+        server_keywords = ["서버에서", "내부에서", "벡터db", "벡터 db", "내부 데이터", "사내", "서버로", "내부로"]
+        
+        if any(kw in keyword_lower for kw in web_keywords):
+            detected_mode = "web"
+            LOGGER.info(f"[DEBUG] 🔍 쿼리에서 '웹' 검색 모드 감지: '{keyword}' → detected_mode=web")
+        elif any(kw in keyword_lower for kw in server_keywords):
+            detected_mode = "server"
+            LOGGER.info(f"[DEBUG] 🔍 쿼리에서 '서버' 검색 모드 감지: '{keyword}' → detected_mode=server")
+        
+        if not detected_mode:
+            LOGGER.info(f"[DEBUG] 🔍 검색 모드 키워드 없음: 검색 모드 선택 질문으로 진행")
+    
+    final_search_mode = search_mode or detected_mode
+    
+    # final_search_mode가 있으면 search_mode 변수에 할당
+    if final_search_mode:
+        search_mode = final_search_mode
+        if final_search_mode == "web":
+            use_server_first = False
+        elif final_search_mode == "server":
+            use_server_first = True
+    
     # 새로운 특허 검색 시작 시 특허 컨텍스트 초기화
     is_new_search = False
     if orchestrator_state:

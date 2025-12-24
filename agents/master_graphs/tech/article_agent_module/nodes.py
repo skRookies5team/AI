@@ -1730,10 +1730,10 @@ async def search_papers(state: OrchestratorState) -> Dict[str, Any]:
     if not query:
         article_ctx["error"] = "검색어가 없습니다."
         article_ctx["results"] = []
-        article_ctx["summary"] = "검색어를 입력해 주세요."
+        article_ctx["response"] = "검색어를 입력해 주세요."
         article_ctx["next_action"] = "generate_response"
         return state
-
+    
     try:
         # keyword는 이미 위에서 결정했으므로 재사용
         if not keyword:

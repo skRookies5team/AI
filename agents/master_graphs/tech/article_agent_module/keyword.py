@@ -53,6 +53,18 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = KEYWORD_L
     Returns:
         str: 쉼표로 구분된 정제된 키워드 문자열.
     """
+    empty_indicators = ["빈 문자열", "빈문자열", "없음", "none", "n/a", "없습니다", "없어요", "없다", 
+                        "(빈 문자열)", "(빈문자열)", "()", "빈", "empty", 
+                        "None", "NONE", "null", "NULL", "Null"]
+    raw_output_stripped = raw_output.strip()
+    raw_output_lower = raw_output_stripped.lower()
+    raw_output_no_brackets = re.sub(r'[()\[\]]', '', raw_output_stripped).strip()
+    
+    if (not raw_output_stripped or 
+        raw_output_lower in [ind.lower() for ind in empty_indicators] or 
+        raw_output_no_brackets.lower() in [ind.lower() for ind in empty_indicators]):
+        return ""
+    
     candidates = re.split(r"[,/\n]+", raw_output)
     cleaned: List[str] = []
     for candidate in candidates:
@@ -86,7 +98,7 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = KEYWORD_L
     return fallback
 
 
-async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
+async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> Optional[str]:
     """사용자 질의를 학술 검색 키워드로 변환한다.
 
     Args:
@@ -94,11 +106,9 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
         max_tokens (int): 생성할 키워드의 최대 토큰 수.
 
     Returns:
-        str: 검색에 활용할 간결한 키워드. OpenAI API를 사용할 수 없으면 원본 질의를 반환.
+        str: 검색에 활용할 간결한 키워드. 실제 검색어가 없으면 빈 문자열 반환.
     """
     # 검색 소스 키워드 제거 (전처리)
-    # 웹/사내 서버 관련 키워드는 검색 키워드가 아니므로 제거
-    # 한글 조사를 고려한 패턴 사용
     search_source_keywords = ["웹", "인터넷", "온라인", "web", "internet", 
                               "사내", "내부", "서버", "internal", "server"]
     cleaned_input = user_input
@@ -115,7 +125,18 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
         ]
         for pattern in patterns:
             cleaned_input = re.sub(pattern, ' ', cleaned_input, flags=re.IGNORECASE)
+    
+    # 도메인 키워드 제거 (논문, paper, 학술 등)
+    domain_keywords = ["논문", "paper", "학술", "ScienceON", "검색", "찾아", "알려", "줘", "주세요", "해줘", "해주세요", "찾아줄래", "찾아줄래?"]
+    for dk in domain_keywords:
+        pattern = rf'\b{re.escape(dk)}\b'
+        cleaned_input = re.sub(pattern, '', cleaned_input, flags=re.IGNORECASE)
+    
     cleaned_input = " ".join(cleaned_input.split())  # 연속된 공백 제거
+    
+    # 도메인 키워드 제거 후 실제 검색어가 없으면 빈 문자열 반환
+    if not cleaned_input or len(cleaned_input.strip()) == 0:
+        return None
     
     if CLIENT is None:
         return _clean_keyword_output(cleaned_input, cleaned_input, limit=KEYWORD_LIMIT)
@@ -132,12 +153,18 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
         "    예: '전기차 배터리' -> '전기차배터리'\n"
         "- 오타가 수정된 키워드를 반환해도 됩니다 (사용자 입력에 정확히 존재하지 않아도 수정된 올바른 단어 사용).\n"
         "- 각 키워드는 1~2개의 핵심 단어로 구성하고, 질문에 등장한 핵심 개념에서만 선택해.\n"
-        "- '논문', '연구', '관련', '자료', '웹', '사내', '서버' 같은 일반 단어와 조사는 모두 제거해.\n"
+        "- '논문', 'paper', '학술', 'ScienceON', '연구', '관련', '자료', '웹', '사내', '서버', '검색', '찾아', '알려', '줘', '주세요' 같은 일반 단어와 조사는 모두 제거해.\n"
+        "- ⚠️⚠️⚠️ 매우 중요: 실제 검색어가 없으면(예: '논문 찾아줘', '논문 좀 찾아줄래', '논문 검색해줘' 같이 도메인 키워드만 있는 경우) 반드시 아무것도 출력하지 말고 완전히 빈 문자열을 반환하세요.\n"
+        "- ⚠️⚠️⚠️ 절대 'None', 'none', 'Null', 'null', '없음', '빈 문자열', '(빈 문자열)', '()' 같은 텍스트를 출력하지 마세요. 아무것도 출력하지 않는 것이 정답입니다.\n"
         "- 번호, 설명, 불릿, 접두어 같은 추가 문장은 절대 포함하지 마.\n"
         "- 예시 입력: '배터리 관련 논문 필요해' -> 예시 출력: 배터리\n"
         "- 예시 입력: '배터리랑 디스플레이 관련 논문 필요해' -> 예시 출력: 배터리, 디스플레이\n"
         "- 예시 입력: '전기차 배터리 관련 논문' -> 예시 출력: 전기차배터리\n"
         "- 예시 입력: '전기차배터리 관련 논문' -> 예시 출력: 전기차배터리\n"
+        "- 예시 입력: '논문 찾아줘' -> 예시 출력: (아무것도 출력하지 않음)\n"
+        "- 예시 입력: '논문 좀 찾아줄래' -> 예시 출력: (아무것도 출력하지 않음)\n"
+        "- 예시 입력: '논문 검색해줘' -> 예시 출력: (아무것도 출력하지 않음)\n"
+        "- 예시 입력: '기술' -> 예시 출력: 기술\n"
         f"입력: {cleaned_input}\n출력:"
     )
 
@@ -149,10 +176,12 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
             temperature=0,
         )
         raw_output = response.choices[0].message.content.strip()
-        return _clean_keyword_output(raw_output, cleaned_input, limit=KEYWORD_LIMIT)
+        result = _clean_keyword_output(raw_output, cleaned_input, limit=KEYWORD_LIMIT)
+        return result if result and result.strip() else None
     except Exception:
         logging.exception("OpenAI keyword generation failed.")
-        return _clean_keyword_output(cleaned_input, cleaned_input, limit=KEYWORD_LIMIT)
+        result = _clean_keyword_output(cleaned_input, cleaned_input, limit=KEYWORD_LIMIT)
+        return result if result and result.strip() else None
 
 
 async def generate_summary(

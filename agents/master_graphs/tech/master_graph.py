@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict
+import logging
 import asyncio
 import re
-import time
+from pathlib import Path
+from datetime import datetime
 
 from langgraph.graph import StateGraph, END
 
@@ -14,6 +16,58 @@ from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
 from agents.master_graphs.tech.patent.patent_agent import patent_search
 from agents.master_graphs.tech.tech_article_agent import article_master
+
+
+def _setup_tech_logger() -> logging.Logger:
+    """Tech 도메인 로거 설정 (콘솔 + 파일)."""
+    logger = logging.getLogger(__name__)
+    
+    # 이미 핸들러가 설정되어 있으면 재설정하지 않음
+    if logger.handlers:
+        return logger
+    
+    logger.setLevel(logging.INFO)
+    
+    # 콘솔 핸들러 추가 (FastAPI에서도 보이도록)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter(
+        '[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # 파일 핸들러 추가 (선택적)
+    try:
+        # logs 디렉토리 생성
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent.parent
+        log_dir = project_root / "logs"
+        log_dir.mkdir(exist_ok=True)
+        
+        # 로그 파일 경로 (날짜별로 생성)
+        log_file = log_dir / f"tech_master_{datetime.now().strftime('%Y%m%d')}.log"
+        
+        file_handler = logging.FileHandler(log_file, encoding="utf-8", mode='a')
+        file_handler.setLevel(logging.INFO)
+        file_formatter = logging.Formatter(
+            '%(asctime)s | %(pathname)s:%(lineno)d | %(funcName)s | %(levelname)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    except Exception as e:
+        # 파일 핸들러 설정 실패해도 콘솔 핸들러는 유지
+        import sys
+        print(f"⚠️ Tech 로거 파일 핸들러 설정 실패: {e}", file=sys.stderr)
+    
+    logger.propagate = False  # 상위 로거로 전파하지 않음 (중복 방지)
+    
+    return logger
+
+
+LOGGER = _setup_tech_logger()
 
 
 class TechMasterGraph(BaseMasterGraph):
@@ -36,6 +90,7 @@ class TechMasterGraph(BaseMasterGraph):
         
         # 노드 추가
         workflow.add_node("route_intent", self.route_intent)
+        workflow.add_node("ask_source_type", self.ask_source_type)
         workflow.add_node("search_patent", self.search_patent)
         workflow.add_node("vectorize_patent", self.vectorize_patent)
         workflow.add_node("search_article", self.search_article)
@@ -49,10 +104,14 @@ class TechMasterGraph(BaseMasterGraph):
             "route_intent",
             self.route_to_subagent,
             {
+                "ask_source_type": "ask_source_type",
                 "patent": "search_patent",
                 "article": "search_article",
             }
         )
+
+        # ask_source_type -> route_intent
+        workflow.add_edge("ask_source_type", END)
         
         # 특허 검색 후 벡터화 (선택적)
         workflow.add_conditional_edges(
@@ -81,13 +140,57 @@ class TechMasterGraph(BaseMasterGraph):
     
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """기술 도메인 내부 의도 분류."""
-        print("--- [Tech Master] Routing Intent ---")
-        step_start = time.time()
+        LOGGER.info("--- [Tech Master] Routing Intent ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
         tech_search_context = state.get("tech_search_context", {})
         
-        # 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우 최우선 처리
+        # 특수 상태 확인 (사용자가 선택을 기다리는 상태)
+        patent_ctx = None
+        article_ctx = None
+        
+        if tech_search_context:
+            if "patent" in tech_search_context:
+                patent_ctx = tech_search_context.get("patent")
+                if not isinstance(patent_ctx, dict):
+                    patent_ctx = None
+            
+            if "article" in tech_search_context:
+                article_ctx = tech_search_context.get("article")
+                if not isinstance(article_ctx, dict):
+                    article_ctx = None
+        
+        # ask_source_type 상태 확인 (특허/논문 선택 대기 중)
+        if tech_search_context and tech_search_context.get("awaiting_source_type_selection"):
+            # 사용자가 선택한 내용 확인
+            query_lower = query.lower()
+            original_query = tech_search_context.get("original_query", query)
+
+            if any(k in query_lower for k in ["특허", "patent", "Patent", "1", "1번"]):
+                LOGGER.info("✅ 사용자가 특허 선택")
+                tech_search_context["awaiting_source_type_selection"] = False
+                tech_search_context.pop("original_query", None)
+                return {"intent": "patent", "query": original_query, "tech_search_context": tech_search_context}
+            elif any(k in query_lower for k in ["논문", "paper", "학술", "article", "2", "2번"]):
+                LOGGER.info("✅ 사용자가 논문 선택")
+                tech_search_context["awaiting_source_type_selection"] = False
+                tech_search_context.pop("original_query", None)
+                return {"intent": "article", "query": original_query, "tech_search_context": tech_search_context}
+            else:
+                # 명확하지 않은 답변 - 다시 물어봄
+                LOGGER.info("⚠️ 명확하지 않은 답변, 다시 질문")
+                return {"intent": "ask_source_type", "tech_search_context": tech_search_context}
+    
+        last_active_agent = None
+        if tech_search_context:
+            last_active_subagent = tech_search_context.get("last_active_subagent")
+            if last_active_subagent in ["patent", "article"]:
+                last_active_agent = last_active_subagent
+        
+        patent_has_results = patent_ctx and bool(patent_ctx.get("results") or patent_ctx.get("vector_db_results"))
+        article_has_results = article_ctx and bool(article_ctx.get("results"))
+
+        # 사용자가 명시적으로 "논문" 또는 "특허"를 요청한 경우
         explicit_keywords = {
             "논문": "article",
             "paper": "article",
@@ -101,69 +204,41 @@ class TechMasterGraph(BaseMasterGraph):
         query_lower = query.lower()
         for keyword, intent_type in explicit_keywords.items():
             if keyword.lower() in query_lower:
-                print(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅")
+                LOGGER.info(f"✅ 명시적 키워드 '{keyword}' 감지: {intent_type}로 라우팅")
                 return {"intent": intent_type}
         
-        # 2. 특수 상태 확인 (사용자가 선택을 기다리는 상태)
-        patent_ctx = None
-        article_ctx = None
-
-        if tech_search_context:
-            if "patent" in tech_search_context:
-                patent_ctx = tech_search_context.get("patent")
-                if not isinstance(patent_ctx, dict):
-                    patent_ctx = None
-
-            if "article" in tech_search_context:
-                article_ctx = tech_search_context.get("article")
-                if not isinstance(article_ctx, dict):
-                    article_ctx = None
-
-        last_active_agent = None
-        if tech_search_context:
-            last_active_subagent = tech_search_context.get("last_active_subagent")
-            if last_active_subagent in ["patent", "article"]:
-                last_active_agent = last_active_subagent
-
-        patent_has_results = patent_ctx and bool(patent_ctx.get("results"))
-        article_has_results = article_ctx and bool(article_ctx.get("results"))
-
-        patent_has_vector_results = patent_ctx and bool(patent_ctx.get("vector_db_results"))
-        article_has_vector_results = article_ctx and bool(article_ctx.get("vector_db_results"))
-
         # 논문: ask_source (최근 활성 agent가 논문이면 우선 확인)
-        if last_active_agent == "article" and article_ctx:
-            if article_ctx.get("intent") == "ask_source":
-                print(f"✅ 이전 컨텍스트(ask_source, last_active=article)에 따라 라우팅 유지: article")
+        if article_ctx and article_ctx.get("intent") == "ask_source":
+                LOGGER.info(f"✅ 이전 컨텍스트(ask_source)에 따라 라우팅 유지: article")
                 return {"intent": "article"}
-
+        
         # 특허: ask_search_mode, ask_web_search (최근 활성 agent가 특허이면 우선 확인)
-        if last_active_agent == "patent" and patent_ctx:
+        if patent_ctx:
             patent_intent = patent_ctx.get("intent")
             waiting_for_web_search = patent_ctx.get("waiting_for_web_search", False)
             if patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search:
-                print(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search}, last_active=patent)에 따라 라우팅 유지: patent")
+                LOGGER.info(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search})에 따라 라우팅 유지: patent")
                 return {"intent": "patent"}
         
-        if (patent_has_results or patent_has_vector_results) and (article_has_results or article_has_vector_results):
+        if (patent_has_results) and (article_has_results):
             # 둘 다 results가 있으면 last_active_subagent 우선
             pass
-        elif article_has_results or article_has_vector_results:
+        elif article_has_results:
             # 논문 results 또는 vector_db_results가 있으면 논문으로 라우팅
             last_active_agent = "article"
-            print(f"✅ 논문 results/vector_db_results 있음, 논문으로 라우팅")
-        elif patent_has_results or patent_has_vector_results:
+            LOGGER.info(f"✅ 논문 results/vector_db_results 있음, 논문으로 라우팅")
+        elif patent_has_results:
             # 특허 results 또는 vector_db_results가 있으면 특허로 라우팅
             last_active_agent = "patent"
-            print(f"✅ 특허 results/vector_db_results 있음, 특허로 라우팅")
-
+            LOGGER.info(f"✅ 특허 results/vector_db_results 있음, 특허로 라우팅")
+        
         # 번호 선택 요청 확인 (연속 대화)
         selection_keywords = ["번", "자세히", "상세", "선택", "알려", "보여", "알려줘", "보여줘"]
         has_selection_keyword = any(k in query for k in selection_keywords)
         has_number_pattern = bool(re.match(r'^\d+', query.strip()))
-
+        
         if last_active_agent and (has_number_pattern or has_selection_keyword):
-            print(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent}")
+            LOGGER.info(f"✅ 번호 선택 요청 감지 (숫자: {has_number_pattern}, 키워드: {has_selection_keyword}), 이전 컨텍스트 유지: {last_active_agent}")
             return {"intent": last_active_agent}
         
         # LLM 기반 분류 (새로운 요청인 경우)
@@ -175,36 +250,54 @@ class TechMasterGraph(BaseMasterGraph):
             session_id=session_id
         )
         
-        # llm_router는 "patent", "article"을 반환
-        if intent not in ["patent", "article"]:
-            # 키워드 기반 fallback
+        # llm_router는 "patent", "article", "ambiguous"를 반환할 수 있음
+        if intent == "ambiguous":
+            # LLM이 모호하다고 판단한 경우 사용자에게 질문
+            LOGGER.info(f"⚠️ LLM이 모호한 쿼리로 판단: '{query}' - 사용자에게 특허/논문 선택 질문")
+            if "tech_search_context" not in state or state["tech_search_context"] is None:
+                state["tech_search_context"] = {}
+            state["tech_search_context"]["awaiting_source_type_selection"] = True
+            return {"intent": "ask_source_type", "tech_search_context": state["tech_search_context"]}
+        elif intent not in ["patent", "article"]:
+            # LLM이 예상치 못한 값을 반환한 경우 키워드 기반 fallback
             if any(k in query for k in ["특허", "patent", "Patent"]):
                 intent = "patent"
             elif any(k in query for k in ["논문", "paper", "학술", "ScienceON"]):
                 intent = "article"
             else:
-                intent = "patent"  # 기본값
+                # 여전히 모호한 경우 사용자에게 질문
+                LOGGER.info(f"⚠️ LLM 분류 실패 및 키워드 없음: '{query}' - 사용자에게 특허/논문 선택 질문")
+                if "tech_search_context" not in state or state["tech_search_context"] is None:
+                    state["tech_search_context"] = {}
+                state["tech_search_context"]["awaiting_source_type_selection"] = True
+                return {"intent": "ask_source_type", "tech_search_context": state["tech_search_context"]}
         
-        print(f"✅ Tech 의도 결정: {intent}")
+        
+        LOGGER.info(f"✅ Tech 의도 결정: {intent}")
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:
         """route_intent 결과에 따라 하위 에이전트로 라우팅."""
         intent = state.get("intent", "patent")
+        
+        # ask_source_type인 경우 특별 처리
+        if intent == "ask_source_type":
+            return "ask_source_type"
+        
         return intent
     
     async def search_patent(self, state: OrchestratorState) -> Dict[str, Any]:
         """특허 검색 (AI-029)."""
-        print("--- [Tech Master] Searching Patent ---")
+        LOGGER.info("--- [Tech Master] Searching Patent ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-
+        
         result = await patent_search(query, session_id=session_id, orchestrator_state=state)
         
         if "tech_search_context" not in state or state["tech_search_context"] is None:
             state["tech_search_context"] = {}
         state["tech_search_context"]["last_active_subagent"] = "patent"
-
+        
         message = result.get("message") or result.get("error") or "특허 검색 결과를 찾을 수 없습니다."
         return {
             "final_response": message,
@@ -223,7 +316,7 @@ class TechMasterGraph(BaseMasterGraph):
     
     async def vectorize_patent(self, state: OrchestratorState) -> Dict[str, Any]:
         """특허 벡터화 (AI-030)."""
-        print("--- [Tech Master] Vectorizing Patent ---")
+        LOGGER.info("--- [Tech Master] Vectorizing Patent ---")
         search_results = state.get("search_results", [])
         
         # 특허 벡터화 로직 (실제 구현 필요)
@@ -235,16 +328,16 @@ class TechMasterGraph(BaseMasterGraph):
     
     async def search_article(self, state: OrchestratorState) -> Dict[str, Any]:
         """논문 검색 (AI-031)."""
-        print("--- [Tech Master] Searching Article ---")
+        LOGGER.info("--- [Tech Master] Searching Article ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
-
+        
         result = await article_master(query, session_id=session_id, orchestrator_state=state)
         
         if "tech_search_context" not in state or state["tech_search_context"] is None:
             state["tech_search_context"] = {}
         state["tech_search_context"]["last_active_subagent"] = "article"
-
+        
         return {
             "final_response": result.get("message", "논문 검색 결과를 찾을 수 없습니다."),
             "search_results": result.get("items", []),
@@ -253,7 +346,7 @@ class TechMasterGraph(BaseMasterGraph):
     
     async def vectorize_article(self, state: OrchestratorState) -> Dict[str, Any]:
         """논문 벡터화 (AI-032)."""
-        print("--- [Tech Master] Vectorizing Article ---")
+        LOGGER.info("--- [Tech Master] Vectorizing Article ---")
         search_results = state.get("search_results", [])
         
         # 논문 벡터화 로직 (실제 구현 필요)
@@ -261,6 +354,32 @@ class TechMasterGraph(BaseMasterGraph):
         return {
             "final_response": "논문이 벡터화되어 저장되었습니다.",
             "messages": ["논문 벡터화가 완료되었습니다."],
+        }
+
+    async def ask_source_type(self, state: OrchestratorState) -> Dict[str, Any]:
+        """특허/논문 선택 질문 (Human-in-the-loop)."""
+        LOGGER.info("--- [Tech Master] Asking Source Type ---")
+        query = state.get("query", "")
+        tech_search_context = state.get("tech_search_context", {})
+        message = f"어디에서 검색을 원하시나요?\n\n1️⃣ 특허 검색\n2️⃣ 논문 검색\n\n'특허', '1', '1번' 또는 '논문', '2', '2번'으로 답변해주세요."
+        
+        # tech_search_context 업데이트
+        if "tech_search_context" not in state or state["tech_search_context"] is None:
+            state["tech_search_context"] = {}
+
+        if "original_query" not in state["tech_search_context"]:
+            state["tech_search_context"]["original_query"] = query
+            LOGGER.info(f"✅ original_query 저장: '{query}'")
+        else:
+            LOGGER.info(f"✅ original_query 유지: '{state['tech_search_context']['original_query']}'")
+        
+        state["tech_search_context"]["awaiting_source_type_selection"] = True
+        
+        return {
+            "final_response": message,
+            "messages": [message],
+            "tech_search_context": state["tech_search_context"],
+            "quick_replies": ["특허 검색", "논문 검색"]  # 프론트엔드에서 버튼 표시용
         }
 
 
