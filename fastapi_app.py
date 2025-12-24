@@ -268,6 +268,7 @@ class ChatResponse(BaseModel):
     ok: bool = Field(..., description="요청 처리 성공 여부")
     message: str = Field(..., description="에이전트 응답 메시지")
     rows: list[dict[str, Any]] = Field(default_factory=list, description="조회된 데이터 (있는 경우)")
+    email_ids: list[str] = Field(default_factory=list, description="이메일 검색 결과 UID 리스트 (있는 경우)")
     error: Optional[str] = Field(default=None, description="오류 메시지")
     session_id: Optional[str] = Field(default=None, description="세션 ID")
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
@@ -667,12 +668,14 @@ async def chat_stream_endpoint(
                 # domain이 없으면 last_domain을 fallback으로 사용
                 last_domain = final_state.get("domain") or final_state.get("last_domain")
                 
-                # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+                # 도메인별 rows/email_ids 추출
                 rows = []
+                email_ids: list[str] = []
                 if last_domain == "recruitment":
-                    search_results = final_state.get("search_results", [])
-                    if search_results:
-                        rows = search_results
+                    rows = final_state.get("search_results", []) or []
+                elif last_domain == "email":
+                    rows = final_state.get("search_results", []) or []
+                    email_ids = final_state.get("email_ids", []) or []
                 
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
@@ -688,6 +691,7 @@ async def chat_stream_endpoint(
                     "ok": True,
                     "message": final_msg,
                     "rows": rows,  # Recruitment 검색 결과 또는 빈 배열
+                    "email_ids": email_ids,  # ✅ 이메일 검색 UID 리스트
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
@@ -1071,8 +1075,9 @@ async def chat_endpoint(
         # domain이 없으면 last_domain을 fallback으로 사용
         last_domain = final_state.get("domain") or final_state.get("last_domain")
         
-        # Recruitment 도메인인 경우 검색 결과를 rows에 포함
-        rows = []
+        # 도메인별 rows/email_ids 추출
+        rows: list[dict[str, Any]] = []
+        email_ids: list[str] = []
         if last_domain == "recruitment":
             # search_results 또는 recruitment_context에서 결과 가져오기
             search_results = final_state.get("search_results", [])
@@ -1088,11 +1093,15 @@ async def chat_endpoint(
                     if last_results:
                         rows = last_results
                         print(f"✅ recruitment_context에서 {len(rows)}개 인재 결과 추출")
+        elif last_domain == "email":
+            rows = final_state.get("search_results", []) or []
+            email_ids = final_state.get("email_ids", []) or []
 
         return ChatResponse(
             ok=True,
             message=final_msg,
             rows=rows,  # Recruitment 검색 결과 또는 빈 배열
+            email_ids=email_ids,  # ✅ 이메일 검색 UID 리스트
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부

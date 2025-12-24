@@ -94,16 +94,20 @@ def _fallback_two_lines(text: str) -> tuple[str, str]:
     return lines[0][:90], lines[1][:90]
 
 
-async def _build_email_search_summary_header_from_result(result: Dict[str, Any], max_items: int = 10) -> str:
-    """email_search 결과에서 (n번 제목): 2줄 요약 헤더 생성."""
+async def _summarize_email_search_result(result: Dict[str, Any], max_items: int = 10) -> dict[str, dict[str, str]]:
+    """email_search 결과에서 메일별 2줄 요약 생성.
+
+    Returns:
+        { "1": {"line1": "...", "line2": "..."}, ... }
+    """
     data = result.get("data")
     if not isinstance(data, dict) or not data:
-        return ""
+        return {}
 
     top_key = next(iter(data.keys()))
     email_data = data.get(top_key)
     if not isinstance(email_data, dict) or not email_data:
-        return ""
+        return {}
 
     items: list[dict[str, str]] = []
     for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
@@ -116,18 +120,15 @@ async def _build_email_search_summary_header_from_result(result: Dict[str, Any],
         items.append({"index": str(k), "subject": subject, "excerpt": excerpt})
 
     if not items:
-        return ""
+        return {}
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        lines: list[str] = []
+        by_idx: dict[str, dict[str, str]] = {}
         for it in items:
             l1, l2 = _fallback_two_lines(it.get("excerpt", ""))
-            if l2:
-                lines.append(f"({it['index']}번 {it['subject']}): {l1}\n  {l2}")
-            else:
-                lines.append(f"({it['index']}번 {it['subject']}): {l1}")
-        return "\n".join(lines).strip()
+            by_idx[it["index"]] = {"line1": l1, "line2": l2}
+        return by_idx
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
     prompt = ChatPromptTemplate.from_messages(
@@ -148,7 +149,7 @@ async def _build_email_search_summary_header_from_result(result: Dict[str, Any],
     chain = prompt | llm
     resp = await chain.ainvoke({"items_json": json.dumps(items, ensure_ascii=False)})
 
-    by_idx: dict[str, tuple[str, str]] = {}
+    by_idx: dict[str, dict[str, str]] = {}
     try:
         raw = (resp.content or "").strip()
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
@@ -161,23 +162,19 @@ async def _build_email_search_summary_header_from_result(result: Dict[str, Any],
                 l1 = str(row.get("line1", "")).strip()
                 l2 = str(row.get("line2", "")).strip()
                 if idx:
-                    by_idx[idx] = (l1, l2)
+                    by_idx[idx] = {"line1": l1, "line2": l2}
     except Exception:
         by_idx = {}
 
-    lines: list[str] = []
+    # 누락된 항목은 fallback으로 채움
     for it in items:
         idx = it["index"]
-        subject = it["subject"]
-        l1, l2 = by_idx.get(idx, ("", ""))
-        if not l1:
+        got = by_idx.get(idx) or {"line1": "", "line2": ""}
+        if not got.get("line1"):
             l1, l2 = _fallback_two_lines(it.get("excerpt", ""))
-        if l2:
-            lines.append(f"({idx}번 {subject}): {l1}\n  {l2}")
-        else:
-            lines.append(f"({idx}번 {subject}): {l1}")
+            by_idx[idx] = {"line1": l1, "line2": l2}
 
-    return "\n".join(lines).strip()
+    return by_idx
 
 _email_search_params_cache: dict[str, Any] | None = None
 
@@ -533,20 +530,30 @@ class EmailMasterGraph(BaseMasterGraph):
                     keywords=filtered_keywords,  # 불용어 제거된 키워드만 전달
                 )
 
-                # ✅ 검색 결과 요약(메일별 2줄) 헤더를 응답 맨 위에 붙임
-                base_message = result.get("message", "이메일 검색 결과를 찾을 수 없습니다.")
-                summary_header = await _build_email_search_summary_header_from_result(result, max_items=10)
-                enhanced_message = f"{summary_header}\n\n{base_message}" if summary_header else base_message
+                # ✅ 검색 결과를 rows로 제공 + 각 row에 2줄 요약 포함
+                rows = result.get("rows", []) or []
+                summaries_by_index = await _summarize_email_search_result(result, max_items=10)
+                for r in rows:
+                    idx = str(r.get("index") or "").strip()
+                    summ = summaries_by_index.get(idx) or {}
+                    line1 = (summ.get("line1") or "").strip()
+                    line2 = (summ.get("line2") or "").strip()
+                    if line1 or line2:
+                        r["summary_line1"] = line1
+                        r["summary_line2"] = line2
+                        r["summary"] = (line1 + ("\n" + line2 if line2 else "")).strip()
+
+                message = f"📧 이메일 검색 결과 {len(rows)}개"
 
                 # Structured Output을 사용한 응답 생성
                 response = AgentResponse(
                     success=True,
-                    message=enhanced_message,
+                    message=message,
                     data={
-                        "keywords": params.keywords,
+                        "keywords": filtered_keywords,
                         "from_address": params.from_address,
                         "date_range": params.date_range,
-                        "search_results": result.get("rows", [])
+                        "search_results": rows
                     },
                     next_action="더 자세한 정보가 필요하신가요?"
                 )
@@ -557,7 +564,7 @@ class EmailMasterGraph(BaseMasterGraph):
                 return {
                     "final_response": response.message,
                     "messages": [response.message],
-                    "search_results": result.get("rows", []),
+                    "search_results": rows,
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨
                     "email_search_context": state.get("email_search_context"),
@@ -569,14 +576,24 @@ class EmailMasterGraph(BaseMasterGraph):
                 # Fallback: 기존 로직 사용 (Redis 숏텀 메모리 state 전달)
                 result = await email_search(query, session_id=session_id, state=state)
 
-                base_message = result.get("message", "이메일 검색 결과를 찾을 수 없습니다.")
-                summary_header = await _build_email_search_summary_header_from_result(result, max_items=10)
-                enhanced_message = f"{summary_header}\n\n{base_message}" if summary_header else base_message
+                rows = result.get("rows", []) or []
+                summaries_by_index = await _summarize_email_search_result(result, max_items=10)
+                for r in rows:
+                    idx = str(r.get("index") or "").strip()
+                    summ = summaries_by_index.get(idx) or {}
+                    line1 = (summ.get("line1") or "").strip()
+                    line2 = (summ.get("line2") or "").strip()
+                    if line1 or line2:
+                        r["summary_line1"] = line1
+                        r["summary_line2"] = line2
+                        r["summary"] = (line1 + ("\n" + line2 if line2 else "")).strip()
+
+                message = f"📧 이메일 검색 결과 {len(rows)}개"
 
                 return {
-                    "final_response": enhanced_message,
-                    "messages": [enhanced_message],
-                    "search_results": result.get("rows", []),
+                    "final_response": message,
+                    "messages": [message],
+                    "search_results": rows,
                     # email_search_context는 state에 이미 업데이트되어 있으므로
                     # state를 반환하면 Redis에 저장됨
                     "email_search_context": state.get("email_search_context"),
