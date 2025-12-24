@@ -1454,7 +1454,8 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                 f"'(⚠️ 관련 내용 없음)' 표시가 없는 논문은 반드시 제공된 '논문 내용:' 섹션을 사용하여 답변하세요.\n\n"
                 f"위 내용을 바탕으로 사용자 질문에 대해 정확하고 상세하게 답변해주세요. "
                 f"답변은 다음 형식을 따라주세요:\n"
-                f"- 각 논문의 제목을 명시하고 해당 논문의 관련 내용을 설명 (관련 내용이 있는 경우만)\n"
+                f"- ⚠️ 논문 제목을 명시하지 말고 바로 본문 내용으로 시작하세요\n"
+                f"- 각 논문의 관련 내용을 설명 (관련 내용이 있는 경우만)\n"
                 f"- '(⚠️ 관련 내용 없음)'으로 표시된 논문만 '해당 논문의 관련 내용을 찾을 수 없습니다'라고 명시\n"
                 f"- 여러 논문의 내용을 비교하거나 통합하여 설명 (가능한 경우, 관련 내용이 있는 논문들만)\n"
                 f"- 사용자 질문에 대한 핵심 내용을 구조화하여 설명\n"
@@ -1475,13 +1476,7 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                     article_ctx["error"] = None
                     article_ctx["next_action"] = "generate_response"
                     return state
-                
-                # 에러가 없으면 정상적으로 답변 생성
-                response_msg = (
-                    f"📄 요청하신 {len(valid_indices)}개 논문에 대한 답변:\n\n"
-                    f"{papers_list}\n\n"
-                    f"📝 답변:\n{answer}"
-                )
+                response_msg = answer
                 
                 article_ctx["response"] = response_msg
                 article_ctx["next_action"] = "generate_response"
@@ -1563,12 +1558,12 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                     ])
                     
                     prompt = (
-                        f"다음은 논문 '{title}'의 관련 내용입니다.\n\n"
+                        f"다음은 논문의 관련 내용입니다.\n\n"
                         f"사용자 질문: {user_input}\n\n"
                         f"논문 내용:\n{context_text}\n\n"
                         f"위 내용을 바탕으로 사용자 질문에 대해 정확하고 상세하게 답변해주세요. "
                         f"답변은 다음 형식을 따라주세요:\n"
-                        f"- 논문의 제목과 관련 섹션을 명시\n"
+                        f"- ⚠️ 논문 제목을 명시하지 말고 바로 본문 내용으로 시작하세요\n"
                         f"- 사용자 질문에 대한 핵심 내용을 구조화하여 설명\n"
                         f"- 가능한 경우 구체적인 내용을 인용하여 설명\n"
                         f"- 한국어로 친절하고 전문적으로 작성\n\n"
@@ -1666,8 +1661,6 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
             article_ctx["response"] = "벡터DB 검색 결과가 없습니다."
     
     article_ctx["next_action"] = "generate_response"
-    LOGGER.info(f"[DEBUG] rag_answer_node 완료: next_action={article_ctx.get('next_action')}")
-    
     return state
 
 
@@ -1896,6 +1889,7 @@ async def generate_response(state: OrchestratorState) -> Dict[str, Any]:
 
     if error:
         response = error
+        search_results = []
     elif intent == "search":
         total_results = len(results)
         
@@ -1903,27 +1897,91 @@ async def generate_response(state: OrchestratorState) -> Dict[str, Any]:
         if pre_message:
             response = f"{pre_message}\n\n{summary}" if summary else pre_message
         else:
-            # 페이지네이션 제거: 전체 결과 표시 메시지로 변경
             response = f"검색이 완료되었습니다. 총 {total_results}건의 논문을 찾았습니다."
             if summary:
                 response += f"\n\n{summary}"
+    
+        # 구조화된 검색 결과 생성
+        search_results = []
+        for idx, result in enumerate(results, 1):
+            search_results.append({
+                "index": str(idx),
+                "title": result.get("title", "제목 없음"),
+                "pdf_link": result.get("pdf_link", ""),
+                "identifier": result.get("identifier", ""),
+                "domain": "article",
+                "intent": "search"
+            })
     elif intent == "detail":
         response = article_ctx.get("response", "")
-        response = article_ctx.get("response", "논문 상세 정보를 제공합니다.")
+        if not response:
+            response = "논문 상세 정보를 제공합니다."
+        
+        # download_index와 results를 사용하여 구조화된 결과 생성
+        download_index = article_ctx.get("download_index", [])
+        search_results = []
+        
+        if download_index and results:
+            # download_index는 이미 0-based로 변환되어 있음
+            valid_indices = [idx for idx in download_index if 0 <= idx < len(results)]
+            for idx in valid_indices:
+                result_item = results[idx]
+                search_results.append({
+                    "index": str(idx + 1),  # 1-based로 표시
+                    "title": result_item.get("title", "제목 없음"),
+                    "pdf_link": result_item.get("pdf_link", ""),
+                    "identifier": result_item.get("identifier", ""),
+                    "domain": "article",
+                    "intent": "detail"
+                })
     elif intent == "download":
         response = article_ctx.get("response", "PDF 다운로드를 완료했습니다.")
+        
+        # download_papers에서 구조화된 결과 생성
+        download_papers = article_ctx.get("download_papers", [])
+        search_results = []
+        
+        if download_papers:
+            # 이미 구조화된 형식이면 그대로 사용
+            for paper in download_papers:
+                search_results.append({
+                    "index": str(paper.get("index", "")),
+                    "title": paper.get("title", "제목 없음"),
+                    "pdf_link": paper.get("pdf_link", ""),
+                    "identifier": paper.get("identifier", ""),
+                    "domain": "article",
+                    "intent": "download"
+                })
+        else:
+            # download_papers가 없으면 results에서 추출 (하위 호환성)
+            download_index = article_ctx.get("download_index", [])
+            if download_index and results:
+                valid_indices = [idx for idx in download_index if 0 <= idx < len(results)]
+                for idx in valid_indices:
+                    result_item = results[idx]
+                    search_results.append({
+                        "index": str(idx + 1),
+                        "title": result_item.get("title", "제목 없음"),
+                        "pdf_link": result_item.get("pdf_link", ""),
+                        "identifier": result_item.get("identifier", ""),
+                        "domain": "article",
+                        "intent": "download"  # 추가
+                    })
     elif intent == "ask_source":
         response = article_ctx.get("response", "어디서 검색하시겠습니까?")
+        search_results = []
     else:
-        # RAG 답변 등 기타 intent의 경우 response만 사용 (summary 무시)
+        # RAG 답변 등 기타 intent의 경우
         response = article_ctx.get("response", "요청을 처리했습니다.")
-    
+        search_results = []
+
     # article_ctx에 최종 response 저장
     article_ctx["response"] = response
-    
-    LOGGER.info(f"[DEBUG] generate_response 완료: intent={intent}, response_length={len(response)}")
-    
+
+    LOGGER.info(f"[DEBUG] generate_response 완료: intent={intent}, response_length={len(response)}, search_results_count={len(search_results)}")
+
     return {
-        "messages": [response],  # messages 필드에 추가 (operator.add로 자동 병합)
-        "final_response": response,  # 최종 응답도 설정
+        "messages": [response],
+        "final_response": response,
+        "search_results": search_results,
     }

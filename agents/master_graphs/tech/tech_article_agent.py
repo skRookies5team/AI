@@ -535,13 +535,21 @@ async def article_master(
         summary = article_ctx.get("summary", "")
         intent = article_ctx.get("intent", "unknown")
         error = article_ctx.get("error")
-        
-        # 정규화된 응답 구성
+
+        # generate_response에서 만든 구조화된 search_results 가져오기 (우선 사용)
+        structured_search_results = final_state.get("search_results")
+
+        # None 체크 추가
+        if structured_search_results is None:
+            structured_search_results = []
+
+        # 정규화된 응답 구성 (하위 호환성을 위해 유지)
         items = _normalize_items_from_results(results, displayed_count=len(results))
-        
+
         LOGGER.debug(
             f"[article_master] 실행 완료: intent={intent}, results_count={len(results)}, "
-            f"response_length={len(response)}, error={error is not None}"
+            f"response_length={len(response)}, error={error is not None}, "
+            f"structured_results_count={len(structured_search_results) if structured_search_results else 0}"
         )
         
         return {
@@ -550,7 +558,7 @@ async def article_master(
             "message": response if response else (summary or ""),
             "summary": summary,
             "link": _search_url(query),
-            "items": items,
+            "items": structured_search_results if structured_search_results else items,  # ← 구조화된 결과 우선 사용
             "results": results,
         }
     except Exception as exc:

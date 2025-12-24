@@ -223,16 +223,15 @@ async def generate_summary(
     source_description = "웹에서 검색한" if search_source == "웹" else "사내 서버에서 검색한"
     
     prompt = (
-        f"다음은 사용자의 질문과 {source_description} ScienceON 검색 결과 목록입니다.\n"
+        f"다음은 사용자의 질문과 {source_description} ScienceON 검색 결과입니다.\n"
         "사용자가 빠르게 이해할 수 있도록 한국어로 친절하게 요약 답변을 작성해 주세요.\n"
-        "각 항목의 논문 제목을 번호(1, 2, 3...)와 함께 순서대로 알려주고 원문 바로가기 링크는 답변에 포함하지 마세요.\n"
-        "답변 시작 부분에 '다음은 [검색 소스]에서 찾은 논문 제목입니다:' 같은 문구를 사용하여 명확히 표시하세요.\n"
+        "⚠️ 논문 제목 목록을 포함하지 말고, 검색 결과 요약만 제공하세요.\n"
         "만약 결과가 없다면, 재검색 팁과 가능한 이유를 안내해 주세요.\n\n"
         "답변 마지막에 '추가적인 정보가 필요하시면 논문 번호(예: 1번)나 제목과 함께 질문해 주세요.'라는 안내 문구를 포함해 주세요.\n\n"
         f"[사용자 질문]\n{user_query}\n\n"
         f"[검색 키워드]\n{keyword}\n\n"
         f"[검색 소스]\n{search_source}\n\n"
-        f"[검색 결과]\n{bullet_list}\n"
+        f"[검색 결과 개수]\n{len(results)}건\n"
     )
 
     try:
