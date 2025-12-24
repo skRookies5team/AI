@@ -122,10 +122,14 @@ POSITION_KEYWORDS = {
     "풀스택": ["풀스택", "fullstack", "full-stack", "full stack"],
     "데이터": ["데이터", "데이터분석", "데이터엔지니어", "data", "analyst", "engineer"],
     "AI": ["ai", "인공지능", "머신러닝", "ml", "딥러닝", "deep learning"],
-    "데브옵스": ["devops", "dev-ops", "인프라", "infrastructure"],
+    "데브옵스": ["데브옵스", "devops", "dev-ops", "dev ops", "인프라", "infrastructure", "인프라스트럭처"],
     "QA": ["qa", "테스트", "test", "quality"],
     "기획자": ["기획자", "기획", "pm", "product"],
     "디자이너": ["디자이너", "디자인", "designer", "ui/ux"],
+    "전자": ["전자", "전자공학", "전자엔지니어", "전자기술", "electronics", "electronic", "eletronics", "eletronic"],
+    "하드웨어": ["하드웨어", "하드웨어엔지니어", "hw", "hardware", "hw engineer", "hardware engineer"],
+    "임베디드": ["임베디드", "임베디드개발", "임베디드엔지니어", "embedded", "embedded engineer", "embedded system"],
+    "반도체": ["반도체", "반도체엔지니어", "semiconductor", "semiconductor engineer", "chip"],
 }
 
 # 기술 스택 키워드 (일반적인 기술들)
@@ -133,7 +137,19 @@ COMMON_TECH_KEYWORDS = [
     "python", "java", "javascript", "typescript", "react", "vue", "angular",
     "node.js", "spring", "django", "flask", "express", "mysql", "postgresql",
     "mongodb", "redis", "docker", "kubernetes", "aws", "gcp", "azure",
-    "git", "jenkins", "ci/cd", "graphql", "rest", "microservices"
+    "git", "jenkins", "ci/cd", "graphql", "rest", "microservices",
+    # 전자/하드웨어 관련 기술 키워드
+    "전자", "electronics", "electronic", "하드웨어", "hardware", "hw",
+    "임베디드", "embedded", "반도체", "semiconductor", "chip",
+    "회로", "circuit", "pcb", "아날로그", "analog", "디지털", "digital",
+    "fpga", "cpld", "mcu", "microcontroller", "microprocessor", "soc",
+    "rf", "무선", "wireless", "블루투스", "bluetooth", "wifi", "wifi",
+    "센서", "sensor", "actuator", "액추에이터", "iot", "사물인터넷",
+    "전력", "power", "전압", "voltage", "전류", "current", "저항", "resistance",
+    "오실로스코프", "oscilloscope", "멀티미터", "multimeter", "신호처리", "signal processing",
+    "altium", "cadence", "orcad", "kicad", "eagle", "pcb design",
+    "arm", "cortex", "stm32", "arduino", "raspberry pi", "라즈베리파이",
+    "c", "c++", "assembly", "어셈블리", "vhdl", "verilog", "시스템프로그래밍"
 ]
 
 # 임베딩 캐시 설정
@@ -272,9 +288,17 @@ def _extract_position_keywords(query: str) -> List[str]:
     query_lower = query.lower()
     found_positions = []
     
+    # 먼저 포지션 이름 자체가 쿼리에 있는지 확인 (직접 매칭)
+    for position_name in POSITION_KEYWORDS.keys():
+        if position_name.lower() in query_lower:
+            if position_name not in found_positions:
+                found_positions.append(position_name)
+    
+    # 그 다음 키워드 리스트로 매칭
     for position_name, keywords in POSITION_KEYWORDS.items():
-        if any(keyword in query_lower for keyword in keywords):
-            found_positions.append(position_name)
+        if position_name not in found_positions:  # 이미 추가된 것은 제외
+            if any(keyword in query_lower for keyword in keywords):
+                found_positions.append(position_name)
     
     return found_positions
 
@@ -520,6 +544,118 @@ def _get_excluded_resume_ids(
                 logger.debug(f"이전 검색 결과 제외: {len(excluded_ids)}개 인재 ID")
     
     return excluded_ids
+
+
+# ==================== 키워드 매칭 점수 계산 함수 ====================
+
+def _calculate_keyword_match_score(
+    resume_data: Dict[str, Any],
+    position_keywords: List[str],
+    skill_keywords: List[str],
+    query: str
+) -> float:
+    """
+    이력서와 검색 쿼리 간의 키워드 매칭 점수를 계산합니다.
+    
+    Args:
+        resume_data: 이력서 데이터 (name, position, experience, skills, content 포함)
+        position_keywords: 검색 쿼리에서 추출한 포지션 키워드
+        skill_keywords: 검색 쿼리에서 추출한 기술 스택 키워드
+        query: 원본 검색 쿼리
+        
+    Returns:
+        매칭 점수 (0.0 ~ 1.0). 높을수록 더 잘 매칭됨
+    """
+    score = 0.0
+    max_score = 0.0
+    
+    # 포지션 매칭 점수 (가중치: 0.3)
+    position_weight = 0.3
+    if position_keywords:
+        max_score += position_weight
+        position = (resume_data.get("position") or "").lower()
+        content = (resume_data.get("content") or "").lower()
+        
+        for pos_keyword in position_keywords:
+            pos_lower = pos_keyword.lower()
+            matched = False
+            
+            # 포지션 필드에서 정확히 매칭
+            if pos_lower in position:
+                score += position_weight
+                matched = True
+                break
+            # content에서 매칭
+            elif pos_lower in content:
+                score += position_weight * 0.7  # 약간 낮은 점수
+                matched = True
+                break
+            
+            # 전자 관련 포지션의 경우 더 유연한 매칭
+            if not matched and pos_lower in ["전자", "electronics", "electronic", "하드웨어", "hardware", "임베디드", "embedded"]:
+                # 전자 관련 키워드가 content에 포함되어 있으면 매칭
+                electronics_keywords = ["전자", "electronics", "electronic", "전자공학", "전자엔지니어", "전자기술", 
+                                       "하드웨어", "hardware", "hw", "임베디드", "embedded", "반도체", "semiconductor"]
+                if any(keyword in content for keyword in electronics_keywords):
+                    score += position_weight * 0.8  # 전자 관련은 약간 높은 점수
+                    matched = True
+                    break
+    
+    # 기술 스택 매칭 점수 (가중치: 0.5)
+    skill_weight = 0.5
+    if skill_keywords:
+        max_score += skill_weight
+        skills = resume_data.get("skills", [])
+        if isinstance(skills, str):
+            skills = [s.strip() for s in skills.split(",") if s.strip()]
+        
+        content = (resume_data.get("content") or "").lower()
+        matched_skills = 0
+        
+        for skill_keyword in skill_keywords:
+            skill_lower = skill_keyword.lower()
+            matched = False
+            
+            # skills 리스트에서 매칭
+            if any(skill_lower in (s.lower() if isinstance(s, str) else str(s).lower()) for s in skills):
+                matched_skills += 1
+                matched = True
+            # content에서 매칭
+            elif skill_lower in content:
+                matched_skills += 0.5  # 약간 낮은 점수
+                matched = True
+            
+            # 전자 관련 키워드의 경우 더 유연한 매칭
+            if not matched and skill_lower in ["전자", "electronics", "electronic"]:
+                # 전자 관련 키워드가 content에 포함되어 있으면 매칭
+                if any(keyword in content for keyword in ["전자", "electronics", "electronic", "전자공학", "전자엔지니어", "전자기술"]):
+                    matched_skills += 0.7  # 전자 관련은 약간 높은 점수
+                    matched = True
+        
+        if matched_skills > 0:
+            # 매칭된 기술 수에 비례하여 점수 부여
+            match_ratio = min(matched_skills / len(skill_keywords), 1.0)
+            score += skill_weight * match_ratio
+    
+    # 쿼리 키워드 전체 매칭 점수 (가중치: 0.2)
+    query_weight = 0.2
+    max_score += query_weight
+    query_lower = query.lower()
+    content = (resume_data.get("content") or "").lower()
+    
+    # 쿼리의 주요 키워드 추출 (2글자 이상)
+    query_words = [w for w in query_lower.split() if len(w) >= 2]
+    matched_words = sum(1 for word in query_words if word in content)
+    
+    if query_words:
+        match_ratio = matched_words / len(query_words)
+        score += query_weight * match_ratio
+    
+    # 정규화 (max_score가 0이면 0 반환)
+    if max_score == 0:
+        return 0.0
+    
+    return min(score / max_score, 1.0)
 
 
 # ==================== 필드 추출 함수 ====================
@@ -869,17 +1005,25 @@ def _check_position_match(
     position_lower = position.lower()
     content_lower = content.lower() if content else ""
     
+    # 모든 required_positions 중 하나라도 매칭되면 True
     for req_position in required_positions:
         # 포지션 키워드 매칭
         position_keywords = POSITION_KEYWORDS.get(req_position, [])
         
-        # position 필드에서 확인
+        # 포지션 이름 자체가 매칭되는지 확인
+        if req_position.lower() in position_lower:
+            return True
+        
+        # position 필드에서 키워드 확인
         if any(keyword in position_lower for keyword in position_keywords):
             return True
         
-        # content에서 확인
-        if any(keyword in content_lower for keyword in position_keywords):
-            return True
+        # content에서 키워드 확인 (단어 경계 고려하여 더 정확하게)
+        for keyword in position_keywords:
+            # 단어 경계를 고려한 매칭 (더 정확함)
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, content_lower, re.IGNORECASE):
+                return True
     
     return False
 
@@ -906,18 +1050,44 @@ def _check_skills_match(
     skills_lower = [s.lower() for s in skills if s]
     content_lower = content.lower() if content else ""
     
+    matched_count = 0
     for req_skill in required_skills:
         req_skill_lower = req_skill.lower()
+        matched = False
         
-        # skills 필드에서 확인
-        if any(req_skill_lower in skill_lower for skill_lower in skills_lower):
-            return True
+        # skills 필드에서 확인 (정확한 매칭 우선)
+        for skill_lower in skills_lower:
+            # 정확히 일치하거나 포함 관계 확인
+            if req_skill_lower == skill_lower or req_skill_lower in skill_lower:
+                matched = True
+                break
         
-        # content에서 확인 (대소문자 구분 없이)
-        if req_skill_lower in content_lower:
-            return True
+        # content에서 확인 (단어 경계 고려하여 더 정확하게)
+        if not matched:
+            # 단어 경계를 고려한 매칭
+            pattern = r'\b' + re.escape(req_skill_lower) + r'\b'
+            if re.search(pattern, content_lower, re.IGNORECASE):
+                matched = True
+        
+        # 전자 관련 키워드의 경우 더 유연한 매칭 (예: "전자" -> "전자공학", "전자엔지니어" 등)
+        if not matched and req_skill_lower in ["전자", "electronics", "electronic"]:
+            # 전자 관련 키워드가 content에 포함되어 있으면 매칭
+            if any(keyword in content_lower for keyword in ["전자", "electronics", "electronic", "전자공학", "전자엔지니어", "전자기술"]):
+                matched = True
+        
+        if matched:
+            matched_count += 1
     
-    return False
+    # 요구 기술 중 최소 50% 이상 매칭되어야 통과 (더 엄격한 필터링)
+    # 단, 전자 관련 키워드가 하나라도 있으면 더 유연하게 처리 (30% 이상)
+    has_electronics_keyword = any(
+        keyword in [s.lower() for s in required_skills] 
+        for keyword in ["전자", "electronics", "electronic", "하드웨어", "hardware", "임베디드", "embedded", "반도체", "semiconductor"]
+    )
+    min_match_ratio = 0.3 if has_electronics_keyword else 0.5
+    match_ratio = matched_count / len(required_skills) if required_skills else 0.0
+    
+    return match_ratio >= min_match_ratio
 
 
 def _should_filter_resume(
@@ -956,19 +1126,30 @@ def _should_filter_resume(
     Returns:
         필터링해야 하면 True
     """
-    # 다른 인재 요청 시 이전 결과 제외
+    # 다른 인재 요청 시 이전 결과 제외 (가장 빠른 필터링)
     if is_different_request and str(resume_id) in excluded_ids:
         return True
     
-    # 포지션 필터링
+    # 포지션 필터링 (강화: required_positions가 있으면 반드시 매칭되어야 함)
     if required_positions:
-        if not _check_position_match(position, content, required_positions):
-            return True
+        # 빈 리스트가 아닌 경우에만 필터링
+        if len(required_positions) > 0:
+            if not _check_position_match(position, content, required_positions):
+                logger.debug(
+                    f"포지션 필터링: resume_id={resume_id}, position={position}, "
+                    f"required_positions={required_positions}"
+                )
+                return True
     
-    # 기술 스택 필터링
+    # 기술 스택 필터링 (강화)
     if required_skills:
-        if not _check_skills_match(skills, content, required_skills):
-            return True
+        if len(required_skills) > 0:
+            if not _check_skills_match(skills, content, required_skills):
+                logger.debug(
+                    f"기술 스택 필터링: resume_id={resume_id}, "
+                    f"skills={skills[:3] if skills else []}, required_skills={required_skills}"
+                )
+                return True
     
     # content에서 경력 정보 확인
     has_exp_years, has_junior, has_senior, extracted_years = _check_experience_in_content(content)
@@ -979,16 +1160,30 @@ def _should_filter_resume(
     if resume_years is None:
         resume_years = _extract_years_from_experience(experience, content)
     
-    # 경력년수 범위 필터링
+    # 경력년수 범위 필터링 (강화)
     if min_years is not None or max_years is not None:
+        # 경력년수를 추출할 수 없으면 제외 (더 엄격하게)
         if resume_years is None:
-            # 경력년수를 추출할 수 없으면 제외
+            logger.debug(
+                f"경력년수 추출 실패로 필터링: resume_id={resume_id}, "
+                f"experience={experience}, min_years={min_years}, max_years={max_years}"
+            )
             return True
         
+        # 최소 경력년수 미만이면 제외
         if min_years is not None and resume_years < min_years:
+            logger.debug(
+                f"최소 경력년수 미만으로 필터링: resume_id={resume_id}, "
+                f"resume_years={resume_years}, min_years={min_years}"
+            )
             return True
         
+        # 최대 경력년수 초과면 제외
         if max_years is not None and resume_years > max_years:
+            logger.debug(
+                f"최대 경력년수 초과로 필터링: resume_id={resume_id}, "
+                f"resume_years={resume_years}, max_years={max_years}"
+            )
             return True
     
     # 경력직만 요청
@@ -1095,6 +1290,7 @@ async def search_resumes(
         {
             "message": str,  # 사용자에게 보여줄 메시지
             "resumes": List[Dict],  # 검색된 이력서 목록
+            "scores": List[float],  # 유사도 점수 목록
             "total_count": int
         }
     """
@@ -1214,9 +1410,15 @@ async def search_resumes(
         
         # 검색 결과 처리
         resumes = []
+        scores = []  # 유사도 점수 저장
         filtered_count = 0
         
         for idx, hit in enumerate(search_results[0], 1):
+            # 유사도 점수 추출 (distance를 score로 변환)
+            # L2 distance는 작을수록 유사하므로, 1 / (1 + distance)로 변환
+            distance = hit.distance if hasattr(hit, 'distance') else float('inf')
+            score = 1.0 / (1.0 + distance) if distance != float('inf') else 0.0
+            
             resume_data = hit.entity
             
             # Entity를 딕셔너리로 변환
@@ -1303,6 +1505,34 @@ async def search_resumes(
                 filtered_count += 1
                 continue
             
+            # 키워드 매칭 점수 계산
+            keyword_match_score = _calculate_keyword_match_score(
+                resume_data={
+                    "name": name,
+                    "position": position,
+                    "experience": experience,
+                    "skills": skills if isinstance(skills, list) else [],
+                    "content": content,
+                },
+                position_keywords=position_keywords,
+                skill_keywords=skill_keywords,
+                query=query
+            )
+            
+            # 최종 점수 = 유사도 점수(70%) + 키워드 매칭 점수(30%)
+            final_score = (score * 0.7) + (keyword_match_score * 0.3)
+            
+            # 최종 점수 기반 필터링 (강화: 키워드 매칭 점수가 너무 낮으면 제외)
+            # 포지션이나 기술 스택이 요구되었는데 키워드 매칭 점수가 0.3 미만이면 제외
+            if (position_keywords or skill_keywords) and keyword_match_score < 0.3:
+                logger.debug(
+                    f"키워드 매칭 점수 부족으로 필터링: resume_id={resume_id}, "
+                    f"keyword_match_score={keyword_match_score:.3f}, "
+                    f"position_keywords={position_keywords}, skill_keywords={skill_keywords}"
+                )
+                filtered_count += 1
+                continue
+            
             resumes.append({
                 "index": str(len(resumes) + 1),
                 "resume_id": resume_id,
@@ -1311,7 +1541,11 @@ async def search_resumes(
                 "experience": experience,
                 "skills": skills if isinstance(skills, list) else [],
                 "content": content,
+                "score": round(score, 4),  # 유사도 점수 (소수점 4자리)
+                "keyword_match_score": round(keyword_match_score, 4),  # 키워드 매칭 점수
+                "final_score": round(final_score, 4),  # 최종 점수
             })
+            scores.append(final_score)  # 최종 점수를 scores에 저장
             
             # limit 개수만큼 수집하면 중단
             if len(resumes) >= limit:
@@ -1365,12 +1599,13 @@ async def search_resumes(
         
         logger.debug(
             f"검색 완료: {len(resumes)}개 결과, "
-            f"{filtered_count}개 필터링됨"
+            f"{filtered_count}개 조건 필터링"
         )
         
         return {
             "message": message,
             "resumes": resumes,
+            "scores": scores,  # 유사도 점수 반환
             "total_count": len(resumes),
             "ok": True,
             "display_type": "cards",
