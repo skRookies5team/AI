@@ -67,8 +67,6 @@ EXPERIENCE_RANGE_PATTERNS = [
     # "약 3년", "about 3 years"
     (r'약\s*(\d+\.?\d*)\s*년?', 'exact'),
     (r'about\s*(\d+\.?\d*)\s*years?', 'exact'),
-    # "4년", ", 4년", "4 년" (콤마와 공백 허용, 정확한 년수)
-    (r'[,\s]*(\d+\.?\d*)\s*년', 'exact'),
 ]
 
 # 필드명 후보 목록
@@ -117,18 +115,17 @@ DEFAULT_NAME = "이름 없음"
 DEFAULT_POSITION = "포지션 미지정"
 DEFAULT_EXPERIENCE = "경력 정보 없음"
 
-# 포지션 키워드 (정확한 포지션명만)
+# 포지션 키워드
 POSITION_KEYWORDS = {
-    "백엔드": ["백엔드", "벡엔드", "backend", "back-end"],
-    "프론트엔드": ["프론트엔드", "프론트", "frontend", "front-end"],
-    "풀스택": ["풀스택", "fullstack", "full-stack"],
-    "데이터": ["데이터 분석", "데이터 엔지니어", "data analyst", "data engineer"],
-    "AI": ["ai 엔지니어", "인공지능", "머신러닝"],
-    "데브옵스": ["devops", "dev-ops", "데브옵스"],
-    "모바일": ["모바일", "mobile", "ios", "android", "앱 개발"],
-    "QA": ["qa", "테스트"],
-    "기획": ["기획자", "pm", "product"],
-    "디자인": ["디자이너", "designer"],
+    "백엔드": ["백엔드", "backend", "서버", "server", "api", "rest"],
+    "프론트엔드": ["프론트엔드", "프론트", "frontend", "front", "ui", "ux"],
+    "풀스택": ["풀스택", "fullstack", "full-stack", "full stack"],
+    "데이터": ["데이터", "데이터분석", "데이터엔지니어", "data", "analyst", "engineer"],
+    "AI": ["ai", "인공지능", "머신러닝", "ml", "딥러닝", "deep learning"],
+    "데브옵스": ["devops", "dev-ops", "인프라", "infrastructure"],
+    "QA": ["qa", "테스트", "test", "quality"],
+    "기획자": ["기획자", "기획", "pm", "product"],
+    "디자이너": ["디자이너", "디자인", "designer", "ui/ux"],
 }
 
 # 기술 스택 키워드 (일반적인 기술들)
@@ -346,10 +343,9 @@ def _extract_experience_range(query: str) -> Tuple[Optional[float], Optional[flo
                 break
             elif pattern_type == 'exact':
                 exact_years = float(match.group(1))
-                # N년 = N.0년 ~ (N+1).0년 미만
-                # 예: 1년 = 1.0~1.92년 (12~23개월), 4년 = 4.0~4.92년 (48~59개월)
-                min_years = exact_years
-                max_years = exact_years + 0.92  # N년 11개월까지 (약 N년대)
+                # 정확히 매칭하기 위해 범위로 처리 (약간의 여유를 둠)
+                min_years = exact_years - 0.5
+                max_years = exact_years + 0.5
                 break
     
     return min_years, max_years
@@ -861,7 +857,7 @@ def _check_position_match(
     
     Args:
         position: 이력서 포지션
-        content: 이력서 내용 (사용 안 함)
+        content: 이력서 내용
         required_positions: 요구 포지션 키워드 리스트
         
     Returns:
@@ -871,11 +867,18 @@ def _check_position_match(
         return True  # 필터 조건 없으면 통과
     
     position_lower = position.lower()
+    content_lower = content.lower() if content else ""
     
     for req_position in required_positions:
-        # 포지션 키워드 매칭 (position 필드에서만 정확히 확인)
+        # 포지션 키워드 매칭
         position_keywords = POSITION_KEYWORDS.get(req_position, [])
+        
+        # position 필드에서 확인
         if any(keyword in position_lower for keyword in position_keywords):
+            return True
+        
+        # content에서 확인
+        if any(keyword in content_lower for keyword in position_keywords):
             return True
     
     return False
@@ -1121,13 +1124,6 @@ async def search_resumes(
             is_different_request, is_senior_only, is_junior_only, 
             min_years, max_years, position_keywords, skill_keywords
         ) = _parse_query_filters(query)
-        
-        # 디버그: 필터 조건 추출 로그
-        logger.info(
-            f"🔍 [필터 추출] query='{query}' | "
-            f"position={position_keywords} | min_years={min_years} | max_years={max_years} | "
-            f"skills={skill_keywords} | senior={is_senior_only} | junior={is_junior_only}"
-        )
         
         # 이전 쿼리 및 필터 복원
         (
