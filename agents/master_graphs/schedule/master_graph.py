@@ -87,10 +87,35 @@ class ScheduleMasterGraph(BaseMasterGraph):
                 return {"intent": "business_trip"}
 
         schedule_context = state.get("schedule_context") or {}
+        
+        # schedule의 awaiting_slots 체크 (일정 삭제 선택 대기 중)
+        schedule_ctx = schedule_context.get("schedule") or {}
+        schedule_awaiting_slots = schedule_ctx.get("awaiting_slots") or []
+        if schedule_awaiting_slots:
+            # delete_selection이나 update_selection이 있으면 schedule로 강제 라우팅
+            if "delete_selection" in schedule_awaiting_slots or "update_selection" in schedule_awaiting_slots:
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ 일정 삭제/수정 선택 대기 중 - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                return {"intent": "schedule"}
+        
+        # delete_candidates가 있으면 연속 삭제 가능하므로 schedule로 강제 라우팅
+        if schedule_ctx.get("delete_candidates"):
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 일정 삭제 후보가 남아있음 - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+            return {"intent": "schedule"}
+        
+        # meeting의 awaiting_slots 체크
         meeting_context = schedule_context.get("meeting") or {}
         meeting_slot_state = meeting_context.get("slot_state") or {}
         awaiting_slots = meeting_context.get("awaiting_slots") or []
         missing_slots = meeting_slot_state.get("missing_slots") or []
+        
+        # 추천 후 회의실 선택 중이면 무조건 meeting으로 라우팅
+        if meeting_context.get("recommended_rooms"):
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 회의실 추천 후 선택 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+            return {"intent": "meeting"}
+        
         if awaiting_slots:
             step_elapsed = (time.time() - step_start) * 1000
             print(f"✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")

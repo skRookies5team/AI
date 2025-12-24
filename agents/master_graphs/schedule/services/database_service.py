@@ -517,22 +517,27 @@ class DatabaseService:
         where_sql = " AND ".join(clauses)
         sql = f"""
         SELECT
-            id,
-            request_id,
-            document_id,
-            employee_id,
-            request_date,
-            leave_type,
-            start_date,
-            end_date,
-            total_days,
-            status,
-            reason,
-            created_at,
-            updated_at
-        FROM leave_request
+            lr.id,
+            lr.request_id,
+            lr.document_id,
+            lr.employee_id,
+            lr.request_date,
+            lr.leave_type,
+            lr.start_date,
+            lr.end_date,
+            lr.total_days,
+            lr.status,
+            lr.reason,
+            lr.created_at,
+            lr.updated_at,
+            s.gcal_event_id
+        FROM leave_request lr
+        LEFT JOIN schedule s ON s.employee_id = lr.employee_id 
+            AND s.schedule_type = 'leave'
+            AND DATE(s.start_time) = lr.start_date
+            AND DATE(s.end_time) = lr.end_date
         WHERE {where_sql}
-        ORDER BY request_date DESC, id DESC;
+        ORDER BY lr.request_date DESC, lr.id DESC;
         """
 
         async with self._session() as session:

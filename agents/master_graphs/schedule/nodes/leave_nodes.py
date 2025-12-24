@@ -174,7 +174,7 @@ async def process_leave_request(state: OrchestratorState) -> Dict[str, Any]:
     elif parsed.action == "추천":
         result = await _handle_recommend(parsed, scheduler)
     elif parsed.action == "취소":
-        result = await _handle_cancel(parsed, scheduler, leave_context)
+        result = await _handle_cancel(parsed, scheduler, leave_context, user_id)
     elif parsed.action == "수정":
         result = await _handle_update(parsed, scheduler, leave_context)
     else:
@@ -412,14 +412,22 @@ async def _parse_leave_intent(
         
         if start_date_obj:
             start_date_str = start_date_obj.strftime("%Y-%m-%d")
-            end_date_str = end_date_obj.strftime("%Y-%m-%d") if end_date_obj else start_date_str
-            
-            # total_days 계산
-            if entities.get("leave_type") == "반차":
+            # 반차가 아닌 경우 end_date가 없으면 None으로 설정 (missing에 추가되도록)
+            leave_type = entities.get("leave_type") or existing_slots.get("leave_type", "연차")
+            if leave_type == "반차":
+                # 반차는 end_date를 start_date와 같게 설정
+                end_date_str = start_date_str
                 total_days = 0.5
             else:
-                days_diff = (end_date_obj - start_date_obj).days + 1 if end_date_obj else 1
-                total_days = float(days_diff)
+                # 연차는 end_date가 없으면 None으로 설정하여 missing에 추가
+                if end_date_obj:
+                    end_date_str = end_date_obj.strftime("%Y-%m-%d")
+                    days_diff = (end_date_obj - start_date_obj).days + 1
+                    total_days = float(days_diff)
+                else:
+                    # end_date가 없으면 None으로 설정하여 missing에 추가
+                    end_date_str = None
+                    total_days = None
     
     # 4. 선택 인덱스 추출 (취소/수정 시)
     selection_index = None
@@ -483,6 +491,12 @@ async def _handle_apply(
         
         # 잔여 연차 확인 (데이터베이스 컬럼명: remaining_days)
         remaining = balance.get('remaining_days', 0)
+        # Decimal 타입을 float로 변환
+        from decimal import Decimal
+        if isinstance(remaining, Decimal):
+            remaining = float(remaining)
+        else:
+            remaining = float(remaining) if remaining else 0.0
         print(f"[연차 잔여 확인] employee_id={parsed.employee_id}, remaining={remaining}, need={total_days}")
         
         if parsed.leave_type in ["연차", "반차"]:
@@ -582,6 +596,11 @@ async def _handle_apply(
         if parsed.leave_type in ["연차", "반차"]:
             new_remaining = remaining - total_days
             current_used = balance.get('used_days', 0)
+            # current_used도 Decimal일 수 있으므로 float로 변환
+            if isinstance(current_used, Decimal):
+                current_used = float(current_used)
+            else:
+                current_used = float(current_used) if current_used else 0.0
             new_used = current_used + total_days
             
             # 직접 SQL로 업데이트
@@ -668,7 +687,8 @@ async def _handle_recommend(
 async def _handle_cancel(
     parsed: ParsedLeaveIntent,
     scheduler: HybridScheduler,
-    context: Dict[str, Any]
+    context: Dict[str, Any],
+    user_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """연차 취소 처리."""
     # selection_index가 있으면 즉시 취소
@@ -679,6 +699,23 @@ async def _handle_cancel(
             success = await scheduler.db.cancel_leave_request(selected['id'])
             
             if success:
+                # Google Calendar 이벤트 삭제
+                gcal_event_id = selected.get('gcal_event_id')
+                if gcal_event_id:
+                    try:
+                        from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
+                        # user_id가 없으면 employee_id를 user_id로 사용
+                        event_user_id = user_id or str(parsed.employee_id)
+                        delete_success = await scheduler.delete_event(event_user_id, gcal_event_id)
+                        if delete_success:
+                            print(f"✅ Google Calendar 이벤트 삭제 완료: {gcal_event_id}")
+                        else:
+                            print(f"⚠️ Google Calendar 이벤트 삭제 실패: {gcal_event_id}")
+                    except GoogleAuthRequired as auth_error:
+                        print(f"⚠️ Google Calendar 인증 필요 (이벤트 삭제 생략): {auth_error}")
+                    except Exception as e:
+                        print(f"⚠️ Google Calendar 이벤트 삭제 실패: {e}")
+                
                 context.pop("cancel_candidates", None)
                 context.pop("awaiting_slots", None)
                 return {
@@ -692,23 +729,38 @@ async def _handle_cancel(
         
         return {"ok": False, "message": "올바른 번호를 선택해주세요."}
     
-    # 후보 목록 조회
+    # 후보 목록 조회 (대기 + 승인된 연차 모두 조회)
     try:
+        # 대기 중인 연차 조회
         pending_leaves = await scheduler.db.get_leave_list(
             employee_id=parsed.employee_id,
             status='대기',
             include_past=False
         )
         
-        if not pending_leaves:
+        # 승인된 연차도 조회 (취소 가능)
+        approved_leaves = await scheduler.db.get_leave_list(
+            employee_id=parsed.employee_id,
+            status='승인',
+            include_past=False
+        )
+        
+        # 두 목록 합치기
+        all_leaves = pending_leaves + approved_leaves
+        
+        if not all_leaves:
             return {"ok": False, "message": "취소 가능한 연차 신청이 없습니다."}
         
-        context["cancel_candidates"] = pending_leaves[:10]
+        # 최근 순으로 정렬 (request_date 기준)
+        all_leaves.sort(key=lambda x: x.get('request_date', ''), reverse=True)
+        
+        context["cancel_candidates"] = all_leaves[:10]
         context["awaiting_slots"] = ["cancel_selection"]
         
         message = "📋 취소 가능한 연차 신청 목록:\n\n"
-        for idx, item in enumerate(pending_leaves[:10], 1):
-            message += f"{idx}. {item.get('leave_type')} {item.get('total_days')}일\n"
+        for idx, item in enumerate(all_leaves[:10], 1):
+            status_text = "대기" if item.get('status') == '대기' else "승인"
+            message += f"{idx}. {item.get('leave_type')} {item.get('total_days')}일 ({status_text})\n"
             message += f"   기간: {item.get('start_date')} ~ {item.get('end_date')}\n"
             message += f"   사유: {item.get('reason', '-')}\n\n"
         
@@ -851,9 +903,13 @@ def _collect_application_missing(parsed: ParsedLeaveIntent, context: Dict[str, A
     if not parsed.start_date and not slots.get("start_date"):
         missing.append("start_date")
     
-    # 종료 날짜 확인
-    if not parsed.end_date and not slots.get("end_date"):
-        missing.append("end_date")
+    # 종료 날짜 확인 (반차가 아닌 경우만 필수)
+    leave_type = parsed.leave_type or slots.get("leave_type", "연차")
+    if leave_type != "반차":
+        # 반차가 아니면 end_date 필수
+        if not parsed.end_date and not slots.get("end_date"):
+            missing.append("end_date")
+    # 반차는 end_date가 없으면 start_date와 같게 설정되므로 missing에 추가하지 않음
     
     # 사유 확인
     reason_candidate = (parsed.reason or "").strip()
