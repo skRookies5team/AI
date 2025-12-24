@@ -321,6 +321,18 @@ class SessionUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, description="새 세션 제목")
 
 
+class MessagePayload(BaseModel):
+    """단일 메시지 페이로드."""
+    role: str = Field(..., description="메시지 역할 (user 또는 assistant)")
+    content: str = Field(..., description="메시지 내용")
+    timestamp: Optional[str] = Field(default=None, description="타임스탬프 (ISO 8601)")
+
+
+class AddMessagesRequest(BaseModel):
+    """메시지 추가 요청 모델."""
+    messages: List[MessagePayload] = Field(..., description="추가할 메시지 리스트")
+
+
 class DocumentUploadResponse(BaseModel):
     """문서 업로드 응답 모델."""
 
@@ -1577,6 +1589,75 @@ async def update_session(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"세션 업데이트 실패: {str(exc)}") from exc
+
+
+@app.post("/api/sessions/{session_id}/messages")
+async def add_messages_to_session(
+    session_id: str,
+    payload: 'AddMessagesRequest',
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """프론트엔드 UI 상호작용 메시지를 conversation_history에 추가.
+    
+    AI 그래프 실행 없이 메시지만 저장합니다.
+    카테고리 선택, FAQ 클릭 등 프론트엔드에서 처리되는 상호작용에 사용.
+    
+    Args:
+        session_id: 세션 ID
+        payload: 추가할 메시지 리스트
+        current_user: 인증된 사용자
+        
+    Returns:
+        저장 결과
+    """
+    try:
+        employee_id = current_user["employee_id"]
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+        
+        # 기존 세션 데이터 로드 (없으면 새로 생성)
+        try:
+            session_data = await session_manager.load_session_data(session_id, employee_id)
+        except Exception:
+            # 세션이 없으면 새로 생성 (session_id를 지정하여 생성)
+            await session_manager.create_session(
+                employee_id=employee_id,
+                session_id=session_id,
+                title="새 대화"
+            )
+            session_data = await session_manager.load_session_data(session_id, employee_id)
+        
+        conversation_history = session_data.get("conversation_history", [])
+        
+        # 새 메시지 추가
+        for msg in payload.messages:
+            conversation_history.append({
+                "role": msg.role,
+                "content": msg.content,
+                "timestamp": msg.timestamp or datetime.now().isoformat()
+            })
+        
+        # conversation_history만 업데이트하여 저장
+        session_data["conversation_history"] = conversation_history
+        
+        # ✅ employee_id 추가 (save_session_state에서 필수로 요구)
+        if "employee_id" not in session_data:
+            session_data["employee_id"] = employee_id
+        
+        await session_manager.save_session_state(session_id, session_data)
+        
+        return {
+            "ok": True,
+            "message": f"{len(payload.messages)}개 메시지가 저장되었습니다.",
+            "message_count": len(conversation_history)
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"메시지 저장 실패: {str(exc)}") from exc
 
 
 @app.post("/api/session/new", response_model=SessionResponse)
