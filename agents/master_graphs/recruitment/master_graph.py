@@ -9,6 +9,7 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
+import yaml
 
 from langgraph.graph import StateGraph, END
 
@@ -28,7 +29,22 @@ class RecruitmentMasterGraph(BaseMasterGraph):
     기능:
     - 인재 검색 및 추천: 벡터 DB에서 이력서를 검색하여 인재 추천
     - 이력서 핵심 요약: 선택된 이력서를 LLM으로 핵심 요약
+    
+    멀티턴 대화 지원:
+    - Redis에 검색된 인재 목록, 선택된 이력서 정보를 저장
+    - "1번 요약해줘", "2번 자세히" 같은 요청 시 이전 검색 컨텍스트를 활용
     """
+    
+    def __init__(self):
+        """초기화 및 YAML 설정 로드."""
+        super().__init__()
+        
+        # prompts.yaml 로드
+        yaml_path = Path(__file__).parent / "prompts.yaml"
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            self.config = yaml.safe_load(f)
+        
+        logger.info(f"✅ Recruitment 도메인 YAML 설정 로드 완료: {yaml_path}")
     
     def get_domain_name(self) -> str:
         return "recruitment"
@@ -128,6 +144,69 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         conversation_history = state.get("conversation_history", [])
+        recruitment_context = state.get("recruitment_context", {}) or {}
+        
+        # ✅ YAML에서 상세 정보 요청 키워드 로드
+        detail_keywords = self.config.get("detail_request", {}).get("keywords", [])
+        is_detail_request = any(k in query for k in detail_keywords)
+        
+        if is_detail_request:
+            print(f"✅ 상세 정보 요청 감지: '{query}'")
+            
+            # ✅ YAML에서 이름 추출 키워드 로드
+            name_extraction_keywords = self.config.get("detail_request", {}).get("name_extraction", {}).get("before_keywords", [])
+            excluded_words = self.config.get("detail_request", {}).get("name_extraction", {}).get("excluded_words", [])
+            
+            if name_extraction_keywords:
+                pattern = r'([가-힣]{2,4})\s*(?:' + '|'.join(name_extraction_keywords) + ')'
+                name_match = re.search(pattern, query)
+                
+                if name_match:
+                    target_name = name_match.group(1)
+                    
+                    # ✅ 일반 명사 제외
+                    if target_name in excluded_words:
+                        print(f"⚠️ '{target_name}'은(는) 일반 명사로 제외됨 → 일반 검색으로 처리")
+                        # 이름 기반 요청이 아니므로 아래 일반 검색 로직으로 이동
+                    elif recruitment_context:
+                        last_results = recruitment_context.get("resume_search", {}).get("last_results", [])
+                        
+                        print(f"🔍 '{target_name}'님 검색 중... (저장된 결과: {len(last_results)}개)")
+                        
+                        # 이름으로 검색
+                        for resume in last_results:
+                            if resume.get("name") == target_name:
+                                content = resume.get("content", "상세 정보를 찾을 수 없습니다.")
+                                print(f"✅ '{target_name}'님 정보 찾음!")
+                                
+                                return {
+                                    "final_response": f"📄 **{target_name}님의 상세 이력서**\n\n{content}",
+                                    "messages": [f"{target_name}님의 상세 정보"],
+                                    "search_results": [],
+                                    "recruitment_context": recruitment_context,
+                                }
+                        
+                        print(f"⚠️ '{target_name}'님을 찾을 수 없음")
+                        # ✅ YAML에서 에러 메시지 로드
+                        error_msg = self.config.get("detail_request", {}).get("error_messages", {}).get("not_found", "정보를 찾을 수 없습니다.")
+                        error_msg = error_msg.format(name=target_name)
+                        
+                        return {
+                            "final_response": error_msg,
+                            "messages": ["정보를 찾을 수 없음"],
+                            "search_results": [],
+                            "recruitment_context": recruitment_context,
+                        }
+            
+            # ✅ YAML에서 에러 메시지 로드
+            no_name_msg = self.config.get("detail_request", {}).get("error_messages", {}).get("no_name", "이름을 명시해주세요.")
+            
+            return {
+                "final_response": no_name_msg,
+                "messages": ["이름을 명시해주세요"],
+                "search_results": [],
+                "recruitment_context": recruitment_context,
+            }
         
         # 이전 요청 확인 질문인지 감지
         is_history_check = any(k in query for k in [
@@ -175,6 +254,46 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             }
         
         # 일반 검색 요청 처리
+        # 먼저 조건이 있는지 확인
+        has_position = any(keyword in query for keyword in [
+            "개발자", "엔지니어", "백엔드", "프론트엔드", "풀스택", "AI", 
+            "인사", "담당자", "매니저", "디자이너", "기획자", "PM", "PO",
+            "데브옵스", "DevOps", "QA", "데이터", "분석가", "마케터"
+        ])
+        
+        has_experience = any(keyword in query for keyword in [
+            "년", "경력", "신입", "초급", "중급", "시니어", "주니어"
+        ]) or bool(re.search(r'\d+[-~]\d+\s*년', query))  # "4-6년", "3~5년" 형태
+        
+        has_skills = any(keyword in query for keyword in [
+            "Python", "Java", "JavaScript", "TypeScript", "React", "Vue", "Angular",
+            "Node", "Django", "Flask", "Spring", "AWS", "Azure", "GCP",
+            "Docker", "Kubernetes", "MySQL", "PostgreSQL", "MongoDB", "Redis"
+        ])
+        
+        # 조건이 하나도 없으면 사용자에게 조건 요청
+        if not (has_position or has_experience or has_skills):
+            print(f"⚠️ 조건 없는 인재 추천 요청 감지: '{query}'")
+            guidance_message = (
+                "인재 추천을 도와드리겠습니다! 다음 정보를 알려주세요:\n\n"
+                "1️⃣ **포지션**: 어떤 직무의 인재를 찾으시나요?\n"
+                "   (예: 백엔드 개발자, 프론트엔드 개발자, AI 엔지니어, 인사담당자 등)\n\n"
+                "2️⃣ **경력**: 경력은 얼마나 되어야 하나요?\n"
+                "   (예: 신입, 1-3년, 4-6년, 7-9년, 10년 이상)\n\n"
+                "3️⃣ **기술** (선택): 특정 기술 스택이 필요하신가요?\n"
+                "   (예: Python, Java, AWS, React 등)\n\n"
+                "💡 **예시**: \"백엔드 개발자 경력 4-6년 Python, AWS 경험자\""
+            )
+            return {
+                "final_response": guidance_message,
+                "messages": [guidance_message],
+                "requires_input": True,
+                "search_results": [],
+                "recruitment_context": state.get("recruitment_context", {}) or {},
+            }
+        
+        print(f"✅ 조건이 포함된 검색 요청 - 포지션: {has_position}, 경력: {has_experience}, 스킬: {has_skills}")
+        
         # 검색 파라미터 추출
         search_limit = 5  # 기본값
         
@@ -215,6 +334,53 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         recruitment_context = state.get("recruitment_context") or {}
         if not isinstance(recruitment_context, dict):
             recruitment_context = {}
+        
+        # ✅ 이름 기반 상세 정보 요청 처리 (우선)
+        detail_keywords = self.config.get("detail_request", {}).get("keywords", [])
+        is_detail_request = any(k in query for k in detail_keywords)
+        
+        if is_detail_request:
+            name_extraction_keywords = self.config.get("detail_request", {}).get("name_extraction", {}).get("before_keywords", [])
+            excluded_words = self.config.get("detail_request", {}).get("name_extraction", {}).get("excluded_words", [])
+            
+            if name_extraction_keywords:
+                pattern = r'([가-힣]{2,4})\s*(?:' + '|'.join(name_extraction_keywords) + ')'
+                name_match = re.search(pattern, query)
+                
+                if name_match:
+                    target_name = name_match.group(1)
+                    
+                    # ✅ 일반 명사 제외
+                    if target_name in excluded_words:
+                        print(f"⚠️ '{target_name}'은(는) 일반 명사로 제외됨 → 번호 기반 처리로 이동")
+                        # 이름 기반 요청이 아니므로 아래 번호 기반 로직으로 이동
+                    else:
+                        last_results = recruitment_context.get("resume_search", {}).get("last_results", [])
+                        
+                        print(f"🔍 '{target_name}'님 검색 중... (저장된 결과: {len(last_results)}개)")
+                        
+                        for resume in last_results:
+                            if resume.get("name") == target_name:
+                                content = resume.get("content", "상세 정보를 찾을 수 없습니다.")
+                                print(f"✅ '{target_name}'님 정보 찾음!")
+                                
+                                return {
+                                    "final_response": f"📄 **{target_name}님의 상세 이력서**\n\n{content}",
+                                    "messages": [f"{target_name}님의 상세 정보"],
+                                    "search_results": [],
+                                    "recruitment_context": recruitment_context,
+                                }
+                        
+                        # 이름을 찾았지만 결과에 없음
+                        error_msg = self.config.get("detail_request", {}).get("error_messages", {}).get("not_found", "'{name}'님의 정보를 찾을 수 없습니다.")
+                        error_msg = error_msg.format(name=target_name)
+                        
+                        return {
+                            "final_response": error_msg,
+                            "messages": ["정보를 찾을 수 없음"],
+                            "search_results": [],
+                            "recruitment_context": recruitment_context,
+                        }
         
         # 선택된 인재 번호 가져오기
         selected_resume_index = state.get("selected_resume_index")
