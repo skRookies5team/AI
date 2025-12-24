@@ -718,6 +718,13 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     last_domain = state.get("last_domain")
     conversation_history = state.get("conversation_history", [])
     
+    # 대화 히스토리에 사용자 메시지 추가 (조건문들 전에 미리 정의)
+    user_message: Message = {
+        "role": "user",
+        "content": query,
+        "timestamp": datetime.now().isoformat()
+    }
+    
     # ✅ 이메일 수신자 선택 처리 (우선순위 높음)
     email_compose_context = state.get("email_compose_context") or {}
     pending_selection = email_compose_context.get("pending_recipient_selection", {})
@@ -729,12 +736,6 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         if match:
             print(f"✅ 이메일 수신자 선택 요청 감지: '{query}' → email 도메인으로 라우팅")
             _routing_logger.info(f"[라우팅 완료] 이메일 수신자 선택: email (요청: {query})")
-            # 대화 히스토리에 사용자 메시지 추가
-            user_message: Message = {
-                "role": "user",
-                "content": query,
-                "timestamp": datetime.now().isoformat()
-            }
             return {
                 "domain": "email",
                 "conversation_history": [user_message]
@@ -1074,12 +1075,6 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                         if redis_last_domain and redis_last_domain in MASTER_GRAPHS:
                             print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
                             _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
-                            # 대화 히스토리에 사용자 메시지 추가
-                            user_message: Message = {
-                                "role": "user",
-                                "content": query,
-                                "timestamp": datetime.now().isoformat()
-                            }
                             return {
                                 "domain": redis_last_domain,
                                 "conversation_history": [user_message],
