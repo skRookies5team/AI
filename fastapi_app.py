@@ -1074,20 +1074,10 @@ async def chat_endpoint(
         # Recruitment 도메인인 경우 검색 결과를 rows에 포함
         rows = []
         if last_domain == "recruitment":
-            # search_results 또는 recruitment_context에서 결과 가져오기
             search_results = final_state.get("search_results", [])
             if search_results:
+                # 카드 형식으로 변환
                 rows = search_results
-                print(f"✅ search_results에서 {len(rows)}개 인재 결과 추출")
-            else:
-                # search_results가 없으면 recruitment_context의 last_results에서 가져오기
-                recruitment_context = final_state.get("recruitment_context", {})
-                if recruitment_context and isinstance(recruitment_context, dict):
-                    resume_search = recruitment_context.get("resume_search", {})
-                    last_results = resume_search.get("last_results", [])
-                    if last_results:
-                        rows = last_results
-                        print(f"✅ recruitment_context에서 {len(rows)}개 인재 결과 추출")
 
         return ChatResponse(
             ok=True,
@@ -2068,7 +2058,7 @@ async def get_meeting_rooms(
         )
         
         # 날짜/시간 기반 예약 가능 여부 필터링 (선택사항)
-        available_rooms     = rooms
+        available_rooms = rooms
         if start_date and start_time and end_date and end_time:
             from datetime import datetime
             try:
