@@ -833,6 +833,26 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 print(f"⚠️ Redis에서 워크플로우 상태 복구 실패: {e}")
 
         # last_domain에서 워크플로우 정보 복구
+        # 단, workflow_type이나 workflow_steps가 명시적으로 없는 경우(종료된 경우)에는 복구하지 않음
+        if not workflow_in_progress and not workflow_type and not workflow_steps and last_domain and "step" in last_domain.lower():
+            # 워크플로우가 진행 중이 아니고 타입/단계 정보도 없는데 last_domain에만 step이 있다면,
+            # 이는 방금 종료된 워크플로우의 잔재일 가능성이 높으므로 복구하지 않고 일반 라우팅 진행
+            print(f"ℹ️ 종료된 워크플로우 잔재 감지 ({last_domain}). 복구하지 않고 일반 라우팅 진행.")
+            # last_domain을 일반 도메인으로 정규화 (예: "Apply for a business trip step4" -> "email")
+            if "business trip" in last_domain.lower() or "출장" in last_domain:
+                last_domain = "schedule"
+            elif "recruitment" in last_domain.lower() or "채용" in last_domain:
+                last_domain = "recruitment"
+            elif "document" in last_domain.lower() or "문서" in last_domain:
+                last_domain = "document"
+            elif "email" in last_domain.lower() or "이메일" in last_domain:
+                last_domain = "email"
+            else:
+                last_domain = None
+            
+            state["last_domain"] = last_domain
+
+        # 실제 복구 로직 (위의 필터링을 통과한 경우에만)
         if not workflow_in_progress and last_domain and "step" in last_domain.lower():
             # last_domain이 "Apply for a business trip step1" 형식이면 워크플로우 진행 중으로 간주
             # 워크플로우 타입 추출
@@ -977,14 +997,18 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         if is_cancel:
             print(f"⚠️ 워크플로우 취소 요청: {workflow_type}")
             if workflow_type == "business_trip" and any(kw in query for kw in ["출장", "business_trip"]):
+                # 워크플로우 취소
+                print(f"✅ 워크플로우 취소 요청 감지: {workflow_type}")
                 return {
                     "workflow_type": None,
                     "workflow_steps": None,
                     "current_workflow_step_index": None,
                     "workflow_completed_steps": None,
                     "workflow_in_progress": False,
+                    "workflow_temp_data": {},  # 임시 데이터 초기화
                     "next_domain": None,
                     "domain": "schedule",
+                    "last_domain": "schedule",  # last_domain 정규화
                     "conversation_history": [user_message],
                     **current_date_info
                 }
@@ -994,8 +1018,10 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "current_workflow_step_index": None,
                 "workflow_completed_steps": None,
                 "workflow_in_progress": False,
+                "workflow_temp_data": {},  # 임시 데이터 초기화
                 "next_domain": None,
                 "domain": None,
+                "last_domain": None,  # last_domain 초기화
                 "final_response": f"워크플로우({workflow_type})가 취소되었습니다.",
                 "conversation_history": [user_message],
                 **current_date_info
@@ -1046,6 +1072,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "workflow_in_progress": False,
                 "next_domain": None,
                 "domain": None,
+                "last_domain": None,  # last_domain 초기화
                 "workflow_temp_data": {},
                 "final_response": completion_message,
                 "conversation_history": [user_message],
