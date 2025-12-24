@@ -11,6 +11,35 @@ from ..db_connector import (
 )
 
 
+def clean_rag_instructions(text: str) -> str:
+    """RAG 관련 지시사항을 텍스트에서 제거합니다.
+    
+    Args:
+        text: 원본 텍스트
+        
+    Returns:
+        RAG 관련 지시사항이 제거된 텍스트
+    """
+    if not text:
+        return text
+    
+    # RAG 관련 지시사항 패턴 제거
+    patterns = [
+        r'\s*\([^)]*이전[^)]*\)\s*',  # (이전 ...)
+        r'\s*\([^)]*참조[^)]*\)\s*',  # (참조 ...)
+        r'\s*\([^)]*RAG[^)]*\)\s*',  # (RAG ...)
+        r'\s*\([^)]*유사[^)]*문서[^)]*\)\s*',  # (유사 문서 ...)
+        r'\s*\([^)]*참조해줘[^)]*\)\s*',  # (참조해줘 ...)
+        r'\s*\([^)]*문서[^)]*참조[^)]*\)\s*',  # (문서 참조 ...)
+    ]
+    
+    cleaned_text = text
+    for pattern in patterns:
+        cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.IGNORECASE)
+    
+    return cleaned_text.strip()
+
+
 def extract_vacation_request_fields(
     field_values: Dict[str, Any],
     requirements: str,
@@ -273,9 +302,13 @@ def extract_vacation_request_fields(
         for pattern in reason_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)
             if match:
-                field_values['reason'] = match.group(1).strip()
-                print(f"✅ 요구사항에서 reason 추출: {field_values['reason']}")
-                break
+                reason_text = match.group(1).strip()
+                # RAG 관련 지시사항 제거
+                reason_text = clean_rag_instructions(reason_text)
+                if reason_text:
+                    field_values['reason'] = reason_text
+                    print(f"✅ 요구사항에서 reason 추출: {field_values['reason']}")
+                    break
     
     # 6. 결재선 설정
     # 1차 결재자: 신청자 본인

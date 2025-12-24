@@ -17,6 +17,7 @@ from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
 from agents.master_graphs.email.email_search_agent import email_search, _extract_recipient_info_with_llm
 from agents.master_graphs.email.email_compose_agent import compose_and_send_email
+from agents.master_graphs.email.workflow_email_composer import generate_workflow_email_draft
 from agents.structured_output import extract_structured_output, EmailSearchParams, AgentResponse
 
 # Email 전용 로거 설정 (email_compose_agent와 동일한 로그 파일 사용)
@@ -116,6 +117,20 @@ class EmailMasterGraph(BaseMasterGraph):
         step_start = time.time()
         query = state.get("query", "")
         session_id = state.get("session_id")
+        
+        # ✅ 워크플로우 모드 확인 (최우선 처리)
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_temp_data = state.get("workflow_temp_data") or {}
+        
+        # 워크플로우 모드이고 business_trip 워크플로우인 경우 자동으로 compose로 라우팅
+        if workflow_in_progress and workflow_type == "business_trip":
+            # workflow_temp_data에 출장 정보가 있으면 compose로 라우팅
+            if workflow_temp_data.get("start_time") and workflow_temp_data.get("end_time"):
+                print(f"✅ 워크플로우 모드 감지: {workflow_type} → compose로 자동 라우팅")
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ Email 의도 결정: compose (워크플로우 모드, {step_elapsed/1000:.2f}초)")
+                return {"intent": "compose"}
         
         # ✅ 수신자 정보가 있으면 자동으로 compose로 라우팅
         email_compose_context = state.get("email_compose_context") or {}
@@ -377,69 +392,88 @@ class EmailMasterGraph(BaseMasterGraph):
         
         # 워크플로우 모드이고 business_trip 워크플로우인 경우
         if workflow_in_progress and workflow_type == "business_trip":
-            # workflow_temp_data에서 출장 정보 가져오기
-            start_time_str = workflow_temp_data.get("start_time")
-            end_time_str = workflow_temp_data.get("end_time")
-            destination = workflow_temp_data.get("destination", "")
-            description = workflow_temp_data.get("description", "출장")
-            
-            if not start_time_str or not end_time_str:
-                return {
-                    "final_response": "❌ 출장 정보가 없습니다. 워크플로우를 처음부터 다시 시작해주세요.",
-                    "messages": ["출장 정보가 없습니다."],
-                    "email_compose_context": state.get("email_compose_context", {}),
-                }
-            
-            # 부재중 자동 응답 초안 생성
-            from datetime import datetime
-            try:
-                start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-                end_time = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
-            except Exception as e:
-                return {
-                    "final_response": f"❌ 날짜 정보를 파싱할 수 없습니다: {e}",
-                    "messages": ["날짜 정보를 파싱할 수 없습니다."],
-                    "email_compose_context": state.get("email_compose_context", {}),
-                }
-            
             # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
             email_compose_context = state.get("email_compose_context") or {}
             stored_draft_subject = email_compose_context.get("email_draft_subject")
             stored_draft_body = email_compose_context.get("email_draft_body")
+            stored_to_email = email_compose_context.get("to_email", "")
             
             # "발송" 또는 "수정" 명령 확인
             is_send_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
             is_revision_command = any(k in query.lower() for k in ["수정", "다시", "revision", "추가", "변경"])
             
             # "발송" 명령이 있고 초안이 있으면 발송 처리
-            if is_send_command and stored_draft_subject and stored_draft_body:
-                # compose_and_send_email 호출하여 발송
+            if is_send_command and stored_draft_subject and stored_draft_body and stored_to_email:
+                # ✅ 워크플로우 모드: 팀원들에게 이메일 발송
                 try:
                     result = await compose_and_send_email(
-                        user_id=state.get("user_id"),
-                        to_email="",  # 부재중 자동 응답은 수신자 없음 (자동 응답 설정)
-                        subject=stored_draft_subject,
-                        body=stored_draft_body,
+                        to_email=stored_to_email,  # 팀원 이메일 주소
+                        user_message=query,
                         cc=None,
                         bcc=None,
-                        is_reply=False,
                         original_subject=None,
                         original_sender=None,
                         original_body=None,
-                        user_message=query,
+                        approval_status="approved",  # 발송 명령이므로 "approved"로 설정
                         email_draft_subject=stored_draft_subject,
                         email_draft_body=stored_draft_body,
                     )
                     
                     if result.get("ok"):
-                        # 발송 완료 - 다음 단계로 진행
-                        return {
-                            "final_response": result.get("message", "부재중 자동 응답이 설정되었습니다."),
-                            "messages": [result.get("message", "")],
-                            "email_compose_context": {},  # 컨텍스트 초기화
-                            "workflow_temp_data": workflow_temp_data,
-                            "requires_input": False,  # 다음 단계로 진행
-                        }
+                        # ✅ 발송 완료 - 워크플로우 완료 처리
+                        current_step_index = state.get("current_workflow_step_index", 0)
+                        workflow_steps = state.get("workflow_steps", [])
+                        
+                        # 마지막 단계인지 확인
+                        if current_step_index >= len(workflow_steps) - 1:
+                            # 워크플로우 완료
+                            from agents.orchestrator_v3 import load_workflows_config
+                            workflows = load_workflows_config()
+                            workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                            completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
+                            
+                            # ✅ 이메일 발송 완료 및 워크플로우 종료 안내 메시지 (요청 형식)
+                            raw_send_msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
+                            # 예: "이메일이 성공적으로 발송되었습니다! (수신자: ...)" -> 줄바꿈 형태로 정리
+                            send_msg = raw_send_msg.replace("! (수신자:", "!\n(수신자:").replace(") ---", ")")
+                            if " (수신자:" in send_msg and "\n(수신자:" not in send_msg:
+                                send_msg = send_msg.replace(" (수신자:", "\n(수신자:")
+
+                            email_sent_msg = (
+                                f"{send_msg}\n\n"
+                                f"완료된 작업:\n\n"
+                                f"{completion_message}\n\n"
+                                f"출장 신청 워크플로우가 종료되었습니다."
+                            )
+                            
+                            return {
+                                "final_response": email_sent_msg,
+                                "messages": [email_sent_msg],
+                                "email_compose_context": {},  # 컨텍스트 초기화
+                                "workflow_temp_data": {},  # 초기화
+                                "workflow_type": None,
+                                "workflow_steps": None,
+                                "current_workflow_step_index": None,
+                                "workflow_completed_steps": None,
+                                "workflow_in_progress": False,
+                                "next_domain": None,
+                                "requires_input": False,
+                            }
+                        else:
+                            # 다음 단계로 진행 (이미 마지막 단계이므로 여기 도달하지 않음)
+                            raw_send_msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
+                            send_msg = raw_send_msg.replace("! (수신자:", "!\n(수신자:").replace(") ---", ")")
+                            if " (수신자:" in send_msg and "\n(수신자:" not in send_msg:
+                                send_msg = send_msg.replace(" (수신자:", "\n(수신자:")
+                            email_sent_msg = send_msg
+                            
+                            return {
+                                "final_response": email_sent_msg,
+                                "messages": [email_sent_msg],
+                                "email_compose_context": {},  # 컨텍스트 초기화
+                                "workflow_temp_data": workflow_temp_data,
+                                "requires_input": False,
+                            }
                     else:
                         return {
                             "final_response": result.get("message", "이메일 발송에 실패했습니다."),
@@ -470,9 +504,10 @@ class EmailMasterGraph(BaseMasterGraph):
                 }
             
             # 초안이 이미 있고 명령이 없으면 초안 표시
-            if stored_draft_subject and stored_draft_body:
-                message = f"📧 **부재중 자동 응답 초안**\n\n"
+            if stored_draft_subject and stored_draft_body and stored_to_email:
+                message = f"📧 **팀원 알림 이메일 초안**\n\n"
                 message += f"**제목:** {stored_draft_subject}\n\n"
+                message += f"**수신자:** {stored_to_email}\n\n"
                 message += f"**본문:**\n{stored_draft_body}\n\n"
                 message += "이 초안을 사용하시겠습니까?\n\n[발송] 또는 [수정]을 선택해주세요."
                 
@@ -484,22 +519,50 @@ class EmailMasterGraph(BaseMasterGraph):
                     "requires_input": True,
                 }
             
-            # 초안 생성
-            absence_subject = "부재중 자동 응답"
-            absence_body = f"""안녕하세요.
-
-{start_time.strftime('%Y년 %m월 %d일')}부터 {end_time.strftime('%Y년 %m월 %d일')}까지 출장으로 인해 부재 중입니다.
-
-{destination} 출장으로 인해 이메일 확인이 지연될 수 있습니다.
-긴급한 사항은 전화로 연락 부탁드립니다.
-
-감사합니다."""
+            # ✅ 초안 생성 (팀원들에게 출장 알림) - workflow_email_composer 사용
+            employee_id = state.get("employee_id")
+            
+            # user_dept 조회 (없으면 자동 조회)
+            user_dept = None
+            if employee_id:
+                try:
+                    from agents.master_graphs.schedule.services.database_service import DatabaseService
+                    from sqlalchemy import text
+                    db = DatabaseService()
+                    async with db._session() as session:
+                        sql = "SELECT dept FROM ai_agent.employee WHERE employee_id = :employee_id"
+                        result = await session.execute(text(sql), {"employee_id": employee_id})
+                        row = result.fetchone()
+                        if row:
+                            user_dept = row.dept
+                except Exception as e:
+                    print(f"⚠️ 팀원 정보 조회 실패: {e}")
+            
+            # 워크플로우 이메일 초안 생성
+            draft_result = await generate_workflow_email_draft(
+                workflow_temp_data=workflow_temp_data,
+                employee_id=employee_id,
+                user_dept=user_dept
+            )
+            
+            if draft_result.get("error"):
+                return {
+                    "final_response": f"❌ {draft_result['error']}",
+                    "messages": [draft_result["error"]],
+                    "email_compose_context": email_compose_context,
+                    "workflow_temp_data": workflow_temp_data,
+                    "requires_input": True,
+                }
+            
+            to_email = draft_result.get("to_email", "")
+            absence_subject = draft_result.get("subject", "")
+            absence_body = draft_result.get("body", "")
             
             # 현재 단계 번호 계산
             current_step_index = state.get("current_workflow_step_index", 0)
             current_step_number = current_step_index + 1
-            # Step 완료 메시지 추가
-            step_complete_msg = f"✅ [Step {current_step_number} 완료] 부재중 자동 응답 초안이 생성되었습니다.\n\n"
+            step_complete_msg = f"✅ [Step {current_step_number} 완료] 팀원 알림 이메일 초안이 생성되었습니다.\n\n"
+            
             # 초안 컨펌 요청
             buttons_html = """
 <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -511,8 +574,9 @@ class EmailMasterGraph(BaseMasterGraph):
     </button>
 </div>
 """
-            message = f"📧 **부재중 자동 응답 초안**\n\n"
+            message = f"📧 **팀원 알림 이메일 초안**\n\n"
             message += f"**제목:** {absence_subject}\n\n"
+            message += f"**수신자:** {to_email}\n\n"
             message += f"**본문:**\n{absence_body}\n\n"
             message += "이 초안을 사용하시겠습니까?" + buttons_html
             message = step_complete_msg + message
@@ -520,6 +584,7 @@ class EmailMasterGraph(BaseMasterGraph):
             # email_compose_context에 초안 저장
             email_compose_context["email_draft_subject"] = absence_subject
             email_compose_context["email_draft_body"] = absence_body
+            email_compose_context["to_email"] = to_email  # 수신자 정보도 저장
             email_compose_context["approval_status"] = "pending"
             
             return {

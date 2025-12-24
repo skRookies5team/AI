@@ -119,6 +119,12 @@ def process_domain_node_result(
         current_step_index = state.get("current_workflow_step_index", 0)
         workflow_completed_steps = state.get("workflow_completed_steps", [])
         
+        # ✅ 워크플로우 종료 확인 (result에 workflow_in_progress=False가 설정된 경우)
+        if result.get("workflow_in_progress") is False:
+            # 워크플로우가 종료된 경우 - 검증 및 다음 단계 진행 로직 건너뛰기
+            print(f"✅ 워크플로우 종료 감지: workflow_in_progress=False")
+            return result
+        
         # 디버깅: state와 result의 workflow_temp_data 확인
         print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - state workflow_temp_data: {state.get('workflow_temp_data', {})}")
         print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - result workflow_temp_data: {result.get('workflow_temp_data', {})}")

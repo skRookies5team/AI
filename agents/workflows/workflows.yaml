@@ -120,10 +120,10 @@ workflows:
           - "gcal_event_id"
         
       - domain: "email"
-        step_name: "부재중 설정"
-        description: "부재중 자동 응답 초안 생성 및 컨펌 (휴먼 인 더 루프)"
+        step_name: "이메일 발송"
+        description: "부재중 기간 안내 이메일 초안 생성 및 컨펌 후 발송 (휴먼 인 더 루프)"
         intent: "compose"  # email 도메인의 intent
-        action: "compose_absence_email"
+        action: "compose_and_send_email"
         required_data:
           - "workflow_temp_data"  # state에서 가져오기
         output_data:
@@ -165,22 +165,15 @@ workflows:
     step_completion_messages:
       schedule_check: "일정 확인이 완료되었습니다. 중복된 중요 미팅이 있는지 확인했습니다."
       document_generate: "출장/휴가 신청서가 생성되었습니다."
-      email_compose: "부재중 자동 응답 초안이 생성되었습니다. 확인 후 발송해주세요."
+      email_compose: "부재중 기간 안내 이메일 초안이 생성되었습니다. 확인 후 발송해주세요."
       schedule_register: "캘린더에 부재 일정이 등록되었습니다."
     
     # 워크플로우 완료 메시지
     completion_message: |
-      출장/휴가 관리 작업이 완료되었습니다!
-      
-      완료된 작업:
       1. 일정 확인 완료
-      2. 출장/휴가 신청서 생성 완료
-      3. 부재중 자동 응답 초안 생성 완료
-      4. 캘린더 일정 등록 완료
-      
-      다음 단계:
-      - 생성된 신청서를 확인하고 결재에 올려주세요.
-      - 부재중 이메일 초안을 확인 후 발송해주세요.
+      2. 출장/휴가 신청서 작성 및 결재 상신 완료
+      3. 캘린더 일정 등록 완료
+      4. 부재중 기간 안내 이메일 초안 생성 및 발송 완료
 
   # 추가 워크플로우 정의
   
