@@ -1580,8 +1580,11 @@
                                     <option value="supplier_evaluation_form">공급업체 평가서</option>
                                     <option value="contract_renewal_report">계약 갱신 보고서</option>
                                     <option value="activity_based_costing">활동기준 원가 계산서</option>
-                                    <option value="project_schedule">프로젝트 일정표</option>
                                     <option value="product_comparison_table">제품 비교표</option>
+                                    <option value="business_trip_request_form">출장 신청서</option>
+                                    <option value="vacation_request_form">휴가 신청서</option>
+                                    <option value="interview_evaluation_form">면접 평가서</option>
+                                    <option value="meeting_minutes">회의록</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -3244,6 +3247,111 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
+        // ===== 템플릿별 예시 데이터 =====
+        const templateExamples = {
+            product_development_plan: {
+                titlePlaceholder: "예: 2024년 스마트워치 신제품 개발 계획서",
+                requirementsPlaceholder: "예:\n1. 신제품의 핵심 기능: 건강 모니터링(심박수, 혈압, 수면 분석), GPS 추적, 스마트 알림, 7일 배터리 수명\n2. 개발 일정: 2024년 1월~6월 (6개월), Q1: 설계 및 프로토타입, Q2: 테스트 및 양산 준비\n3. 예산: 총 50억원 (인력비 30억, 부품비 15억, 마케팅 5억)\n4. 마케팅 전략: 젊은 층 타겟, SNS 마케팅, 인플루언서 협업"
+            },
+            purchase_order: {
+                titlePlaceholder: "예: 2024년 1분기 부품 발주서",
+                requirementsPlaceholder: "예:\n1. 발주번호: PO-2024-001\n2. 발주 업체: 삼성전자 부품사업부\n3. 발주 항목: 디스플레이 패널 10,000개, 배터리 15,000개\n4. 납기일: 2024년 3월 31일\n5. 납품 장소: 서울 공장\n6. 결제 조건: 계약금 30%, 납품시 70%"
+            },
+            hr_summary_report: {
+                titlePlaceholder: "예: 2024년 1분기 인사정보 요약 리포트",
+                requirementsPlaceholder: "예:\n- 부서: 개발팀, 마케팅팀\n- 직급: 과장, 차장"
+            },
+            monthly_profit_analysis_report: {
+                titlePlaceholder: "예: 2024년 1월 수익 분석 리포트",
+                requirementsPlaceholder: "예:\n- 분석 기간: 2024년 1월\n- 지역: 중국, 미국, 일본\n- 제품 카테고리: 휴대폰"
+            },
+            work_performance_review: {
+                titlePlaceholder: "예: 2024년 상반기 근무 평가서",
+                requirementsPlaceholder: "예:\n1. 부서명: 인사팀, 코드번호: HR-2024-001\n2. 평가 기간: 2024년 1월 1일 ~ 6월 30일\n3. 업무명: 인사 시스템 구축 프로젝트\n4. 작성자명: 김인사\n5. 담당 부서장명: 이부장"
+            },
+            supplier_evaluation_form: {
+                titlePlaceholder: "예: 삼성전자 부품사업부 평가서",
+                requirementsPlaceholder: "예:\n- 평가 기간: 2023년 1년\n- 품질 점수: 95점\n- 납기 준수도: 98%\n- 가격 경쟁력: 우수\n- 서비스 평가: 매우 만족\n- 종합 평가: A등급"
+            },
+            contract_renewal_report: {
+                titlePlaceholder: "예: 네이버 클라우드 플랫폼 계약 갱신 보고서",
+                requirementsPlaceholder: "예:\n- 현재 계약 기간: 2023년 1월~12월\n- 갱신 계약 기간: 2024년 1월~12월\n- 계약 금액: 전년 대비 10% 증가 (5억원)\n- 주요 변경사항: 저장 용량 확대, 보안 강화\n- 갱신 사유: 서비스 만족도 높음, 비즈니스 확장 필요"
+            },
+            activity_based_costing: {
+                titlePlaceholder: "예: 2024년 1분기 활동기준 원가 계산서",
+                requirementsPlaceholder: "예:\n- 분석 기간: 2024년 1분기\n- 부서/센터: 생산부서, 품질관리부서\n- 활동 유형: 생산, 품질 관리, 배송"
+            },
+            product_comparison_table: {
+                titlePlaceholder: "예: 2024년 프리미엄 스마트폰 제품 비교표",
+                requirementsPlaceholder: "예:\n- 비교 목적: 신제품 선정을 위한 프리미엄 스마트폰 비교\n- 비교 대상: iPhone 15 Pro 512GB, Galaxy S24 Ultra 128GB, Pixel 8 Pro 256GB"
+            },
+            business_trip_request_form: {
+                titlePlaceholder: "예: 2024년 서울 출장 신청서",
+                requirementsPlaceholder: "예:\n- 출장지: 서울\n- 출장 목적: 고객 미팅\n- 출장 기간: 2024년 3월 15일 ~ 2024년 3월 17일\n- 출장 사유: 주요 고객사와의 계약 협상"
+            },
+            vacation_request_form: {
+                titlePlaceholder: "예: 2024년 연차 휴가 신청서",
+                requirementsPlaceholder: "예:\n- 휴가 유형: 연차\n- 휴가 기간: 2024년 3월 15일 ~ 2024년 3월 17일\n- 휴가 사유: 개인 사정으로 인한 휴가"
+            },
+            interview_evaluation_form: {
+                titlePlaceholder: "예: 2024년 신입 개발자 면접 평가서",
+                requirementsPlaceholder: "예:\n- 면접 일시: 2024년 3월 15일 오후 2시\n- 면접 유형: 1차 면접\n- 지원자 정보: 김개발, 백엔드 개발자, 경력 2년, 학사\n- 평가 항목: 기술 역량 85점, 커뮤니케이션 80점, 문제 해결 능력 90점, 팀워크 85점"
+            },
+            meeting_minutes: {
+                titlePlaceholder: "예: 2024년 1분기 프로젝트 킥오프 회의록",
+                requirementsPlaceholder: "예:\n- 회의 일시: 2024년 3월 15일 오후 2시\n- 회의 유형: 정기 회의\n- 회의 장소: 본사 회의실 A\n- 주관자: 김부장, 진행자: 이과장, 기록자: 박대리\n- 참석자: 김부장, 이과장, 박대리, 최사원, 정사원"
+            }
+        };
+
+        // 템플릿 선택 시 placeholder 업데이트 함수
+        function updateTemplatePlaceholders(templateName) {
+            const documentTitleInput = document.getElementById('documentTitle');
+            const requirementsTextarea = document.getElementById('requirements');
+            
+            if (!documentTitleInput || !requirementsTextarea) {
+                return;
+            }
+            
+            const example = templateExamples[templateName];
+            
+            if (example) {
+                // 입력 필드가 비어있을 때만 placeholder 업데이트
+                if (!documentTitleInput.value.trim()) {
+                    documentTitleInput.placeholder = example.titlePlaceholder;
+                }
+                if (!requirementsTextarea.value.trim()) {
+                    requirementsTextarea.placeholder = example.requirementsPlaceholder;
+                }
+            } else {
+                // 기본값으로 복원
+                documentTitleInput.placeholder = "예: 2024년 신제품 개발 계획서";
+                requirementsTextarea.placeholder = "예:\n1. 신제품의 핵심 기능과 특징을 명확히 기술\n2. 개발 일정과 마일스톤을 포함\n3. 예산 계획과 리소스 배분 명시\n4. 마케팅 전략과 출시 계획 포함";
+            }
+        }
+
+        // 템플릿 선택 이벤트 리스너 설정
+        const templateSelect = document.getElementById('templateSelect');
+        if (templateSelect) {
+            templateSelect.addEventListener('change', function() {
+                const selectedTemplate = this.value;
+                updateTemplatePlaceholders(selectedTemplate);
+                
+                // 선택이 해제되면 필드 초기화 (값이 없을 때만)
+                if (!selectedTemplate) {
+                    const documentTitleInput = document.getElementById('documentTitle');
+                    const requirementsTextarea = document.getElementById('requirements');
+                    if (documentTitleInput && !documentTitleInput.value.trim()) {
+                        documentTitleInput.value = '';
+                        documentTitleInput.placeholder = "예: 2024년 신제품 개발 계획서";
+                    }
+                    if (requirementsTextarea && !requirementsTextarea.value.trim()) {
+                        requirementsTextarea.value = '';
+                        requirementsTextarea.placeholder = "예:\n1. 신제품의 핵심 기능과 특징을 명확히 기술\n2. 개발 일정과 마일스톤을 포함\n3. 예산 계획과 리소스 배분 명시\n4. 마케팅 전략과 출시 계획 포함";
+                    }
+                }
+            });
+        }
+
         // ===== 문서 작성 기능 =====
         document.getElementById('documentForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -3369,20 +3477,141 @@
                         htmlContent = aiMessage;
                         console.log('✅ 메시지에서 HTML 감지, 길이:', htmlContent.length);
                     } else {
-                        console.log('❌ HTML 감지 실패. 메시지 시작:', trimmedMessage.substring(0, 200));
-                        console.log('메시지 길이:', trimmedMessage.length);
+                        // HTML이 아니지만 결재 버튼이 포함된 경우도 처리
+                        // (HTML 문서 + 결재 버튼이 함께 있는 경우)
+                        if (trimmedMessage.includes('결재를 진행하시겠습니까?') && trimmedMessage.includes('sendMessageFromButton')) {
+                            // HTML 문서 부분만 추출 (결재 버튼 제외)
+                            const htmlMatch = trimmedMessage.match(/(<!DOCTYPE\s+html[\s\S]*?<\/html>)/i);
+                            if (htmlMatch) {
+                                htmlContent = htmlMatch[1];
+                                console.log('✅ 메시지에서 HTML 문서 추출, 길이:', htmlContent.length);
+                            }
+                        }
+                        
+                        if (!htmlContent) {
+                            console.log('❌ HTML 감지 실패. 메시지 시작:', trimmedMessage.substring(0, 200));
+                            console.log('메시지 길이:', trimmedMessage.length);
+                        }
                     }
                 }
                 
+                // 3. 결재 완료 메시지 감지 (HTML 처리 전에 먼저 확인)
+                const isApprovalComplete = aiMessage && (
+                    aiMessage.includes('결재 상신이 완료되었습니다') ||
+                    aiMessage.includes('결재가 완료되었습니다') ||
+                    aiMessage.includes('결재 완료')
+                );
+                
+                if (isApprovalComplete) {
+                    // 결재 완료: 기존 문서는 유지하되 결재 버튼만 제거
+                    console.log('✅ 결재 완료 메시지 감지, 버튼 제거 처리');
+                    
+                    const actionButtonsDiv = document.getElementById('actionButtons');
+                    
+                    // 결재 관련 요소 제거 (메시지와 버튼)
+                    const approvalMessage = actionButtonsDiv.querySelector('div');
+                    if (approvalMessage && approvalMessage.textContent.includes('결재를 진행하시겠습니까?')) {
+                        approvalMessage.remove();
+                    }
+                    
+                    // 결재 버튼 제거 (진행, 취소 버튼)
+                    const allButtons = actionButtonsDiv.querySelectorAll('button');
+                    allButtons.forEach(btn => {
+                        const btnText = btn.textContent.trim();
+                        if (btnText.includes('진행') || btnText.includes('취소') || btnText === '✅ 진행' || btnText === '❌ 취소') {
+                            btn.remove();
+                        }
+                    });
+                    
+                    // 완료 메시지 표시
+                    const completeMessage = document.createElement('div');
+                    completeMessage.style.marginBottom = '15px';
+                    completeMessage.style.fontSize = '16px';
+                    completeMessage.style.fontWeight = '600';
+                    completeMessage.style.color = '#28a745';
+                    completeMessage.textContent = aiMessage.trim();
+                    actionButtonsDiv.insertBefore(completeMessage, actionButtonsDiv.firstChild);
+                    
+                    // 기존 문서가 있으면 유지 (iframe이 이미 있는 경우)
+                    if (previewDiv.querySelector('iframe')) {
+                        // iframe은 그대로 유지
+                        console.log('✅ 기존 문서 유지');
+                    } else {
+                        // 문서가 없으면 완료 메시지만 표시
+                        previewDiv.innerHTML = '';
+                        const contentDiv = document.createElement('div');
+                        contentDiv.className = 'result-preview-content';
+                        contentDiv.style.padding = '20px';
+                        contentDiv.style.textAlign = 'center';
+                        contentDiv.innerHTML = `<div style="font-size: 18px; color: #28a745; font-weight: 600;">${aiMessage.trim()}</div>`;
+                        previewDiv.appendChild(contentDiv);
+                        previewDiv.classList.add('active');
+                        document.getElementById('placeholderMessage').style.display = 'none';
+                    }
+                    
+                    actionButtonsDiv.style.display = 'flex';
+                    showAlert(aiMessage.trim(), 'success');
+                    console.log('✅ 결재 완료 처리 완료: 버튼 제거 및 완료 메시지 표시');
+                }
                 // 3. HTML이 있으면 무조건 iframe으로 렌더링 (텍스트로 표시 절대 금지!)
-                if (htmlContent) {
+                else if (htmlContent) {
                     console.log('🚀 HTML 렌더링 시작, 길이:', htmlContent.length);
+                    
+                    // 결재 버튼 추출 및 분리
+                    // aiMessage 전체에서 결재 버튼 찾기 (htmlContent는 HTML 문서만 포함)
+                    let documentHtml = htmlContent;
+                    let approvalButtonsHtml = null;
+                    
+                    // aiMessage 전체에서 결재 버튼 패턴 찾기 (더 유연한 패턴 사용)
+                    // 여러 가지 패턴 시도
+                    let approvalMatch = null;
+                    if (aiMessage) {
+                        // 패턴 1: 기본 패턴 (margin-top: 15px 포함)
+                        approvalMatch = aiMessage.match(/결재를 진행하시겠습니까?\s*(<div[^>]*style="[^"]*margin-top:\s*15px[^"]*"[^>]*>[\s\S]*?<\/div>)/i);
+                        
+                        // 패턴 2: margin-top 없이도 매칭
+                        if (!approvalMatch) {
+                            approvalMatch = aiMessage.match(/결재를 진행하시겠습니까?[\s\S]*?(<div[^>]*>[\s\S]*?<button[^>]*onclick[^>]*sendMessageFromButton[^>]*>[\s\S]*?<\/button>[\s\S]*?<\/div>)/i);
+                        }
+                        
+                        // 패턴 3: 더 넓은 범위로 매칭
+                        if (!approvalMatch) {
+                            approvalMatch = aiMessage.match(/결재를 진행하시겠습니까?[\s\S]*?(<div[^>]*>[\s\S]*?진행[\s\S]*?<\/button>[\s\S]*?<\/div>)/i);
+                        }
+                    }
+                    
+                    if (approvalMatch) {
+                        approvalButtonsHtml = approvalMatch[1];
+                        // HTML 문서에서 결재 관련 부분 제거 (혹시 포함되어 있을 경우)
+                        // "결재를 진행하시겠습니까?" 이전의 완료 메시지도 함께 제거
+                        const removePattern = /(✅\s*\[Step\s+\d+\s+완료\]\s*출장 신청서가 생성되었습니다\.|✅\s*(출장|휴가)\s*신청서가 생성되었습니다\.)\s*결재를 진행하시겠습니까?\s*<div[^>]*>[\s\S]*?<\/div>/gi;
+                        documentHtml = htmlContent.replace(removePattern, '');
+                        console.log('✅ 결재 버튼 분리 완료, 버튼 HTML 길이:', approvalButtonsHtml.length);
+                    } else {
+                        console.log('⚠️ 결재 버튼 패턴 매칭 실패');
+                        console.log('aiMessage 길이:', aiMessage ? aiMessage.length : 0);
+                        if (aiMessage) {
+                            const hasApprovalText = aiMessage.includes('결재를 진행하시겠습니까?');
+                            const hasButton = aiMessage.includes('sendMessageFromButton');
+                            console.log('결재 텍스트 포함:', hasApprovalText, ', 버튼 포함:', hasButton);
+                            if (hasApprovalText && hasButton) {
+                                // 수동으로 버튼 부분 추출 시도
+                                const buttonStart = aiMessage.indexOf('<div', aiMessage.indexOf('결재를 진행하시겠습니까?'));
+                                const buttonEnd = aiMessage.indexOf('</div>', buttonStart) + 6;
+                                if (buttonStart > 0 && buttonEnd > buttonStart) {
+                                    approvalButtonsHtml = aiMessage.substring(buttonStart, buttonEnd);
+                                    console.log('✅ 수동으로 결재 버튼 추출 성공');
+                                }
+                            }
+                        }
+                    }
                     
                     // 기존 내용 완전히 제거
                     previewDiv.innerHTML = '';
                     
+                    // HTML 문서를 iframe으로 렌더링
                     const iframe = document.createElement('iframe');
-                    iframe.srcdoc = htmlContent;
+                    iframe.srcdoc = documentHtml;
                     iframe.style.width = '100%';
                     iframe.style.height = '100%';
                     iframe.style.minHeight = '600px';
@@ -3392,20 +3621,128 @@
                     previewDiv.appendChild(iframe);
                     previewDiv.classList.add('active');
                     document.getElementById('placeholderMessage').style.display = 'none';
-                    document.getElementById('actionButtons').style.display = 'flex';
+                    
+                    // actionButtons 영역 처리
+                    const actionButtonsDiv = document.getElementById('actionButtons');
+                    
+                    // 기존 버튼들 유지 (클립보드 복사, PDF 변환)
+                    // 결재 버튼이 있으면 추가
+                    if (approvalButtonsHtml) {
+                        // 기존 버튼들 제거 (나중에 다시 추가)
+                        const existingButtons = actionButtonsDiv.querySelectorAll('button');
+                        existingButtons.forEach(btn => btn.remove());
+                        
+                        // 결재 진행 메시지 추가
+                        const approvalMessage = document.createElement('div');
+                        approvalMessage.style.marginBottom = '15px';
+                        approvalMessage.style.fontSize = '16px';
+                        approvalMessage.style.fontWeight = '600';
+                        approvalMessage.style.color = '#2c3e50';
+                        approvalMessage.textContent = '결재를 진행하시겠습니까?';
+                        actionButtonsDiv.insertBefore(approvalMessage, actionButtonsDiv.firstChild);
+                        
+                        // 결재 버튼 HTML 파싱하여 부모 페이지에서 작동하도록 수정
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = approvalButtonsHtml;
+                        const buttons = tempDiv.querySelectorAll('button[onclick*="sendMessageFromButton"]');
+                        
+                        buttons.forEach(button => {
+                            const onclickAttr = button.getAttribute('onclick');
+                            const messageMatch = onclickAttr.match(/sendMessageFromButton\(['"]([^'"]+)['"]\)/);
+                            if (messageMatch) {
+                                const message = messageMatch[1];
+                                const newButton = document.createElement('button');
+                                newButton.textContent = button.textContent.trim();
+                                newButton.className = 'btn btn-primary';
+                                newButton.style.cssText = button.style.cssText;
+                                newButton.onclick = () => sendMessageFromButton(message);
+                                actionButtonsDiv.appendChild(newButton);
+                            }
+                        });
+                        
+                        console.log('✅ 결재 버튼을 actionButtons에 추가 완료');
+                    }
+                    
+                    // 기존 버튼들 추가 (결재 버튼이 있든 없든 항상 추가)
+                    const copyBtn = document.createElement('button');
+                    copyBtn.className = 'btn btn-secondary';
+                    copyBtn.onclick = copyToClipboard;
+                    copyBtn.textContent = '📋 클립보드 복사';
+                    actionButtonsDiv.appendChild(copyBtn);
+                    
+                    const pdfBtn = document.createElement('button');
+                    pdfBtn.className = 'btn btn-success';
+                    pdfBtn.onclick = convertToPDF;
+                    pdfBtn.textContent = '💾 PDF 변환 및 저장';
+                    actionButtonsDiv.appendChild(pdfBtn);
+                    
+                    actionButtonsDiv.style.display = 'flex';
                     showAlert('문서가 성공적으로 생성되었습니다!', 'success');
                 } else {
                     // HTML이 아닌 일반 텍스트인 경우에만 텍스트로 표시
                     console.log('📝 일반 텍스트로 표시');
                     console.log('메시지 전체:', aiMessage);
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'result-preview-content';
-                    contentDiv.textContent = aiMessage;
-                    previewDiv.innerHTML = '';
-                    previewDiv.appendChild(contentDiv);
-                    previewDiv.classList.add('active');
-                    document.getElementById('placeholderMessage').style.display = 'none';
-                    showAlert('문서 생성이 완료되었습니다.', 'success');
+                    
+                    // 결재 완료 메시지 감지 (이미 위에서 처리했지만, 혹시 모를 경우를 대비)
+                    const isApprovalComplete = aiMessage && (
+                        aiMessage.includes('결재 상신이 완료되었습니다') ||
+                        aiMessage.includes('결재가 완료되었습니다') ||
+                        aiMessage.includes('결재 완료')
+                    );
+                    
+                    if (isApprovalComplete) {
+                        // 결재 완료 시: 결재 버튼 제거 및 완료 메시지 표시
+                        const actionButtonsDiv = document.getElementById('actionButtons');
+                        
+                        // 결재 관련 요소 제거 (메시지와 버튼)
+                        const approvalMessage = actionButtonsDiv.querySelector('div');
+                        if (approvalMessage && approvalMessage.textContent.includes('결재를 진행하시겠습니까?')) {
+                            approvalMessage.remove();
+                        }
+                        
+                        // 결재 버튼 제거 (진행, 취소 버튼)
+                        const allButtons = actionButtonsDiv.querySelectorAll('button');
+                        allButtons.forEach(btn => {
+                            const btnText = btn.textContent.trim();
+                            if (btnText.includes('진행') || btnText.includes('취소') || btnText === '✅ 진행' || btnText === '❌ 취소') {
+                                btn.remove();
+                            }
+                        });
+                        
+                        // 완료 메시지 표시
+                        const completeMessage = document.createElement('div');
+                        completeMessage.style.marginBottom = '15px';
+                        completeMessage.style.fontSize = '16px';
+                        completeMessage.style.fontWeight = '600';
+                        completeMessage.style.color = '#28a745';
+                        completeMessage.textContent = aiMessage.trim();
+                        actionButtonsDiv.insertBefore(completeMessage, actionButtonsDiv.firstChild);
+                        
+                        // 완료 메시지 표시
+                        const contentDiv = document.createElement('div');
+                        contentDiv.className = 'result-preview-content';
+                        contentDiv.style.padding = '20px';
+                        contentDiv.style.textAlign = 'center';
+                        contentDiv.innerHTML = `<div style="font-size: 18px; color: #28a745; font-weight: 600;">${aiMessage.trim()}</div>`;
+                        previewDiv.innerHTML = '';
+                        previewDiv.appendChild(contentDiv);
+                        previewDiv.classList.add('active');
+                        document.getElementById('placeholderMessage').style.display = 'none';
+                        
+                        actionButtonsDiv.style.display = 'flex';
+                        showAlert(aiMessage.trim(), 'success');
+                        console.log('✅ 결재 완료 처리: 버튼 제거 및 완료 메시지 표시');
+                    } else {
+                        // 일반 텍스트 메시지 처리
+                        const contentDiv = document.createElement('div');
+                        contentDiv.className = 'result-preview-content';
+                        contentDiv.textContent = aiMessage;
+                        previewDiv.innerHTML = '';
+                        previewDiv.appendChild(contentDiv);
+                        previewDiv.classList.add('active');
+                        document.getElementById('placeholderMessage').style.display = 'none';
+                        showAlert('문서 생성이 완료되었습니다.', 'success');
+                    }
                 }
 
             } catch (error) {

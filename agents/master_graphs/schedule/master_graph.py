@@ -72,17 +72,18 @@ class ScheduleMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
 
-        # ⚠️ 워크플로우 모드에서 Step 3(schedule - 캘린더 등록)인 경우 강제로 business_trip으로 라우팅
+        # ✅ 워크플로우 모드 확인 (최우선 처리)
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
-        current_workflow_step_index = state.get("current_workflow_step_index", 0)
+        current_step_index = state.get("current_workflow_step_index", 0)
         workflow_steps = state.get("workflow_steps", [])
-        
+
+        # 출장 워크플로우 진행 중인 경우 의도를 business_trip으로 강제
         if workflow_in_progress and workflow_type == "business_trip":
-            # Step 3 (인덱스 2)는 schedule 도메인에서 캘린더 등록 처리
-            if current_workflow_step_index == 2 and len(workflow_steps) > 2 and workflow_steps[2] == "schedule":
+            # 현재 단계가 schedule 도메인이라면 business_trip으로 라우팅 (Step 1 또는 Step 3)
+            if current_step_index < len(workflow_steps) and workflow_steps[current_step_index] == "schedule":
                 step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ 워크플로우 모드 Step 3: 캘린더 등록 - business_trip으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step {current_step_index + 1}) → business_trip으로 의도 강제 ({step_elapsed/1000:.2f}초)")
                 return {"intent": "business_trip"}
 
         schedule_context = state.get("schedule_context") or {}
