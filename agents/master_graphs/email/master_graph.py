@@ -308,6 +308,12 @@ class EmailMasterGraph(BaseMasterGraph):
         to_emails = email_compose_context.get("to_emails", [])
         to_names = email_compose_context.get("to_names", [])
         pending_selection = email_compose_context.get("pending_recipient_selection", {})
+
+        # ✅ 작성 취소는 generate_reply로 보내서 state 초기화 로직이 실행되도록 함
+        cancel_keywords = ["작성 취소", "취소", "중단", "그만", "cancel", "stop"]
+        if email_compose_context and any(k in query.lower() for k in cancel_keywords):
+            print("✅ 이메일 작성 취소 감지 → compose로 라우팅(상태 초기화 실행)")
+            return {"intent": "compose"}
         
         # 수신자 정보가 있거나 동명이인 선택 중이면 compose로 라우팅
         if to_emails or (to_names and not pending_selection) or pending_selection:
@@ -589,6 +595,20 @@ class EmailMasterGraph(BaseMasterGraph):
         print("--- [Email Master] Generating Reply/Compose Email ---")
         query = state.get("query", "")
         session_id = state.get("session_id")
+
+        # ✅ 작성 취소: 이메일 작성 state 초기화
+        # - 초안/수신자 선택/피드백 등 email_compose_context가 존재할 때만 초기화
+        cancel_keywords = ["작성 취소", "취소", "중단", "그만", "cancel", "stop"]
+        is_cancel = any(k in query.lower() for k in cancel_keywords)
+        email_compose_context_now = state.get("email_compose_context") or {}
+        if is_cancel and email_compose_context_now:
+            cancel_msg = "이메일 작성이 취소되었습니다. (이메일 상태를 초기화했습니다)"
+            return {
+                "final_response": cancel_msg,
+                "messages": [cancel_msg],
+                "email_compose_context": {},  # ✅ 컨텍스트 초기화
+                "requires_input": False,
+            }
         
         # 워크플로우 모드 확인
         workflow_in_progress = state.get("workflow_in_progress", False)

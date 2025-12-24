@@ -768,6 +768,44 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     search_params = config.get("search_params", {})
     query_preview_length = search_params.get("query_preview_length", 50)
     _routing_logger.info(f"[라우팅 시작] query='{query[:query_preview_length]}...', session_id={session_id}, current_date={current_date_info['current_date']}")
+
+    # ✅ 작성 취소는 "이메일 작성 상태가 조금이라도 남아있으면" email 도메인으로 강제 라우팅 (보수적 정책)
+    # - 취소는 명령형 입력이라 오분류되면 UX가 크게 나빠짐
+    email_compose_context = state.get("email_compose_context") or {}
+    cancel_keywords = ["작성 취소", "취소", "중단", "그만", "cancel", "stop"]
+    if email_compose_context and any(k in query.lower() for k in cancel_keywords):
+        print(f"✅ 이메일 작성 취소 명령 감지: '{query}' → email 도메인으로 강제 라우팅")
+        _routing_logger.info(f"[라우팅 완료] 이메일 취소 강제 라우팅: email (요청: {query})")
+        return {
+            "domain": "email",
+            "conversation_history": [user_message],
+            **current_date_info
+        }
+
+    # ✅ 이메일 초안/작성 진행 상태가 있고 HITL 키워드면 email 도메인으로 강제 라우팅
+    # (수정/발송 같은 짧은 입력이 다른 도메인으로 오분류되는 것을 방지)
+    stored_draft_subject = email_compose_context.get("email_draft_subject")
+    stored_draft_body = email_compose_context.get("email_draft_body")
+    has_stored_draft = bool(stored_draft_subject and stored_draft_body)
+    has_pending_recipient_selection = bool(email_compose_context.get("pending_recipient_selection"))
+    has_recipient_selected = bool(email_compose_context.get("to_emails"))
+
+    is_email_in_progress = has_stored_draft or has_pending_recipient_selection or has_recipient_selected
+
+    hitl_keywords = [
+        "수정", "다시", "변경", "추가",
+        "발송", "보내", "전송",
+        "revision", "modify", "send", "cancel",
+    ]
+
+    if is_email_in_progress and any(k in query.lower() for k in hitl_keywords):
+        print(f"✅ 이메일 작성 진행 중 HITL 키워드 감지: '{query}' → email 도메인으로 강제 라우팅")
+        _routing_logger.info(f"[라우팅 완료] 이메일 HITL 강제 라우팅: email (요청: {query})")
+        return {
+            "domain": "email",
+            "conversation_history": [user_message],
+            **current_date_info
+        }
     
     # 워크플로우 진행 중인지 먼저 확인 (최우선 처리)
     # 1. state에서 직접 확인
