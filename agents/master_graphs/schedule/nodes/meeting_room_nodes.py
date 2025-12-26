@@ -788,11 +788,11 @@ async def _parse_meeting_intent(
     awaiting_list = awaiting_slots or []
     awaiting_set = set(awaiting_list)
 
-    parse_cache: Dict[str, Tuple[Optional[datetime], Optional[datetime]]] = {}
+    parse_cache: Dict[str, Tuple[Optional[datetime], Optional[datetime], bool]] = {}
 
-    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime], bool]:
         if not text:
-            return None, None
+            return None, None, False
         if text not in parse_cache:
             parse_cache[text] = await parse_korean_date_with_llm(text)
         return parse_cache[text]
@@ -859,7 +859,7 @@ async def _parse_meeting_intent(
     base_end: Optional[datetime] = None
     need_full_time_parse = True
     if need_full_time_parse:
-        base_start, base_end = await cached_parse(query)
+        base_start, base_end, _ = await cached_parse(query)
 
     now_local = datetime.now(DEFAULT_TIMEZONE)
     
@@ -895,7 +895,7 @@ async def _parse_meeting_intent(
             end_time = fallback_end
 
     if start_time is None and start_time_str:
-        parsed_start, parsed_end = await cached_parse(start_time_str)
+        parsed_start, parsed_end, _ = await cached_parse(start_time_str)
         if parsed_start:
             start_time = _ensure_aware(parsed_start)
         if parsed_end and end_time is None:
@@ -910,7 +910,7 @@ async def _parse_meeting_intent(
             end_time = None
 
     if end_time is None and end_time_str:
-        parsed_start_hint, parsed_end = await cached_parse(end_time_str)
+        parsed_start_hint, parsed_end, _ = await cached_parse(end_time_str)
         heuristic_end = parsed_end
         if (
             parsed_start_hint
@@ -1456,14 +1456,14 @@ async def _resolve_end_time_from_response(
     end_time_str: Optional[str],
     fallback_start: Optional[datetime] = None,
     original_query: Optional[str] = None,
-    parse_cache: Optional[Dict[str, Tuple[Optional[datetime], Optional[datetime]]]] = None,
+    parse_cache: Optional[Dict[str, Tuple[Optional[datetime], Optional[datetime], bool]]] = None,
 ) -> Optional[datetime]:
     """종료 시간을 추론한다."""
     parse_cache = parse_cache or {}
 
-    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime], bool]:
         if not text:
-            return None, None
+            return None, None, False
         if text not in parse_cache:
             parse_cache[text] = await parse_korean_date_with_llm(text)
         return parse_cache[text]
@@ -1486,7 +1486,7 @@ async def _resolve_end_time_from_response(
         if text in seen_texts:
             continue
         seen_texts.add(text)
-        parsed_start, parsed_end = await cached_parse(text)
+        parsed_start, parsed_end, _ = await cached_parse(text)
         candidate: Optional[datetime] = None
         if parsed_end and parsed_start:
             diff = parsed_end - parsed_start

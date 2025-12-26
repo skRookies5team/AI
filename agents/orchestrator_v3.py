@@ -256,7 +256,11 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         query: 사용자 쿼리
         
     Returns:
-        {'is_workflow_request': bool, 'confidence': float}
+        {
+            'is_workflow_request': bool,
+            'confidence': float,
+            'output': int  # 1: 워크플로우, 0: 일반
+        }
     """
     step_start = time.time()
 
@@ -273,7 +277,8 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
                 print(f"✅ 1단계 분류 (ML): {'워크플로우' if result['is_workflow_request'] else '일반 요청'} (신뢰도: {result['confidence']:.2f}, {step_elapsed_sec:.2f}초)")
                 return {
                     "is_workflow_request": result['is_workflow_request'],
-                    "confidence": result['confidence']
+                    "confidence": result['confidence'],
+                    "output": 1 if result['is_workflow_request'] else 0
                 }
             # ML 모델 fallback 발생 시 조용히 LLM으로 전환 (로그 없음)
     except Exception as e:
@@ -287,13 +292,13 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
     if not request_classification:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 설정을 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        return {"is_workflow_request": False, "confidence": 0.5, "output": 0}
     
     system_prompt_template = request_classification.get("system_prompt", "")
     if not system_prompt_template:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 프롬프트를 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        return {"is_workflow_request": False, "confidence": 0.5, "output": 0}
     
     # 프롬프트에 query 삽입
     system_prompt = system_prompt_template.format(query=query)
@@ -310,12 +315,13 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         print(f"✅ 1단계 분류 (LLM): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
         return {
             "is_workflow_request": result.is_workflow_request,
-            "confidence": result.confidence
+            "confidence": result.confidence,
+            "output": 1 if result.is_workflow_request else 0
         }
     except Exception as e:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        return {"is_workflow_request": False, "confidence": 0.5, "output": 0}
 
 
 async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:

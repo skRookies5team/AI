@@ -535,7 +535,7 @@ async def _parse_schedule_intent(
     if not awaiting_slots or action in ["생성", "삭제", "조회"]:
         # 기간 입력 대기 중이거나 아직 기간이 없으면 파싱 시도
         if action == "삭제" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
             if start_date_obj:
                 start_time = start_date_obj
                 # 삭제는 기간이 필요하므로 end_time 기본값 설정
@@ -544,7 +544,7 @@ async def _parse_schedule_intent(
                 elif not end_time:
                     end_time = start_date_obj + timedelta(days=7)  # 기본 7일
         elif action == "조회" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
             if start_date_obj:
                 start_time = start_date_obj
                 # 조회도 기간이 필요하므로 end_time 기본값 설정
@@ -553,7 +553,7 @@ async def _parse_schedule_intent(
                 elif not end_time:
                     end_time = start_date_obj + timedelta(days=7)  # 기본 7일
         elif action == "생성" or not awaiting_slots:
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
             if start_date_obj:
                 start_time = start_date_obj
                 end_time = end_date_obj or (start_date_obj + timedelta(hours=1))
@@ -803,7 +803,7 @@ async def _handle_update(
         event_id = selected.get('gcal_event_id')
         
         entities = await extract_schedule_entities(context.get("last_update_query", ""))
-        start_date, end_date = await parse_korean_date_with_llm(context.get("last_update_query", ""))
+        start_date, end_date, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""))
         
         update_data = {}
         

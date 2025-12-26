@@ -408,7 +408,7 @@ async def _parse_leave_intent(
     total_days = existing_slots.get("total_days")
     
     if action == "신청" and not awaiting_slots:
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
         
         if start_date_obj:
             start_date_str = start_date_obj.strftime("%Y-%m-%d")
@@ -734,7 +734,7 @@ async def _handle_update(
         
         # LLM으로 수정 내용 파싱
         entities = await extract_leave_entities(parsed.reason)  # reason에 query가 들어있음
-        start_date_obj, end_date_obj = await parse_korean_date_with_llm(context.get("last_update_query", ""))
+        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""))
         
         update_data = {}
         
