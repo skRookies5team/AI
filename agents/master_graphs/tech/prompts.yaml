@@ -227,12 +227,17 @@ classification_criteria: |
   사용자 질의를 분석하여 다음 기술 서브 에이전트 중 하나로 분류:
   - patent: 특허, Patent 관련 (명시적으로 특허를 언급하거나 특허 검색 의도가 명확한 경우)
   - article: 논문, Article, paper, 학술, ScienceON 관련 (명시적으로 논문을 언급하거나 논문 검색 의도가 명확한 경우)
-  - ambiguous: 특허와 논문 중 어느 것을 원하는지 불명확한 경우
+  - ambiguous: 출처와 키워드 모두 불명확
+  - missing_source: 검색할 키워드는 있지만 특허/논문 중 어디서 검색할지 불명확
+  - missing_keyword: 특허/논문 중 어디서 검색할지는 명확하지만 무엇을 검색할지 모름(키워드 없음)
   
   ⚠️ 중요 분류 규칙:
   
-  1. 명시적 키워드가 있는 경우:
+  1. 명시적 키워드가 있는 경우(검색 키워드 있음):
      - "특허", "patent", "논문", "paper", "학술" 같은 명시적 키워드가 있으면 반드시 해당 intent로 분류
+     * 예시: 배터리 논문 좀 찾아줄래? → article
+     * 예시: 배터리 특허 좀 찾아줄래? → patent
+     * 예시: 배터리랑 딥러닝 논문 좀 찾아줄래? → article
   
   2. 구체적인 기술 질의 패턴 (키워드 없음):
      - 다음 패턴이 있으면 "article"로 분류 (논문이 더 포괄적이므로):
@@ -247,16 +252,23 @@ classification_criteria: |
      - "기술", "AI", "머신러닝", "딥러닝", "알고리즘", "배터리", "전기차" 등 일반적인 기술 키워드만 있고
      - 위의 구체적 질의 패턴도 없고
      - 명시적 키워드도 없으면
-     → "ambiguous"로 분류하여 사용자에게 선택을 요청
-     * 예시: "AI 찾아줄래?" → ambiguous
-     * 예시: "배터리 관련 좀 검색해줘" → ambiguous
-     * 예시: "기술" → ambiguous
-  
+     → "missing_source"로 분류하여 사용자에게 선택을 요청
+     * 예시: "AI 찾아줄래?" → missing_source
+     * 예시: "배터리 관련 좀 검색해줘" →  missing_source
+     * 예시: "기술" → missing_source
+
+  4. 명시적 키워드만 있는 경우(검색 키워드 없음):
+     * 예시: "논문 검색해줘" → missing_keyword
+     * 예시: "특허 찾아줘" → missing_keyword
+
+  5. 모두 불명확한 경우:
+     * 예시: "검색해줘" → ambiguous
+
   ⚠️ 최종 판단 기준:
-  - 확실하지 않으면 "ambiguous"로 분류하여 사용자에게 선택을 요청
+  - 중요 분류 규칙을 참고해 patent|article|ambiguous|missing_source|missing_keyword 중 하나로 분류
   - 하지만 구체적인 기술 질의 패턴이 있으면 "article"로 분류
 
-output_format: '{"intent": "patent|article|ambiguous"}'
+output_format: '{"intent": "patent|article|ambiguous|missing_source|missing_keyword"}'
 
 
 

@@ -397,7 +397,12 @@ async def _set_session_state(session_id: str, state: OrchestratorState) -> None:
 
 def _search_url(keyword: str) -> str:
     base_url = "https://scienceon.kisti.re.kr/srch/selectPORSrchArticleList.do"
-    q = urllib.parse.quote(keyword, safe="")
+    # None이거나 빈 문자열인 경우 빈 문자열로 처리
+    if not keyword:
+        keyword = ""
+    # 문자열로 변환 (bytes 등 다른 타입 방지)
+    keyword_str = str(keyword) if keyword else ""
+    q = urllib.parse.quote(keyword_str, safe="")
     return f"{base_url}?queryText={q}"
 
 def _normalize_items_from_results(results: List[Dict[str, Any]], displayed_count: Optional[int] = None) -> List[Dict[str, Any]]:
