@@ -32,7 +32,9 @@ from agents.master_graphs.tech.article_agent_module.vector_db import (
     check_paper_exists,
     download_and_vectorize_paper,
 )
-from agents.master_graphs.tech.article_agent_module.prompts import LLM, INTENT_PROMPT, get_intent_llm
+from agents.master_graphs.tech.article_agent_module.prompts import (
+    LLM, INTENT_PROMPT, get_intent_llm, get_article_prompt
+)
 from agents.state import OrchestratorState
 
 LOGGER = logging.getLogger(__name__)
@@ -204,15 +206,9 @@ async def analyze_input_node(state: OrchestratorState) -> Dict[str, Any]:
             # system 메시지에 선택 질문 컨텍스트 추가
             # format_messages()는 리스트를 반환하므로 인덱스로 접근
             if len(prompt) > 0 and hasattr(prompt[0], 'content'):
-                selection_context = (
-                    "\n\n⚠️ 중요: 이전 대화에서 '사내 서버에서 검색하시겠습니까? 1. 사내 서버에서 검색 2. 웹에서 검색' "
-                    "같은 선택 질문이 있었다면, 사용자의 입력('사내', '웹', '1', '2', '1번', '2번', '사내에서 검색해줘' 등)은 "
-                    "선택 질문에 대한 답변이므로 **반드시 detail로 분류**하세요. "
-                    "results_count가 0이어도 search로 분류하지 마세요. "
-                    "이 경우 detail로 분류하고 download_index는 null로 설정하세요.\n"
-                    "하지만 '배터리 논문 좀 찾아줄래?' 같이 명확한 새로운 검색 요청이면 search로 분류하세요."
-                )
-                prompt[0].content += selection_context
+                selection_context = get_article_prompt('intent_classification', 'selection_context')
+                if selection_context:
+                    prompt[0].content += "\n\n" + selection_context
             
             # LLM이 None이면 get_intent_llm()으로 지연 초기화
             llm = LLM if LLM is not None else get_intent_llm()
@@ -1086,11 +1082,7 @@ async def ask_search_source_with_db_result(state: OrchestratorState) -> Dict[str
             article_ctx["ask_source_retry_count"] = 0  # 리셋
         else:
             # 명확하지 않으면 다시 질문
-            response_msg = (
-                "사내 서버에 관련 정보가 있는데 어디서 검색하시겠습니까?\n"
-                "1. 사내 서버에서 검색 (빠른 답변)\n"
-                "2. 웹에서 검색 (최신 정보)"
-            )
+            response_msg = get_article_prompt('ask_search_source', 'question')
             article_ctx["response"] = response_msg
             article_ctx["next_action"] = "ask_search_source_with_db"
             article_ctx["ask_source_retry_count"] = retry_count + 1
@@ -1100,11 +1092,7 @@ async def ask_search_source_with_db_result(state: OrchestratorState) -> Dict[str
             f"[라우팅 디버그] ask_search_source_with_db_result - 분기: else (첫 질문이거나 기타 경우), "
             f"is_user_response={is_user_response}, is_selection_response={is_selection_response}"
         )
-        response_msg = (
-            "사내 서버에 관련 정보가 있는데 어디서 검색하시겠습니까?\n\n"
-            "1. 사내 서버에서 검색 (빠른 답변)\n"
-            "2. 웹에서 검색 (최신 정보)"
-        )
+        response_msg = get_article_prompt('ask_search_source', 'question')
         article_ctx["response"] = response_msg
         article_ctx["next_action"] = "ask_search_source_with_db"
         article_ctx["ask_source_retry_count"] = 0  # 첫 질문이므로 0으로 설정
@@ -1435,33 +1423,18 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                     papers_list_parts.append(f"- {idx + 1}번째 논문: {title}")
             papers_list = "\n".join(papers_list_parts)
             
-            prompt = (
-                f"다음은 {len(valid_indices)}개 논문의 관련 내용입니다.\n\n"
-                f"논문 목록:\n{papers_list}\n\n"
-                f"사용자 질문: {user_input}\n\n"
-            )
+            # YAML에서 프롬프트 템플릿 로드
+            template = get_article_prompt('rag_answer', 'multiple_papers_template')
             
-            if context_text:
-                prompt += (
-                    f"논문 내용:\n{context_text}\n\n"
-                )
+            # context_text가 있으면 포함, 없으면 빈 문자열
+            context_section = f"논문 내용:\n{context_text}\n\n" if context_text else ""
             
-            prompt += (
-                f"⚠️ 중요: 위에 '논문 내용:' 섹션이 제공되었다면, 해당 내용을 반드시 사용하여 답변하세요. "
-                f"'논문 내용:' 섹션이 제공된 논문은 관련 내용이 있다는 의미입니다.\n\n"
-                f"⚠️ 중요: 위 논문 목록에서 '(⚠️ 관련 내용 없음)'으로 표시된 논문만 벡터DB에 관련 내용이 없습니다. "
-                f"이런 논문에 대해서만 '해당 논문의 관련 내용을 찾을 수 없습니다'라고 명시하세요. "
-                f"'(⚠️ 관련 내용 없음)' 표시가 없는 논문은 반드시 제공된 '논문 내용:' 섹션을 사용하여 답변하세요.\n\n"
-                f"위 내용을 바탕으로 사용자 질문에 대해 정확하고 상세하게 답변해주세요. "
-                f"답변은 다음 형식을 따라주세요:\n"
-                f"- ⚠️ 논문 제목을 명시하지 말고 바로 본문 내용으로 시작하세요\n"
-                f"- 각 논문의 관련 내용을 설명 (관련 내용이 있는 경우만)\n"
-                f"- '(⚠️ 관련 내용 없음)'으로 표시된 논문만 '해당 논문의 관련 내용을 찾을 수 없습니다'라고 명시\n"
-                f"- 여러 논문의 내용을 비교하거나 통합하여 설명 (가능한 경우, 관련 내용이 있는 논문들만)\n"
-                f"- 사용자 질문에 대한 핵심 내용을 구조화하여 설명\n"
-                f"- 가능한 경우 구체적인 내용을 인용하여 설명\n"
-                f"- 한국어로 친절하고 전문적으로 작성\n\n"
-                f"답변 시작 부분에 '사용자 질문에 대한 답변입니다.' 같은 서론 문구 없이 바로 본문 내용으로 시작해주세요."
+            # 프롬프트 포맷팅
+            prompt = template.format(
+                paper_count=len(valid_indices),
+                papers_list=papers_list,
+                user_input=user_input,
+                context_text=context_section
             )
             
             try:
@@ -1557,17 +1530,11 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                         for chunk_idx, chunk in enumerate(paper_chunks[:5])  # 상위 5개만 사용
                     ])
                     
-                    prompt = (
-                        f"다음은 논문의 관련 내용입니다.\n\n"
-                        f"사용자 질문: {user_input}\n\n"
-                        f"논문 내용:\n{context_text}\n\n"
-                        f"위 내용을 바탕으로 사용자 질문에 대해 정확하고 상세하게 답변해주세요. "
-                        f"답변은 다음 형식을 따라주세요:\n"
-                        f"- ⚠️ 논문 제목을 명시하지 말고 바로 본문 내용으로 시작하세요\n"
-                        f"- 사용자 질문에 대한 핵심 내용을 구조화하여 설명\n"
-                        f"- 가능한 경우 구체적인 내용을 인용하여 설명\n"
-                        f"- 한국어로 친절하고 전문적으로 작성\n\n"
-                        f"답변 시작 부분에 '사용자 질문에 대한 답변입니다.' 같은 서론 문구 없이 바로 본문 내용으로 시작해주세요."
+                    # YAML에서 프롬프트 템플릿 로드
+                    template = get_article_prompt('rag_answer', 'single_paper_template')
+                    prompt = template.format(
+                        user_input=user_input,
+                        context_text=context_text
                     )
                     
                     try:
@@ -1613,14 +1580,11 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                 for chunk in context_chunks
             )
 
-            prompt = (
-                f"다음은 사용자의 질문과 관련된 논문 정보입니다.\n\n"
-                f"사용자 질문: {user_input}\n\n"
-                f"관련 논문 정보:\n{context_text}\n\n"
-                f"위 정보를 바탕으로 사용자 질문에 대해 정확하고 상세하게 답변해주세요. "
-                f"한국어로 친절하게 작성해주세요. "
-                f"답변 시작 부분에 '사용자 질문에 대한 답변입니다.' 같은 서론 문구 없이 바로 본문 내용으로 시작해주세요. "
-                f"논문 제목을 먼저 명시한 후, 내용을 설명해주세요."
+            # YAML에서 프롬프트 템플릿 로드
+            template = get_article_prompt('rag_answer', 'general_rag_template')
+            prompt = template.format(
+                user_input=user_input,
+                context_text=context_text
             )
 
             try:
@@ -1639,14 +1603,11 @@ async def rag_answer_node(state: OrchestratorState) -> Dict[str, Any]:
                 for idx, p in enumerate(context_papers[:3])
             )
 
-            prompt = (
-                f"다음은 사용자의 질문과 관련된 논문 정보입니다.\n\n"
-                f"사용자 질문: {user_input}\n\n"
-                f"관련 논문 정보:\n{context_text}\n\n"
-                f"위 정보를 바탕으로 사용자 질문에 대해 정확하고 상세하게 답변해주세요. "
-                f"한국어로 친절하게 작성해주세요. "
-                f"답변 시작 부분에 '사용자 질문에 대한 답변입니다.' 같은 서론 문구 없이 바로 본문 내용으로 시작해주세요. "
-                f"논문 제목을 먼저 명시한 후, 내용을 설명해주세요."
+            # YAML에서 프롬프트 템플릿 로드
+            template = get_article_prompt('rag_answer', 'general_rag_template')
+            prompt = template.format(
+                user_input=user_input,
+                context_text=context_text
             )
 
             try:
