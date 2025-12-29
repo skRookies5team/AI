@@ -2145,6 +2145,12 @@ async def email_search(
 					"index": str(idx),
 					"email_id": uid_str,  # UID
 					"actual_index": idx - 1,
+					# ✅ 이메일 전문(HTML 또는 텍스트)
+					"content": info.get("content", ""),
+					# ✅ 렌더링 힌트(선택): 프론트에서 HTML/text 분기용
+					"content_type": (
+						"html" if (info.get("content", "").lstrip().startswith("<")) else "text"
+					),
 				}
 			)
 
