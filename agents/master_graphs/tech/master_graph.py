@@ -431,13 +431,13 @@ class TechMasterGraph(BaseMasterGraph):
         if awaiting_keyword and requested_source:
             # 출처는 명확하지만 키워드가 필요한 경우
             source_name = "특허" if requested_source == "patent" else "논문"
-            message = f"어떤 주제의 {source_name}을 검색하시겠습니까?\n\n예: 인공지능, 머신러닝, 블록체인 등"
+            message = f"어떤 주제의 {source_name}을 검색하시겠습니까?\n\n예) 인공지능, 머신러닝, 블록체인 등"
         elif awaiting_source and pending_keyword:
             # 키워드는 있지만 출처가 필요한 경우
-            message = f"어디에서 검색하시겠습니까?\n\n1️⃣ 특허 검색\n2️⃣ 논문 검색\n\n'특허', '1', '1번' 또는 '논문', '2', '2번'으로 답변해주세요."
+            message = f"어디에서 검색하시겠습니까?\n\n1️⃣ 특허 검색\n2️⃣ 논문 검색\n\n'특허', '1번' 또는 '논문', '2번'으로 답변해주세요."
         else:
             # 출처와 키워드 모두 필요한 경우 (한 번에 물어봄)
-            message = "어떤 주제를 어디에서 검색하시겠습니까?\n\n예시:\n- 특허에서 인공지능 검색\n- 논문에서 머신러닝 검색\n\n"
+            message = "어떤 주제를 어디에서 검색하시겠습니까?\n\n예시)\n- 특허에서 인공지능 검색\n- 논문에서 머신러닝 검색\n\n"
         
         return {
             "final_response": message,
