@@ -88,7 +88,7 @@ POSSIBLE_RESUME_ID_FIELDS = ["resume_id", "id"]
 # 정규표현식 패턴
 NAME_PATTERN_KOREAN = r'^[가-힣]{2,5}$'
 NAME_PATTERN_ENGLISH = r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?$'
-POSITION_PATTERN = r'([가-힣a-zA-Z\s]+(?:기획자|개발자|디자이너|엔지니어|매니저|관리자|전문|지망|경력|백엔드|프론트엔드|데이터|AI|인공지능))'
+POSITION_PATTERN = r'([가-힣a-zA-Z\s/]+(?:기획자|개발자|디자이너|엔지니어|매니저|관리자|전문|지망|경력|백엔드|프론트엔드|데이터|AI|인공지능|인사|채용|경영|담당자|HR|recruiter|business|경영지원|인사채용|경영관리|인사관리|채용관리))'
 EXPERIENCE_PATTERN_SUMMARY = r'(약\s*[\d.]+\s*년간|[\d.]+\s*년간|[\d.]+\s*년\s*경험|[\d.]+\s*년|신입|주니어|시니어)'
 EXPERIENCE_PATTERN_CAREER = r'(신입|주니어|시니어|[\d.]+년|경력\s*[\d.]+년|[\d.]+년\s*경력)'
 EXPERIENCE_YEARS_PATTERNS = [
@@ -130,6 +130,11 @@ POSITION_KEYWORDS = {
     "하드웨어": ["하드웨어", "하드웨어엔지니어", "hw", "hardware", "hw engineer", "hardware engineer"],
     "임베디드": ["임베디드", "임베디드개발", "임베디드엔지니어", "embedded", "embedded engineer", "embedded system"],
     "반도체": ["반도체", "반도체엔지니어", "semiconductor", "semiconductor engineer", "chip"],
+    "인사": ["인사", "인사담당", "인사담당자", "인사팀", "인사관리", "hr", "human resources", "hr manager", "hr specialist", "hr generalist", "인사채용", "인사채용담당", "인사채용담당자"],
+    "채용": ["채용", "채용담당", "채용담당자", "채용팀", "채용관리", "recruiter", "recruitment", "talent acquisition", "채용전문가", "채용컨설턴트", "채용매니저"],
+    "경영": ["경영", "경영관리", "경영관리자", "경영팀", "경영지원", "business", "business management", "business manager", "경영전략", "경영기획", "경영기획자", "경영전략가"],
+    "경영지원": ["경영지원", "경영지원팀", "경영지원담당", "business support", "business support team"],
+    "인사채용": ["인사채용", "인사채용담당", "인사채용담당자", "인사채용팀", "hr recruitment", "hr and recruitment"],
 }
 
 # 기술 스택 키워드 (일반적인 기술들)
@@ -685,10 +690,10 @@ def _extract_field_from_entity(
 
 def _parse_name_position_from_title(document_title: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    document_title에서 '이름 - 직무 이력서' 형식을 파싱합니다.
+    document_title 또는 chunk_text에서 '이름 - 직무 이력서' 형식을 파싱합니다.
     
     Args:
-        document_title: 문서 제목 (예: "윤가은 - 데이터 엔지니어 이력서")
+        document_title: 문서 제목 또는 chunk_text 첫 줄 (예: "윤가은 - 데이터 엔지니어 이력서", "홍길동 - HR 인사/채용 담당자 이력서")
         
     Returns:
         (name, position) 튜플 - 파싱 실패 시 (None, None)
@@ -696,17 +701,37 @@ def _parse_name_position_from_title(document_title: str) -> Tuple[Optional[str],
     if not document_title:
         return None, None
     
-    # '이름 - 직무 이력서' 패턴 매칭
-    pattern = r'^(.+?)\s*-\s*(.+?)\s*이력서'
-    match = re.match(pattern, document_title.strip(), re.IGNORECASE)
+    text = document_title.strip()
+    
+    # 패턴 1: '이름 - 직무 이력서' 형식 (가장 일반적)
+    pattern1 = r'^(.+?)\s*-\s*(.+?)\s*이력서'
+    match = re.match(pattern1, text, re.IGNORECASE)
     
     if match:
         name = match.group(1).strip()
         position = match.group(2).strip()
         
         # 이름과 직무가 유효한지 확인
-        if name and position and len(name) >= 2:
+        if name and position and len(name) >= 2 and len(position) >= 2:
+            # 포지션에서 불필요한 부분 제거
+            position = re.sub(r'\s*이력서\s*$', '', position, flags=re.IGNORECASE).strip()
             return name, position
+    
+    # 패턴 2: '이름 - 직무' 형식 (이력서 없이)
+    pattern2 = r'^(.+?)\s*-\s*(.+?)$'
+    match = re.match(pattern2, text)
+    
+    if match:
+        name = match.group(1).strip()
+        position = match.group(2).strip()
+        
+        # 이름과 직무가 유효한지 확인 (이름은 2-5자, 직무는 2자 이상)
+        if name and position and 2 <= len(name) <= 5 and len(position) >= 2:
+            # 포지션 관련 키워드가 포함되어 있는지 확인
+            position_keywords = ['개발자', '엔지니어', '담당자', '관리자', '매니저', '기획자', '디자이너', 
+                               '인사', '채용', '경영', 'HR', 'recruiter', 'manager', 'engineer', 'developer']
+            if any(kw in position for kw in position_keywords):
+                return name, position
     
     return None, None
 
@@ -765,6 +790,29 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
         if parsed_position:
             return parsed_position
     
+    # 전체 텍스트에서 포지션 패턴 찾기 (인사/채용/경영 포함)
+    full_text = ' '.join(content_lines[:20])  # 처음 20줄만 확인
+    
+    # 포지션 패턴 매칭 (더 포괄적으로)
+    pos_match = re.search(POSITION_PATTERN, full_text)
+    if pos_match:
+        position = pos_match.group(1).strip()
+        # "년 차" 같은 패턴 제거
+        position = re.sub(r'\s*\d+\s*년\s*차\s*', '', position).strip()
+        position = re.sub(r'\s*(지망|의|로서).*$', '', position).strip()
+        
+        # 인사/채용/경영 관련 포지션 정규화
+        if any(kw in position for kw in ['인사', '채용', 'HR']):
+            if '/' in position:
+                # "HR 인사/채용 담당자" -> "인사채용 담당자"
+                position = position.replace('HR ', '').replace('인사/채용', '인사채용')
+            if '담당자' not in position and '담당' not in position:
+                position = position + ' 담당자'
+        
+        if len(position) > MAX_POSITION_LENGTH:
+            position = ' '.join(position.split()[:4])  # 최대 4단어까지
+        return position
+    
     # "요약" 섹션에서 찾기
     for i, line in enumerate(content_lines):
         if "요약" in line and i + 1 < len(content_lines):
@@ -772,11 +820,10 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
             pos_match = re.search(POSITION_PATTERN, next_lines)
             if pos_match:
                 position = pos_match.group(1).strip()
-                # "년 차" 같은 패턴 제거
                 position = re.sub(r'\s*\d+\s*년\s*차\s*', '', position).strip()
                 position = re.sub(r'\s*(지망|의|로서).*$', '', position).strip()
                 if len(position) > MAX_POSITION_LENGTH:
-                    position = ' '.join(position.split()[:3])
+                    position = ' '.join(position.split()[:4])
                 return position
     
     # "현재 구직 중" 앞뒤에서 찾기
@@ -786,11 +833,10 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
             pos_match = re.search(POSITION_PATTERN, search_lines)
             if pos_match:
                 position = pos_match.group(1).strip()
-                # "년 차" 같은 패턴 제거
                 position = re.sub(r'\s*\d+\s*년\s*차\s*', '', position).strip()
                 position = re.sub(r'\s*(지망|의|로서).*$', '', position).strip()
                 if len(position) > MAX_POSITION_LENGTH:
-                    position = ' '.join(position.split()[:3])
+                    position = ' '.join(position.split()[:4])
                 return position
     
     return DEFAULT_POSITION
@@ -846,8 +892,45 @@ def _extract_skills_from_content(content_lines: List[str]) -> List[str]:
     Returns:
         추출된 기술 스택 리스트
     """
+    # 전체 텍스트에서 기술 스택 키워드 찾기
+    full_text = ' '.join(content_lines).lower()
+    
+    # 일반적인 기술 스택 키워드 (더 포괄적으로)
+    tech_keywords = [
+        # 프로그래밍 언어
+        'python', 'java', 'javascript', 'typescript', 'c', 'c++', 'c#', 'go', 'rust', 'ruby', 'php', 'kotlin', 'swift', 'scala',
+        # 프론트엔드
+        'react', 'vue', 'angular', 'next.js', 'nuxt.js', 'svelte', 'html', 'css', 'scss', 'sass', 'tailwind', 'bootstrap',
+        # 백엔드
+        'node.js', 'express', 'nestjs', 'django', 'flask', 'fastapi', 'spring', 'spring boot', 'asp.net', '.net', 'laravel', 'ruby on rails',
+        # 모바일
+        'react native', 'flutter', 'ios', 'android', 'xamarin', 'ionic',
+        # 데이터베이스
+        'mysql', 'postgresql', 'mongodb', 'redis', 'oracle', 'sql server', 'mariadb', 'dynamodb', 'cassandra', 'elasticsearch',
+        # 클라우드/인프라
+        'aws', 'gcp', 'azure', 'docker', 'kubernetes', 'terraform', 'ansible', 'jenkins', 'gitlab ci/cd', 'github actions', 'circleci', 'travis ci',
+        # AI/ML
+        'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy', 'jupyter', 'r', 'matlab',
+        # 빅데이터
+        'hadoop', 'spark', 'kafka', 'airflow', 'presto', 'hive', 'hbase',
+        # 모니터링/로깅
+        'prometheus', 'grafana', 'elk stack', 'kibana', 'splunk', 'datadog', 'new relic',
+        # 하드웨어/임베디드
+        'arm', 'cortex', 'stm32', 'arduino', 'raspberry pi', 'verilog', 'vhdl', 'pcb', 'altium', 'cadence', 'orcad', 'kicad', 'eagle', 'labview',
+        # 기타
+        'git', 'svn', 'jira', 'confluence', 'figma', 'sketch', 'adobe xd', 'postman', 'swagger', 'graphql', 'rest', 'microservices', 'ci/cd'
+    ]
+    
+    found_skills = []
+    for tech in tech_keywords:
+        # 단어 경계를 고려한 매칭
+        pattern = r'\b' + re.escape(tech) + r'\b'
+        if re.search(pattern, full_text, re.IGNORECASE):
+            found_skills.append(tech)
+    
+    # 기존 로직도 유지 (명시적인 기술 스택 섹션에서)
     for i, line in enumerate(content_lines):
-        if any(keyword in line.lower() for keyword in ["기술", "스택", "skill", "tech"]):
+        if any(keyword in line.lower() for keyword in ["기술", "스택", "skill", "tech", "사용", "경험"]):
             skill_lines = '\n'.join(content_lines[i:i+10])
             
             # 쉼표로 구분된 기술들
@@ -876,27 +959,34 @@ def _extract_skills_from_content(content_lines: List[str]) -> List[str]:
                         all_skills.append(skill.strip())
             
             # 필터링
-            filtered_skills = []
             for skill in all_skills:
                 skill = skill.strip()
                 if (len(skill) >= MIN_SKILL_LENGTH and
                     not re.match(r'^[\d\s\-~.]+$', skill) and
                     skill.lower() not in SKILL_EXCLUDE_WORDS and
                     not skill.isdigit()):
-                    filtered_skills.append(skill)
-            
-            if filtered_skills:
-                # 중복 제거 및 최대 개수 제한
-                seen = set()
-                unique_skills = []
-                for skill in filtered_skills:
                     skill_lower = skill.lower()
-                    if skill_lower not in seen and len(unique_skills) < MAX_SKILLS_COUNT:
-                        seen.add(skill_lower)
-                        unique_skills.append(skill)
-                return unique_skills
+                    # tech_keywords에 있는지 확인
+                    for tech in tech_keywords:
+                        if tech.lower() in skill_lower or skill_lower in tech.lower():
+                            if tech not in found_skills:
+                                found_skills.append(tech)
+                            break
+                    else:
+                        # tech_keywords에 없어도 추가 (유효한 기술로 보이면)
+                        if skill_lower not in [s.lower() for s in found_skills]:
+                            found_skills.append(skill)
     
-    return []
+    # 중복 제거 및 최대 개수 제한
+    seen = set()
+    unique_skills = []
+    for skill in found_skills:
+        skill_lower = skill.lower()
+        if skill_lower not in seen and len(unique_skills) < MAX_SKILLS_COUNT:
+            seen.add(skill_lower)
+            unique_skills.append(skill)
+    
+    return unique_skills
 
 
 # ==================== 필터링 함수 ====================
@@ -1023,6 +1113,28 @@ def _check_position_match(
             # 단어 경계를 고려한 매칭 (더 정확함)
             pattern = r'\b' + re.escape(keyword) + r'\b'
             if re.search(pattern, content_lower, re.IGNORECASE):
+                return True
+        
+        # 추가: 포지션 필드에 "/"가 포함된 경우 (예: "HR 인사/채용 담당자")
+        # 각 부분을 개별적으로 확인
+        if "/" in position:
+            position_parts = [p.strip() for p in position.split("/")]
+            for part in position_parts:
+                part_lower = part.lower()
+                if req_position.lower() in part_lower:
+                    return True
+                if any(keyword in part_lower for keyword in position_keywords):
+                    return True
+        
+        # 인사/채용/경영 관련 특수 처리
+        if req_position.lower() in ["인사", "채용", "인사채용"]:
+            hr_keywords = ["인사", "채용", "hr", "human resources", "recruiter", "talent acquisition", "인사담당", "채용담당", "인사채용", "인사/채용"]
+            if any(kw in position_lower for kw in hr_keywords) or any(kw in content_lower for kw in hr_keywords):
+                return True
+        
+        if req_position.lower() in ["경영", "경영지원"]:
+            business_keywords = ["경영", "business", "management", "경영관리", "경영지원", "business support", "경영담당", "경영관리자"]
+            if any(kw in position_lower for kw in business_keywords) or any(kw in content_lower for kw in business_keywords):
                 return True
     
     return False
@@ -1449,11 +1561,20 @@ async def search_resumes(
             if not content and chunk_text:
                 content = chunk_text
             
-            # document_title에서 먼저 이름과 직무 추출 시도 (새로운 데이터 구조)
+            # chunk_text에서 먼저 이름과 직무 추출 시도 (실제 데이터 구조)
+            chunk_text_first_line = ""
+            if chunk_text:
+                chunk_text_first_line = chunk_text.split('\n')[0].strip() if chunk_text else ""
+            
+            # document_title에서 이름과 직무 추출 시도
             document_title = entity_dict.get("document_title") or entity_dict.get("document_name") or ""
             parsed_name, parsed_position = _parse_name_position_from_title(document_title)
             
-            # document_title에서 파싱 실패 시 content의 첫 줄에서도 확인
+            # document_title에서 파싱 실패 시 chunk_text의 첫 줄에서 확인
+            if not parsed_name and chunk_text_first_line:
+                parsed_name, parsed_position = _parse_name_position_from_title(chunk_text_first_line)
+            
+            # chunk_text에서도 파싱 실패 시 content의 첫 줄에서도 확인
             if not parsed_name and content:
                 first_line = content.split('\n')[0].strip() if content else ""
                 parsed_name, parsed_position = _parse_name_position_from_title(first_line)
@@ -1481,8 +1602,10 @@ async def search_resumes(
                 skills = [s.strip() for s in skills.split(",") if s.strip()]
             
             # content에서 정보 추출 (이름과 직무가 아직 기본값인 경우에만)
-            if content:
-                content_lines = content.split('\n')
+            # chunk_text도 함께 확인
+            search_content = chunk_text if chunk_text else content
+            if search_content:
+                content_lines = search_content.split('\n')
                 
                 if name == DEFAULT_NAME:
                     name = _extract_name_from_content(content_lines)
