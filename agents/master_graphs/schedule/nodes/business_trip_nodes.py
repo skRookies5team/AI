@@ -1043,14 +1043,21 @@ async def _handle_workflow_step1_check_conflicts(
             if start_date_obj.tzinfo is None:
                 start_date_obj = start_date_obj.replace(tzinfo=local_tz)
             
-            # 과거 날짜이거나 너무 오래된 날짜면 무시
+            # 과거 날짜만 거부 (연도 변경은 허용 - 예: 12월 말에 "다음주"는 다음 해)
             days_diff = (start_date_obj.date() - now.date()).days
-            # 더 엄격한 검증: days_diff < 0 (과거) 또는 연도가 다르면 거부
-            if days_diff < 0 or start_date_obj.year != now.year:
+            # 과거 날짜만 거부
+            if days_diff < 0:
                 print(f"⚠️ 파싱된 날짜가 유효하지 않음: {start_date_obj.date()} (오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date_obj.year}, 현재 연도: {now.year})")
                 start_date_obj = None
                 end_date_obj = None
             else:
+                # 연도 변경 감지 로그 (정보성)
+                if start_date_obj.year != now.year:
+                    year_diff = start_date_obj.year - now.year
+                    if year_diff > 1:
+                        print(f"⚠️ 연도 차이가 큼: {start_date_obj.year}년 (현재: {now.year}년, 차이: {year_diff}년)")
+                    else:
+                        print(f"ℹ️ 연도 변경 감지: {start_date_obj.year}년 (현재: {now.year}년) - 정상적인 경우입니다 (예: 12월 말에 '다음주')")
                 if start_date_obj.hour == 0 and start_date_obj.minute == 0:
                     start_date_obj = start_date_obj.replace(hour=9, minute=0)
                 start_time = start_date_obj
@@ -1069,6 +1076,15 @@ async def _handle_workflow_step1_check_conflicts(
     # orchestrator의 현재 시간 사용
     now = current_datetime
     local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
+    
+    # ✅ start_time과 end_time이 None이 아닌지 확인
+    if start_time is None or end_time is None:
+        # 날짜 파싱 실패 시 처리
+        return {
+            "final_response": "날짜를 파싱할 수 없습니다. 다시 입력해주세요.",
+            "messages": ["날짜를 파싱할 수 없습니다. 다시 입력해주세요."],
+            "schedule_context": state.get("schedule_context", {}),
+        }
     
     if start_time.tzinfo is None:
         start_time = start_time.replace(tzinfo=local_tz)

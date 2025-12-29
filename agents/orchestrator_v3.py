@@ -1293,6 +1293,60 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 **current_date_info  # 날짜 정보 포함
             }
 
+    # ============================================
+    # 면접 일정 진행 중 체크 (Structured Output Parser 호출 전)
+    # ============================================
+    schedule_context = state.get("schedule_context") or {}
+    interview_context = schedule_context.get("interview") or {}
+    
+    # 면접 관련 키워드 체크 (면접 컨텍스트가 없어도 체크)
+    interview_keywords = ["면접", "면접관", "면접 일정", "면접일정", "면접관을 선택", "면접관을", "면접관 선택"]
+    has_interview_keyword = any(keyword in query for keyword in interview_keywords)
+    
+    # 면접 컨텍스트에 선택된 면접관, 지속 시간, 시간대 선택 플래그가 있으면 schedule로 강제 라우팅
+    has_interview_data = False
+    if interview_context:
+        has_interview_data = (
+            interview_context.get("selected_interviewers") or 
+            interview_context.get("duration_minutes") or 
+            interview_context.get("requires_slot_selection") or
+            interview_context.get("available_slots") or
+            interview_context.get("requires_interviewer_selection") or
+            interview_context.get("requires_duration_selection") or
+            interview_context.get("date_range") or
+            interview_context.get("requires_date_range")
+        )
+    
+    # JSON 데이터 체크 (면접관 선택, 지속 시간 선택, 시간대 선택)
+    is_interview_json = False
+    try:
+        import json
+        if query.strip().startswith('{') or query.strip().startswith('['):
+            query_json = json.loads(query)
+            if isinstance(query_json, dict):
+                if any(key in query_json for key in ["selectedInterviewers", "duration_minutes", "slot_index", "start", "end"]):
+                    is_interview_json = True
+            elif isinstance(query_json, list):
+                # 면접관 선택 JSON 배열 체크
+                if query_json and isinstance(query_json[0], dict) and "employee_id" in query_json[0]:
+                    is_interview_json = True
+    except (json.JSONDecodeError, AttributeError, IndexError):
+        pass
+    
+    # last_domain이 schedule이고 면접 관련 키워드가 있으면 면접 진행 중일 가능성이 높음
+    is_schedule_domain_with_interview = (last_domain == "schedule" and has_interview_keyword)
+    
+    # 면접 일정 진행 중인지 확인
+    if has_interview_keyword or has_interview_data or is_interview_json or is_schedule_domain_with_interview:
+        print(f"✅ 면접 일정 진행 중 감지 (orchestrator) - schedule으로 강제 라우팅")
+        print(f"   - 면접 키워드: {has_interview_keyword}, 면접 데이터: {has_interview_data}, JSON: {is_interview_json}, schedule 도메인+면접 키워드: {is_schedule_domain_with_interview}")
+        _routing_logger.info(f"[라우팅 완료] 면접 컨텍스트 기반: schedule (요청: {query})")
+        return {
+            "domain": "schedule",
+            "conversation_history": [user_message],
+            **current_date_info
+        }
+
     # Structured Output Parser를 사용한 의도 분석 (LLM + YAML 프롬프트)
     # 하드코딩된 키워드 매칭 제거로 인해 LLM 기반 분류만 사용
     step_start = time.time()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -180,7 +181,16 @@ class DatabaseService:
         params: Dict[str, Any] = {}
 
         if employee_id is not None:
-            clauses.append("employee_id = :employee_id")
+            # ✅ interviewer_ids가 NULL이면 일반 일정, 값이 있으면 면접 일정
+            clauses.append("""
+                (
+                    -- 일반 개인 일정: interviewer_ids가 NULL이고 employee_id가 매칭
+                    (interviewer_ids IS NULL AND employee_id = :employee_id)
+                    OR
+                    -- 면접 일정: interviewer_ids에 현재 사용자가 포함되어 있는지 확인
+                    (interviewer_ids IS NOT NULL AND JSON_CONTAINS(interviewer_ids, CAST(:employee_id AS JSON)))
+                )
+            """)
             params["employee_id"] = employee_id
         if start_date is not None:
             clauses.append("start_time >= :start_time")
@@ -211,6 +221,7 @@ class DatabaseService:
             location,
             alert_time,
             status,
+            interviewer_ids,
             created_at,
             updated_at
         FROM schedule
@@ -305,7 +316,7 @@ class DatabaseService:
         params = {f"id_{idx}": value for idx, value in enumerate(ids)}
 
         sql = f"""
-        SELECT gcal_event_id, user_id, meeting_room_id, created_at, updated_at
+        SELECT gcal_event_id, user_id, meeting_room_id, schedule_type, created_at, updated_at
         FROM event_metadata
         WHERE gcal_event_id IN ({placeholders});
         """
@@ -1365,3 +1376,136 @@ class DatabaseService:
                     yield session
             finally:
                 self._session_ctx.reset(token)
+
+    async def get_interviewer_schedules(
+        self,
+        interviewer_ids: List[int],
+        start_date: datetime,
+        end_date: datetime
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """면접관들의 일정을 조회합니다.
+        
+        연차/반차, 회의실 예약, 출장 일정을 모두 조인하여 조회합니다.
+        
+        Args:
+            interviewer_ids: 면접관 employee_id 리스트
+            start_date: 조회 시작일
+            end_date: 조회 종료일
+        
+        Returns:
+            {employee_id: [일정 리스트]} 형식의 딕셔너리
+        """
+        if not interviewer_ids:
+            return {}
+        
+        # 면접관 ID를 IN 절에 사용할 수 있도록 처리
+        placeholders = ",".join([f":id_{i}" for i in range(len(interviewer_ids))])
+        params = {f"id_{i}": interviewer_ids[i] for i in range(len(interviewer_ids))}
+        params["start_date"] = start_date
+        params["end_date"] = end_date
+        
+        sql = f"""
+        SELECT 
+            employee_id,
+            lr.start_date as start_time,
+            lr.end_date as end_time,
+            'leave' as schedule_type,
+            lr.leave_type as title,
+            lr.reason as description
+        FROM leave_request lr
+        WHERE lr.employee_id IN ({placeholders})
+            AND lr.status IN ('대기', '승인')
+            AND lr.start_date <= :end_date
+            AND lr.end_date >= :start_date
+        
+        UNION ALL
+        
+        SELECT 
+            mrr.employee_id,
+            mrr.start_time,
+            mrr.end_time,
+            'meeting_room' as schedule_type,
+            mrr.title,
+            mrr.description
+        FROM meeting_room_reservation mrr
+        WHERE mrr.employee_id IN ({placeholders})
+            AND mrr.status = 'CONFIRMED'
+            AND mrr.start_time < :end_date
+            AND mrr.end_time > :start_date
+        
+        UNION ALL
+        
+        SELECT 
+            bt.employee_id,
+            bt.start_time,
+            bt.end_time,
+            'business_trip' as schedule_type,
+            bt.trip_title as title,
+            bt.trip_purpose as description
+        FROM business_trip bt
+        WHERE bt.employee_id IN ({placeholders})
+            AND bt.status IN ('대기', '승인')
+            AND bt.start_time <= :end_date
+            AND bt.end_time >= :start_date
+        
+        ORDER BY employee_id, start_time
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(text(sql), params)
+            rows = result.mappings().all()
+            
+            # ✅ 면접 일정 별도 조회 (각 면접관별로)
+            # schedule 테이블에서 interviewer_ids에 포함된 면접 일정 조회
+            interview_sql = """
+            SELECT 
+                s.employee_id,
+                s.start_time,
+                s.end_time,
+                'interview' as schedule_type,
+                s.title,
+                s.description
+            FROM schedule s
+            WHERE s.schedule_type = 'interview'
+                AND s.start_time <= :end_date
+                AND s.end_time >= :start_date
+                AND s.status = 'active'
+                AND s.interviewer_ids IS NOT NULL
+                AND JSON_CONTAINS(s.interviewer_ids, :emp_id_json)
+            """
+            
+            # 각 면접관별로 면접 일정 조회
+            for emp_id in interviewer_ids:
+                # ✅ emp_id를 JSON 숫자로 변환 (예: 4001 -> JSON "4001")
+                # json.dumps()를 사용하면 숫자는 JSON 숫자로 변환됨
+                emp_id_json = json.dumps(emp_id)
+                
+                interview_params = {
+                    "emp_id_json": emp_id_json,  # ✅ JSON 문자열로 변환된 값 사용
+                    "start_date": start_date,
+                    "end_date": end_date
+                }
+                try:
+                    interview_result = await session.execute(text(interview_sql), interview_params)
+                    interview_rows = interview_result.mappings().all()
+                    
+                    # 각 면접 일정을 해당 면접관의 일정으로 추가
+                    for interview_row in interview_rows:
+                        interview_data = dict(interview_row)
+                        # employee_id를 현재 면접관 ID로 설정 (interviewer_ids에 포함된 면접관이므로)
+                        interview_data["employee_id"] = emp_id
+                        rows.append(interview_data)
+                except Exception as e:
+                    # JSON_CONTAINS 오류 시 무시 (interviewer_ids가 NULL이거나 잘못된 형식인 경우)
+                    print(f"⚠️ 면접 일정 조회 중 오류 (employee_id={emp_id}): {e}")
+                    continue
+        
+        # employee_id별로 그룹화
+        schedules_by_interviewer: Dict[int, List[Dict[str, Any]]] = {}
+        for row in rows:
+            emp_id = row["employee_id"]
+            if emp_id not in schedules_by_interviewer:
+                schedules_by_interviewer[emp_id] = []
+            schedules_by_interviewer[emp_id].append(dict(row))
+        
+        return schedules_by_interviewer

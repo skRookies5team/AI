@@ -1351,6 +1351,309 @@
             background: #667eea;
             border-radius: 3px;
         }
+
+        /* ===== 면접관 선택 UI 스타일 ===== */
+        .interviewer-selection-wrapper {
+            display: none;
+            padding: 20px;
+            background: #f8f9fa;
+            border-top: 2px solid #667eea;
+            max-height: 400px;
+            overflow: hidden;
+            flex-direction: column;
+        }
+
+        .interviewer-selection-wrapper.active {
+            display: flex;
+        }
+
+        .interviewer-selection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .interviewer-selection-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .interviewer-selection-close-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            color: #6b7280;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .interviewer-selection-close-btn:hover {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .interviewer-selection-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .interviewer-filter-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .interviewer-filter-select {
+            flex: 1;
+            padding: 8px 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .interviewer-filter-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .interviewer-list-container {
+            flex: 1;
+            overflow-y: auto;
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 250px;
+        }
+
+        .interviewer-loading {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .interviewer-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .interviewer-item:hover {
+            background: #f3f4f6;
+        }
+
+        .interviewer-item.selected {
+            background: #eef2ff;
+            border-color: #667eea;
+        }
+
+        .interviewer-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .interviewer-info {
+            flex: 1;
+        }
+
+        .interviewer-name {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 4px;
+        }
+
+        .interviewer-details {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .interviewer-selection-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .selected-interviewers-count {
+            font-size: 14px;
+            font-weight: 500;
+            color: #667eea;
+        }
+
+        .interviewer-confirm-btn {
+            padding: 10px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .interviewer-confirm-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .interviewer-confirm-btn:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ===== 채팅창 내 면접관 선택 UI 스타일 ===== */
+        .interviewer-selection-inline {
+            background: #f8f9fa;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 10px;
+            max-width: 100%;
+        }
+
+        .interviewer-selection-header-inline {
+            margin-bottom: 15px;
+        }
+
+        .interviewer-selection-label-inline {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .interviewer-selection-content-inline {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .interviewer-list-container-inline {
+            flex: 1;
+            overflow-y: auto;
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 300px;
+            margin-top: 10px;
+        }
+
+        /* ===== 지속 시간 선택 UI 스타일 ===== */
+        .duration-selection-wrapper {
+            background: #f8f9fa;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 10px;
+            max-width: 100%;
+        }
+
+        .duration-selection-header {
+            margin-bottom: 15px;
+        }
+
+        .duration-selection-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .duration-selection-content {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .duration-option-btn {
+            flex: 1;
+            min-width: 100px;
+            padding: 12px 20px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            color: #667eea;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .duration-option-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        /* ===== 시간대 선택 UI 스타일 ===== */
+        .slot-selection-wrapper {
+            background: #f8f9fa;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 10px;
+            max-width: 100%;
+        }
+
+        .slot-selection-header {
+            margin-bottom: 15px;
+        }
+
+        .slot-selection-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .slot-selection-content {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .slot-option-btn {
+            width: 100%;
+            padding: 12px 20px;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            color: #667eea;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+        }
+
+        .slot-option-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateX(5px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -1491,6 +1794,30 @@
                             <button class="file-remove-btn" onclick="clearChatFile()">파일 제거</button>
                         </div>
                         <button class="upload-submit-btn" id="chatUploadSubmitBtn" onclick="submitChatDocumentUpdate()">📤 문서 업데이트</button>
+                    </div>
+                    <!-- 면접관 선택 UI -->
+                    <div class="interviewer-selection-wrapper" id="interviewerSelectionWrapper">
+                        <div class="interviewer-selection-header">
+                            <label class="interviewer-selection-label">면접관 선택 (복수 선택 가능)</label>
+                            <button class="interviewer-selection-close-btn" onclick="hideInterviewerSelectionUI()" title="닫기">✕</button>
+                        </div>
+                        <div class="interviewer-selection-content">
+                            <div class="interviewer-filter-group">
+                                <select id="interviewerDeptFilter" class="interviewer-filter-select">
+                                    <option value="">전체 부서</option>
+                                </select>
+                                <select id="interviewerPositionFilter" class="interviewer-filter-select">
+                                    <option value="">전체 직급</option>
+                                </select>
+                            </div>
+                            <div class="interviewer-list-container" id="interviewerListContainer">
+                                <div class="interviewer-loading">면접관 목록을 불러오는 중...</div>
+                            </div>
+                            <div class="interviewer-selection-footer">
+                                <div class="selected-interviewers-count" id="selectedInterviewersCount">선택된 면접관: 0명</div>
+                                <button class="interviewer-confirm-btn" id="interviewerConfirmBtn" onclick="confirmInterviewerSelection()" disabled>확인</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2914,17 +3241,57 @@
                                     const rows = data.rows || [];
                                     const shouldShowDocumentUpdateUI = data.show_document_update_ui || false;
                                     
+                                    // ✅ 면접관 선택 관련 플래그 추가
+                                    const requiresInterviewerSelection = data.requires_interviewer_selection || false;
+                                    const interviewerSelectionConfig = data.interviewer_selection_config || null;
+                                    const requiresDateRange = data.requires_date_range || false;
+                                    const requiresDurationSelection = data.requires_duration_selection || false;  // ✅ 추가
+                                    const requiresSlotSelection = data.requires_slot_selection || false;
+                                    const availableSlots = data.available_slots || [];
+                                    
                                     // 디버깅: 응답 데이터 확인
                                     console.log('📊 응답 데이터:', {
                                         show_document_update_ui: data.show_document_update_ui,
                                         shouldShowDocumentUpdateUI: shouldShowDocumentUpdateUI,
+                                        requiresInterviewerSelection: requiresInterviewerSelection,
+                                        interviewerSelectionConfig: interviewerSelectionConfig,
+                                        requiresDurationSelection: requiresDurationSelection, // ✅ 추가
+                                        requiresSlotSelection: requiresSlotSelection, // ✅ 추가
+                                        availableSlotsCount: availableSlots.length, // ✅ 추가
                                         lastDomain: lastDomain,
                                         botMessage: botMessage?.substring(0, 50)
                                     });
                                     
+                                    // ✅ 우선순위: 지속 시간 선택 > 면접관 선택 > 시간대 선택
+                                    if (requiresDurationSelection) {
+                                        console.log('✅ 지속 시간 선택 UI 표시');
+                                        showDurationSelectionUI();
+                                        // ✅ UI가 이미 메시지를 포함하므로 addBotMessage 제거
+                                    }
+                                    // ✅ 지속 시간 선택이 false이면 UI 숨기기
+                                    else {
+                                        const durationSelectionMessage = document.getElementById('durationSelectionMessage');
+                                        if (durationSelectionMessage) {
+                                            console.log('✅ 지속 시간 선택 완료, UI 제거');
+                                            durationSelectionMessage.remove();
+                                        }
+                                    }
+                                    
+                                    // ✅ 면접관 선택 UI 표시 요청
+                                    if (requiresInterviewerSelection && interviewerSelectionConfig) {
+                                        console.log('✅ 면접관 선택 UI 표시');
+                                        showInterviewerSelectionUI(interviewerSelectionConfig);
+                                        // ✅ UI가 이미 메시지를 포함하므로 addBotMessage 제거
+                                    }
+                                    // ✅ 시간대 선택 UI 표시 요청 (지속 시간 선택 후)
+                                    if (requiresSlotSelection && availableSlots && availableSlots.length > 0) {
+                                        console.log('✅ 시간대 선택 UI 표시', { requiresSlotSelection, availableSlotsCount: availableSlots.length });
+                                        window.availableSlots = availableSlots;  // ✅ 전역 변수에 저장
+                                        showSlotSelectionUI(availableSlots);
+                                        // ✅ UI가 이미 메시지를 포함하므로 addBotMessage 제거
+                                    }
                                     // 문서 업데이트 UI 표시 요청 (최우선 처리)
-                                    // 도메인이 document이고 메시지에 "업데이트"가 포함되어 있으면 UI 표시
-                                    if (shouldShowDocumentUpdateUI || 
+                                    else if (shouldShowDocumentUpdateUI || 
                                         (lastDomain === 'document' && botMessage && 
                                          (botMessage.includes('업데이트') || botMessage.includes('📤') || 
                                           botMessage.includes('파일을 선택')))) {
@@ -3993,6 +4360,561 @@
                 submitBtn.disabled = false;
                 submitBtn.textContent = '📤 문서 업데이트';
             }
+        }
+
+        // ===== 면접관 선택 UI 기능 =====
+        let selectedInterviewers = [];
+        let allInterviewers = [];
+        let currentInterviewerConfig = null;
+        let availableSlots = [];  // ✅ 시간대 선택용 전역 변수
+
+        // 면접관 선택 UI 표시 (채팅창에 메시지로 표시)
+        async function showInterviewerSelectionUI(config) {
+            console.log('🔧 showInterviewerSelectionUI() 함수 호출됨', config);
+            currentInterviewerConfig = config;
+            
+            // 기존 wrapper는 숨기기 (입력창 아래)
+            const wrapper = document.getElementById('interviewerSelectionWrapper');
+            if (wrapper) {
+                wrapper.classList.remove('active');
+            }
+            
+            // 채팅창에 면접관 선택 UI를 메시지로 추가
+            const messagesContainer = document.getElementById('chatMessages');
+            if (!messagesContainer) {
+                console.error('❌ chatMessages 요소를 찾을 수 없습니다.');
+                return;
+            }
+            
+            // 기존 면접관 선택 메시지가 있으면 제거
+            const existingSelection = document.getElementById('interviewerSelectionMessage');
+            if (existingSelection) {
+                existingSelection.remove();
+            }
+            
+            // 초기화: 선택된 면접관 초기화
+            selectedInterviewers = [];
+            updateSelectedInterviewersCount();
+            
+            // 필터 초기화
+            const deptFilter = document.getElementById('interviewerDeptFilter');
+            const positionFilter = document.getElementById('interviewerPositionFilter');
+            if (deptFilter) deptFilter.value = '';
+            if (positionFilter) positionFilter.value = '';
+            
+            // 면접관 선택 UI를 채팅 메시지로 생성
+            const selectionMessage = document.createElement('div');
+            selectionMessage.className = 'message bot';
+            selectionMessage.id = 'interviewerSelectionMessage';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            selectionMessage.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble">
+                        <div class="interviewer-selection-inline">
+                            <div class="interviewer-selection-header-inline">
+                                <label class="interviewer-selection-label-inline">면접관 선택 (복수 선택 가능)</label>
+                            </div>
+                            <div class="interviewer-selection-content-inline">
+                                <div class="interviewer-filter-group">
+                                    <select id="interviewerDeptFilter" class="interviewer-filter-select">
+                                        <option value="">전체 부서</option>
+                                    </select>
+                                    <select id="interviewerPositionFilter" class="interviewer-filter-select">
+                                        <option value="">전체 직급</option>
+                                    </select>
+                                </div>
+                                <div class="interviewer-list-container" id="interviewerListContainer">
+                                    <div class="interviewer-loading">면접관 목록을 불러오는 중...</div>
+                                </div>
+                                <div class="interviewer-selection-footer">
+                                    <div class="selected-interviewers-count" id="selectedInterviewersCount">선택된 면접관: 0명</div>
+                                    <button class="interviewer-confirm-btn" id="interviewerConfirmBtn" onclick="confirmInterviewerSelection()" disabled>확인</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(selectionMessage);
+            scrollToBottom();
+            
+            // 면접관 목록 로드 (초기에는 필터 없이 전체 조회)
+            await loadInterviewers(config, null, null);
+        }
+
+        // 면접관 선택 UI 숨기기
+        function hideInterviewerSelectionUI() {
+            // 채팅창의 면접관 선택 메시지 제거
+            const selectionMessage = document.getElementById('interviewerSelectionMessage');
+            if (selectionMessage) {
+                selectionMessage.remove();
+            }
+            
+            // 입력창 아래의 wrapper도 숨기기 (혹시 모를 경우 대비)
+            const wrapper = document.getElementById('interviewerSelectionWrapper');
+            if (wrapper) {
+                wrapper.classList.remove('active');
+            }
+            
+            selectedInterviewers = [];
+            updateSelectedInterviewersCount();
+        }
+
+        // 면접관 목록 로드 (부서, 직급 필터 동시 적용 가능)
+        async function loadInterviewers(config, deptFilter = null, positionFilter = null) {
+            const container = document.getElementById('interviewerListContainer');
+            if (!container) {
+                console.error('❌ interviewerListContainer 요소를 찾을 수 없습니다.');
+                return;
+            }
+            
+            container.innerHTML = '<div class="interviewer-loading">면접관 목록을 불러오는 중...</div>';
+            
+            try {
+                // 필터 파라미터 구성 (부서와 직급 모두 서버 측에서 필터링)
+                const params = new URLSearchParams();
+                
+                // 부서 필터 추가
+                if (deptFilter && deptFilter.trim() !== '') {
+                    params.append('dept', deptFilter);
+                }
+                
+                // 직급 필터 추가 (부서 필터와 독립적으로 동시 적용 가능)
+                if (positionFilter && positionFilter.trim() !== '') {
+                    params.append('position', positionFilter);
+                }
+                
+                // ✅ status 파라미터 제거 (전체 조회 - '재직 중' 포함)
+                // params.append('status', 'Active'); // 주석 처리
+                
+                console.log('🔍 면접관 목록 조회:', {
+                    dept: deptFilter || '전체',
+                    position: positionFilter || '전체',
+                    url: `/api/employees?${params.toString()}`
+                });
+                
+                const response = await authenticatedFetch(`/api/employees?${params.toString()}`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ API 호출 실패:', response.status, errorText);
+                    throw new Error(`면접관 목록 조회 실패: ${response.status}`);
+                }
+                
+                // ✅ 응답 텍스트 먼저 확인
+                const responseText = await response.text();
+                console.log('🔍 API 응답 원본:', responseText);
+                
+                // ✅ let 제거 - 전역 변수에 직접 할당 (toggleInterviewerSelection에서 사용)
+                try {
+                    allInterviewers = JSON.parse(responseText); // ✅ 전역 변수 업데이트
+                } catch (parseError) {
+                    console.error('❌ JSON 파싱 실패:', parseError, '응답:', responseText);
+                    throw new Error('응답 파싱 실패');
+                }
+                
+                console.log(`✅ 면접관 ${allInterviewers.length}명 조회 완료`, allInterviewers);
+                
+                // ✅ 데이터가 비어있는 경우 확인
+                if (!allInterviewers || allInterviewers.length === 0) {
+                    console.warn('⚠️ 면접관 데이터가 비어있습니다.');
+                    container.innerHTML = '<div class="interviewer-loading" style="color: #dc3545;">데이터베이스에서 사원 정보를 찾을 수 없습니다.<br>관리자에게 문의하세요.</div>';
+                    return;
+                }
+                
+                // 부서/직급 필터 드롭다운 채우기 (조회된 사원 목록 기준으로 옵션 생성)
+                // 전체 사원 목록을 별도로 가져와서 필터 옵션 생성
+                await populateFilters();
+                
+                // 현재 선택된 필터 값 복원
+                const deptSelect = document.getElementById('interviewerDeptFilter');
+                const positionSelect = document.getElementById('interviewerPositionFilter');
+                if (deptSelect && deptFilter) {
+                    deptSelect.value = deptFilter;
+                }
+                if (positionSelect && positionFilter) {
+                    positionSelect.value = positionFilter;
+                }
+                
+                // 면접관 목록 렌더링
+                renderInterviewers(allInterviewers);
+                
+            } catch (error) {
+                console.error('❌ 면접관 목록 로드 실패:', error);
+                container.innerHTML = '<div class="interviewer-loading" style="color: #dc3545;">면접관 목록을 불러오는데 실패했습니다.<br>' + error.message + '</div>';
+            }
+        }
+
+        // 필터 드롭다운 채우기 (전체 사원 목록 기준)
+        async function populateFilters() {
+            const deptFilter = document.getElementById('interviewerDeptFilter');
+            const positionFilter = document.getElementById('interviewerPositionFilter');
+            
+            if (!deptFilter || !positionFilter) {
+                console.error('❌ 필터 드롭다운 요소를 찾을 수 없습니다.');
+                return;
+            }
+            
+            try {
+                // 전체 사원 목록을 가져와서 필터 옵션 생성
+                console.log('🔍 전체 사원 목록 조회 중...');
+                const response = await authenticatedFetch('/api/employees'); // ✅ status 파라미터 제거
+                if (!response.ok) {
+                    throw new Error('전체 사원 목록 조회 실패');
+                }
+                
+                // ✅ 응답 텍스트 먼저 확인
+                const responseText = await response.text();
+                console.log('🔍 필터용 API 응답 원본:', responseText);
+                
+                let allEmployees;
+                try {
+                    allEmployees = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('❌ 필터용 JSON 파싱 실패:', parseError);
+                    throw new Error('응답 파싱 실패');
+                }
+                
+                console.log(`📋 필터 옵션 생성: ${allEmployees.length}명의 사원 데이터 사용`);
+                
+                // ✅ 데이터가 비어있는 경우 확인
+                if (!allEmployees || allEmployees.length === 0) {
+                    console.warn('⚠️ 필터용 사원 데이터가 비어있습니다.');
+                    return;
+                }
+                
+                // 부서 목록 추출 (중복 제거, 정렬)
+                const depts = [...new Set(allEmployees.map(emp => emp.dept).filter(Boolean))].sort();
+                const currentDeptValue = deptFilter.value; // 현재 선택값 보존
+                
+                console.log(`📋 부서 목록: ${depts.length}개`, depts);
+                
+                deptFilter.innerHTML = '<option value="">전체 부서</option>' + 
+                    depts.map(dept => `<option value="${escapeHtml(dept)}">${escapeHtml(dept)}</option>`).join('');
+                if (currentDeptValue) {
+                    deptFilter.value = currentDeptValue; // 선택값 복원
+                }
+                
+                // 직급 목록 추출 (중복 제거, 정렬)
+                const positions = [...new Set(allEmployees.map(emp => emp.position || emp.job_title).filter(Boolean))].sort();
+                const currentPositionValue = positionFilter.value; // 현재 선택값 보존
+                
+                console.log(`📋 직급 목록: ${positions.length}개`, positions);
+                
+                positionFilter.innerHTML = '<option value="">전체 직급</option>' + 
+                    positions.map(pos => `<option value="${escapeHtml(pos)}">${escapeHtml(pos)}</option>`).join('');
+                if (currentPositionValue) {
+                    positionFilter.value = currentPositionValue; // 선택값 복원
+                }
+                
+                // 필터 변경 이벤트 (부서 또는 직급 변경 시 API 재호출)
+                deptFilter.onchange = () => applyFilters();
+                positionFilter.onchange = () => applyFilters();
+                
+                console.log('✅ 필터 드롭다운 채우기 완료');
+                
+            } catch (error) {
+                console.error('❌ 필터 옵션 로드 실패:', error);
+            }
+        }
+
+        // 필터 적용 (부서와 직급 필터를 동시에 적용)
+        async function applyFilters() {
+            const deptFilter = document.getElementById('interviewerDeptFilter');
+            const positionFilter = document.getElementById('interviewerPositionFilter');
+            
+            if (!deptFilter || !positionFilter) return;
+            
+            const selectedDept = deptFilter.value;
+            const selectedPosition = positionFilter.value;
+            
+            console.log('🔍 필터 적용:', {
+                부서: selectedDept || '전체',
+                직급: selectedPosition || '전체',
+                동시적용: (selectedDept && selectedPosition) ? '예' : '아니오'
+            });
+            
+            // ✅ 선택된 면접관 정보 보존 (전체 객체 저장 - 필터 변경 시에도 선택 유지)
+            const selectedInterviewersBackup = [...selectedInterviewers];
+            const selectedIds = selectedInterviewers.map(emp => emp.employee_id);
+            
+            // API 재호출 (서버 측에서 부서와 직급 필터를 동시에 적용)
+            await loadInterviewers(
+                currentInterviewerConfig, 
+                selectedDept || null, 
+                selectedPosition || null
+            );
+            
+            // ✅ 필터링된 결과에 없는 선택된 면접관도 유지
+            const filteredIds = allInterviewers.map(emp => emp.employee_id);
+            const missingSelected = selectedInterviewersBackup.filter(sel => !filteredIds.includes(sel.employee_id));
+            
+            // 필터링된 결과에 없는 선택된 면접관도 allInterviewers에 추가 (선택 상태 유지)
+            if (missingSelected.length > 0) {
+                allInterviewers = [...allInterviewers, ...missingSelected];
+                console.log(`✅ 필터링된 결과에 없는 선택된 면접관 ${missingSelected.length}명 추가:`, missingSelected.map(e => e.name));
+            }
+            
+            // ✅ 선택된 면접관 복원 (필터링된 결과 + 추가된 선택된 면접관 모두 포함)
+            selectedInterviewers = selectedInterviewersBackup.filter(sel => {
+                // 필터링된 결과에 있거나, 추가된 선택된 면접관인 경우
+                return filteredIds.includes(sel.employee_id) || missingSelected.some(m => m.employee_id === sel.employee_id);
+            });
+            
+            updateSelectedInterviewersCount();
+            
+            // ✅ 선택된 면접관을 추가한 후 다시 렌더링
+            renderInterviewers(allInterviewers);
+            
+            // 필터링된 결과 표시
+            const countElement = document.getElementById('selectedInterviewersCount');
+            if (countElement && allInterviewers.length > 0) {
+                const filterInfo = [];
+                if (selectedDept) filterInfo.push(`부서: ${selectedDept}`);
+                if (selectedPosition) filterInfo.push(`직급: ${selectedPosition}`);
+                if (filterInfo.length > 0) {
+                    console.log(`✅ 필터 적용 완료: ${filterInfo.join(', ')} - ${allInterviewers.length}명 조회`);
+                }
+            }
+        }
+
+        // 면접관 목록 렌더링
+        function renderInterviewers(interviewers) {
+            const container = document.getElementById('interviewerListContainer');
+            if (!container) {
+                console.error('❌ interviewerListContainer 요소를 찾을 수 없습니다.');
+                return;
+            }
+            
+            console.log(`📋 면접관 목록 렌더링: ${interviewers.length}명`);
+            
+            if (interviewers.length === 0) {
+                container.innerHTML = '<div class="interviewer-loading">조건에 맞는 면접관이 없습니다.</div>';
+                return;
+            }
+            
+            container.innerHTML = interviewers.map(emp => {
+                const isSelected = selectedInterviewers.some(sel => sel.employee_id === emp.employee_id);
+                const empName = escapeHtml(emp.name || '이름 없음');
+                const empDept = escapeHtml(emp.dept || '');
+                // ✅ job_title을 우선 사용 (부서장이 job_title에 저장되어 있음)
+                const empPosition = escapeHtml(emp.job_title || emp.position || '');
+                return `
+                    <div class="interviewer-item ${isSelected ? 'selected' : ''}" 
+                         onclick="toggleInterviewerSelection(${emp.employee_id})">
+                        <input type="checkbox" 
+                               class="interviewer-checkbox" 
+                               ${isSelected ? 'checked' : ''}
+                               onclick="event.stopPropagation(); toggleInterviewerSelection(${emp.employee_id})">
+                        <div class="interviewer-info">
+                            <div class="interviewer-name">${empName}</div>
+                            <div class="interviewer-details">
+                                ${empDept} ${empPosition}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            console.log('✅ 면접관 목록 렌더링 완료');
+        }
+
+        // 면접관 선택 토글
+        function toggleInterviewerSelection(employeeId) {
+            const interviewer = allInterviewers.find(emp => emp.employee_id === employeeId);
+            if (!interviewer) return;
+            
+            const index = selectedInterviewers.findIndex(sel => sel.employee_id === employeeId);
+            
+            if (index >= 0) {
+                // 선택 해제
+                selectedInterviewers.splice(index, 1);
+            } else {
+                // 선택 추가
+                selectedInterviewers.push(interviewer);
+            }
+            
+            updateSelectedInterviewersCount();
+            applyFilters(); // 목록 다시 렌더링 (체크 상태 업데이트)
+        }
+
+        // 선택된 면접관 수 업데이트
+        function updateSelectedInterviewersCount() {
+            const countElement = document.getElementById('selectedInterviewersCount');
+            const confirmBtn = document.getElementById('interviewerConfirmBtn');
+            
+            if (countElement) {
+                countElement.textContent = `선택된 면접관: ${selectedInterviewers.length}명`;
+            }
+            
+            if (confirmBtn) {
+                confirmBtn.disabled = selectedInterviewers.length === 0;
+            }
+        }
+
+        // 면접관 선택 확인
+        async function confirmInterviewerSelection() {
+            if (selectedInterviewers.length === 0) {
+                addBotMessage('면접관을 최소 1명 이상 선택해주세요.', []);
+                return;
+            }
+            
+            // 선택된 면접관 정보를 JSON 형식으로 서버에 전송
+            const selectedIds = selectedInterviewers.map(emp => ({
+                employee_id: emp.employee_id,
+                name: emp.name
+            }));
+            
+            // UI 숨기기
+            hideInterviewerSelectionUI();
+            
+            // 서버에 전송 (JSON 문자열로 변환)
+            const query = JSON.stringify(selectedIds);
+            
+            // 봇 응답 처리
+            handleBotResponse(query);
+        }
+
+        // ===== 지속 시간 선택 UI 기능 =====
+        function showDurationSelectionUI() {
+            const messagesContainer = document.getElementById('chatMessages');
+            if (!messagesContainer) {
+                console.error('❌ chatMessages 요소를 찾을 수 없습니다.');
+                return;
+            }
+            
+            // 기존 지속 시간 선택 메시지가 있으면 제거
+            const existingSelection = document.getElementById('durationSelectionMessage');
+            if (existingSelection) {
+                existingSelection.remove();
+            }
+            
+            // 지속 시간 선택 UI를 채팅 메시지로 생성
+            const selectionMessage = document.createElement('div');
+            selectionMessage.className = 'message bot';
+            selectionMessage.id = 'durationSelectionMessage';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            selectionMessage.innerHTML = `
+                <div class="message-content">
+                    <div class="duration-selection-wrapper" id="durationSelectionWrapper">
+                        <div class="duration-selection-header">
+                            <span class="duration-selection-label">면접 소요 시간을 선택해주세요</span>
+                        </div>
+                        <div class="duration-selection-content">
+                            <button class="duration-option-btn" onclick="selectDuration(30)">30분</button>
+                            <button class="duration-option-btn" onclick="selectDuration(60)">1시간</button>
+                            <button class="duration-option-btn" onclick="selectDuration(90)">1시간 30분</button>
+                            <button class="duration-option-btn" onclick="selectDuration(120)">2시간</button>
+                            <button class="duration-option-btn" onclick="selectDuration(180)">3시간</button>
+                        </div>
+                    </div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(selectionMessage);
+            scrollToBottom();
+        }
+
+        function selectDuration(durationMinutes) {
+            console.log(`✅ 지속 시간 선택: ${durationMinutes}분`);
+            
+            // UI 숨기기
+            const selectionMessage = document.getElementById('durationSelectionMessage');
+            if (selectionMessage) {
+                selectionMessage.remove();
+            }
+            
+            // 서버에 전송
+            const query = JSON.stringify({ duration_minutes: durationMinutes });
+            handleBotResponse(query);
+        }
+
+        // ===== 시간대 선택 UI 기능 =====
+        function showSlotSelectionUI(availableSlots) {
+            const messagesContainer = document.getElementById('chatMessages');
+            if (!messagesContainer) {
+                console.error('❌ chatMessages 요소를 찾을 수 없습니다.');
+                return;
+            }
+            
+            // 기존 시간대 선택 메시지가 있으면 제거
+            const existingSelection = document.getElementById('slotSelectionMessage');
+            if (existingSelection) {
+                existingSelection.remove();
+            }
+            
+            // 시간대 선택 UI를 채팅 메시지로 생성
+            const selectionMessage = document.createElement('div');
+            selectionMessage.className = 'message bot';
+            selectionMessage.id = 'slotSelectionMessage';
+            
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            
+            // 시간대 버튼 생성
+            const slotButtons = availableSlots.map((slot, index) => {
+                const slotStart = new Date(slot.start);
+                const slotDate = slotStart.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+                const slotTime = slotStart.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                return `
+                    <button class="slot-option-btn" onclick="selectSlot(${index})">
+                        ${slotDate} ${slotTime}
+                    </button>
+                `;
+            }).join('');
+            
+            selectionMessage.innerHTML = `
+                <div class="message-content">
+                    <div class="slot-selection-wrapper" id="slotSelectionWrapper">
+                        <div class="slot-selection-header">
+                            <span class="slot-selection-label">면접 시간대를 선택해주세요</span>
+                        </div>
+                        <div class="slot-selection-content">
+                            ${slotButtons}
+                        </div>
+                    </div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(selectionMessage);
+            scrollToBottom();
+        }
+
+        function selectSlot(slotIndex) {
+            console.log(`✅ 시간대 선택: 인덱스 ${slotIndex}`);
+            
+            // 전역 변수에서 availableSlots 가져오기
+            const slots = window.availableSlots || [];
+            if (slotIndex < 0 || slotIndex >= slots.length) {
+                console.error('❌ 잘못된 시간대 인덱스:', slotIndex);
+                return;
+            }
+            
+            const selectedSlot = slots[slotIndex];
+            console.log('✅ 선택된 시간대:', selectedSlot);
+            
+            // 서버에 전송할 데이터 구성
+            const query = JSON.stringify({ 
+                slot_index: slotIndex,
+                start: selectedSlot.start,
+                end: selectedSlot.end
+            });
+            
+            // UI 숨기기
+            const slotSelectionMessage = document.getElementById('slotSelectionMessage');
+            if (slotSelectionMessage) {
+                slotSelectionMessage.remove();
+            }
+            
+            // 서버에 전송
+            handleBotResponse(query);
         }
     </script>
 </body>
