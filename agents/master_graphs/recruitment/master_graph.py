@@ -21,6 +21,7 @@ from agents.master_graphs.recruitment.resume_search_agent import (
     _extract_position_keywords,
     _extract_skill_keywords,
     _extract_experience_range,
+    analyze_resume_database,
 )
 
 # ==================== 검증 및 정규화 함수 ====================
@@ -68,16 +69,38 @@ def _normalize_position(position: Optional[str]) -> Optional[str]:
         return "기획자"
     if normalized in ["디자인", "design"]:
         return "디자이너"
-    if normalized in ["인사", "hr", "human resources", "human resource"]:
+    # 인사 관련 포지션들을 모두 "인사 담당자"로 통합
+    hr_keywords = [
+        "인사", "hr", "human resources", "human resource",
+        "채용", "recruiter", "recruitment", "talent acquisition",
+        "인사채용", "hr recruitment", "hr and recruitment", "hr 인사/채용",
+        "hr 제도", "hr 평가", "hr 제도/평가", "hr 제도/평가 담당자",
+        "교육", "조직문화", "교육·조직문화", "교육·조직문화 담당자",
+        "인사담당자", "hr 담당자", "hr manager", "hr specialist", "hr generalist"
+    ]
+    if normalized.lower() in [kw.lower() for kw in hr_keywords]:
         return "인사 담당자"
-    if normalized in ["채용", "recruiter", "recruitment", "talent acquisition"]:
-        return "채용 담당자"
-    if normalized in ["인사채용", "hr recruitment", "hr and recruitment"]:
-        return "인사채용 담당자"
-    if normalized in ["경영", "business", "business management"]:
+    
+    # 추가: "HR 제도/평가 담당자", "교육·조직문화 담당자" 등 복합 포지션도 인사 담당자로 통합
+    if any(kw in normalized.lower() for kw in ["hr 제도", "hr 평가", "제도/평가", "교육", "조직문화", "교육·조직문화"]):
+        if any(kw in normalized.lower() for kw in ["담당자", "manager", "specialist", "generalist"]):
+            return "인사 담당자"
+    if normalized in ["경영", "business", "business management", "경영관리"]:
         return "경영 관리자"
     if normalized in ["경영지원", "business support"]:
         return "경영지원 담당자"
+    if normalized in ["풀스택", "fullstack", "full stack"]:
+        return "풀스택 개발자"
+    if normalized in ["전자", "electronics", "전자회로"]:
+        return "전자 엔지니어"
+    if normalized in ["하드웨어", "hardware", "hw"]:
+        return "하드웨어 엔지니어"
+    if normalized in ["rf", "radio frequency", "무선통신"]:
+        return "RF/무선통신 엔지니어"
+    if normalized in ["fpga", "field programmable gate array"]:
+        return "FPGA/반도체 설계 엔지니어"
+    if normalized in ["펌웨어", "firmware"]:
+        return "펌웨어 엔지니어"
     
     return normalized
 
@@ -288,8 +311,24 @@ class RecruitmentSearchInfo(BaseModel):
     )
     experience_years: Optional[float] = Field(
         default=None,
-        description="경력년수 (예: 3.0, 5.0)",
+        description="경력년수 (범위 조건이 없을 때만 사용, 예: 3.0, 5.0)",
         ge=0.0
+    )
+    min_years: Optional[float] = Field(
+        default=None,
+        description="최소 경력년수 (이상/초과 조건, 예: 3.0)",
+        ge=0.5,
+        le=50.0
+    )
+    max_years: Optional[float] = Field(
+        default=None,
+        description="최대 경력년수 (이하/미만 조건, 예: 5.0)",
+        ge=0.5,
+        le=50.0
+    )
+    experience_operator: Optional[str] = Field(
+        default=None,
+        description="경력 조건 연산자: '이상', '이하', '초과', '미만', '범위', '정확'"
     )
     tech_stack: Optional[List[str]] = Field(
         default_factory=list,
@@ -326,6 +365,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         workflow.add_node("collect_position_info", self.collect_position_info)
         workflow.add_node("collect_experience_info", self.collect_experience_info)
         workflow.add_node("collect_tech_stack_info", self.collect_tech_stack_info)
+        workflow.add_node("analyze_database", self.analyze_database)
         workflow.add_node("search_resumes", self.search_resumes)
         workflow.add_node("summarize_resume", self.summarize_resume)
         
@@ -384,6 +424,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             }
         )
         
+        workflow.add_edge("analyze_database", END)
         workflow.add_edge("search_resumes", END)
         workflow.add_edge("summarize_resume", END)
         
@@ -434,8 +475,19 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             session_id=session_id
         )
         
+        # 분석 요청 확인 (통계, 분포, 데이터 분석 관련 키워드)
+        analysis_keywords = [
+            "분석", "통계", "분포", "현황", "데이터", "몇 명", "얼마나", 
+            "포지션 분포", "기술 스택 분포", "경력 분포", "인재 현황",
+            "어떤 포지션", "어떤 기술", "어떤 경력"
+        ]
+        is_analysis_request = any(kw in query for kw in analysis_keywords)
+        
+        if is_analysis_request:
+            intent = "analyze"
+        
         # llm_router는 "search" 또는 "summarize"를 반환
-        if intent not in ["search", "summarize"]:
+        if intent not in ["search", "summarize", "analyze"]:
             # 키워드 기반 fallback
             if any(k in query for k in ["추천", "검색", "찾아", "인재", "이력서"]):
                 intent = "search"
@@ -551,8 +603,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         try:
             # 이전에 수집된 정보가 있으면 컨텍스트에 포함
             existing_info = []
-            if search_params.get("position"):
-                existing_info.append(f"이미 수집된 포지션: {search_params.get('position')}")
+            existing_position = search_params.get("position")
+            if existing_position:
+                existing_info.append(f"이미 수집된 포지션: {existing_position}")
             if search_params.get("experience_type"):
                 existing_info.append(f"이미 수집된 경력 타입: {search_params.get('experience_type')}")
             if search_params.get("experience_years"):
@@ -561,6 +614,11 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 existing_info.append(f"이미 수집된 기술 스택: {', '.join(search_params.get('tech_stack', [])[:3])}")
             
             context_info = "\n".join(existing_info) if existing_info else "없음"
+            
+            # 포지션 변경 감지를 위한 힌트 추가
+            position_change_hint = ""
+            if existing_position:
+                position_change_hint = f"\n\n**중요:** 사용자가 이미 '{existing_position}' 포지션을 요청했었습니다. 만약 사용자가 새로운 포지션을 명시적으로 언급했다면 (예: '백엔드 개발자', '프론트엔드 개발자', '인사 담당자' 등), 이는 포지션 변경 요청입니다. **포지션이 변경되면 반드시 tech_stack을 빈 리스트([])로 설정하고, experience_type, experience_years, min_years, max_years, experience_operator를 모두 None 또는 빈 값으로 설정해야 합니다.** 포지션 변경 시 기존 경력/기술 스택 정보는 완전히 초기화되어야 합니다."
             
             system_prompt = f"""
 사용자 입력에서 인재 검색에 필요한 모든 정보를 추출하고, 누락된 정보를 분석하세요.
@@ -576,10 +634,18 @@ class RecruitmentMasterGraph(BaseMasterGraph):
 2. experience_type: 경력 타입 ('신입' 또는 '경력직')
    - 신입: "신입", "주니어", "junior", "entry level", "신입 개발자", "주니어 개발자", "초급", "entry", "신입급"
    - 경력직: "경력", "시니어", "senior", "experienced", "경력직", "시니어 개발자", "중급", "고급", "경력자", "경력 있는"
-3. experience_years: 경력년수 (숫자, 0.5 이상 50 이하)
-   - 다양한 표현: "3년", "3-5년", "5년 이상", "약 5년", "5년차", "3년 이상", "최소 3년", "3년 이상 경력"
-   - 범위 표현: "3-5년" → 3.0 (최소값 사용), "3~5년" → 3.0
+3. experience_years: 경력년수 (숫자, 0.5 이상 50 이하) - 범위 조건이 없을 때만 사용
+   - 기본 표현: "3년", "약 5년", "5년차" → experience_years=3.0 또는 5.0
    - 신입이면 None
+4. min_years: 최소 경력년수 (이상/초과 조건)
+   - "5년 이상", "최소 5년", "5년 이상 경력" → min_years=5.0, experience_operator="이상"
+   - "5년 초과", "5년보다 많은" → min_years=5.0, experience_operator="초과"
+5. max_years: 최대 경력년수 (이하/미만 조건)
+   - "5년 이하", "최대 5년", "5년 이하 경력" → max_years=5.0, experience_operator="이하"
+   - "5년 미만", "5년보다 적은" → max_years=5.0, experience_operator="미만"
+6. experience_operator: 경력 조건 연산자
+   - "이상", "이하", "초과", "미만", "범위", "정확"
+   - "3-5년", "3년 이상 5년 이하" → experience_operator="범위"
 4. tech_stack: 기술 스택 리스트 (중복 제거, 정규화)
    - 프론트엔드: React, Vue.js, Angular, Next.js, Nuxt.js, Svelte, TypeScript, JavaScript, HTML, CSS, SCSS, Sass, Tailwind CSS, Bootstrap, Material-UI, Ant Design
    - 백엔드: Node.js, Express, NestJS, Python, Django, Flask, FastAPI, Java, Spring, Spring Boot, Kotlin, C#, .NET, ASP.NET, Go, Rust, Ruby, Ruby on Rails, PHP, Laravel
@@ -617,9 +683,15 @@ class RecruitmentMasterGraph(BaseMasterGraph):
 - "인재 추천해줘" → position=None, missing_fields=["position", "experience", "tech_stack"]
 - "개발자 추천해줘" → position="개발자", missing_fields=["experience", "tech_stack"]
 - "백엔드 개발자 경력 3년" → position="백엔드 개발자", experience_type="경력직", experience_years=3.0, missing_fields=["tech_stack"]
+- "백엔드 개발자 경력 3년 이상" → position="백엔드 개발자", experience_type="경력직", min_years=3.0, experience_operator="이상", missing_fields=["tech_stack"]
+- "경력 3년 이상" → experience_type="경력직", min_years=3.0, experience_operator="이상", missing_fields=["position", "tech_stack"]
+- "경력 3년 이하" → experience_type="경력직", max_years=3.0, experience_operator="이하", missing_fields=["position", "tech_stack"]
+- "경력 3년 초과" → experience_type="경력직", min_years=3.0, experience_operator="초과", missing_fields=["position", "tech_stack"]
+- "경력 3년 미만" → experience_type="경력직", max_years=3.0, experience_operator="미만", missing_fields=["position", "tech_stack"]
+- "3-5년 경력" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", missing_fields=["position", "tech_stack"]
 - "React, Node.js 사용하는 개발자" → position="개발자", tech_stack=["React", "Node.js"], missing_fields=["experience"]
 - "신입 개발자" → position="개발자", experience_type="신입", missing_fields=["tech_stack"]
-- "경력 5년 이상 백엔드 개발자 Python, Django 경험" → position="백엔드 개발자", experience_type="경력직", experience_years=5.0, tech_stack=["Python", "Django"], missing_fields=[]
+- "경력 5년 이상 백엔드 개발자 Python, Django 경험" → position="백엔드 개발자", experience_type="경력직", min_years=5.0, experience_operator="이상", tech_stack=["Python", "Django"], missing_fields=[]
 - "전자 엔지니어 3-5년 경력 ARM, STM32 경험" → position="전자 엔지니어", experience_type="경력직", experience_years=3.0, tech_stack=["ARM", "STM32"], missing_fields=[]
 - "AI 엔지니어 시니어 Python, TensorFlow, PyTorch" → position="AI 엔지니어", experience_type="경력직", tech_stack=["Python", "TensorFlow", "PyTorch"], missing_fields=["experience_years"]
 - "백엔드" → position="백엔드 개발자", missing_fields=["experience", "tech_stack"]
@@ -644,14 +716,39 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             )
             
             # 추출된 정보를 검증 및 정규화하여 search_params 업데이트
+            # 포지션 변경 감지 및 처리
+            position_changed = False
             if search_info.position:
                 normalized_position = _normalize_position(search_info.position)
                 if normalized_position:
-                    search_params["position"] = normalized_position
-                    if normalized_position != search_info.position:
-                        print(f"✅ LLM 포지션 추출 및 정규화: {search_info.position} → {normalized_position}")
+                    # 기존 포지션과 비교
+                    existing_position = search_params.get("position")
+                    if existing_position and existing_position != normalized_position:
+                        # 포지션이 변경되었음을 감지
+                        position_changed = True
+                        print(f"🔄 포지션 변경 감지: '{existing_position}' → '{normalized_position}'")
+                        
+                        # 포지션이 변경되면 기존 경력/기술 스택 정보 완전 초기화
+                        search_params["position"] = normalized_position
+                        # 신입/경력직 정보 초기화
+                        search_params.pop("experience_type", None)
+                        # 경력년수 정보 초기화
+                        search_params.pop("experience_years", None)
+                        search_params.pop("min_years", None)
+                        search_params.pop("max_years", None)
+                        search_params.pop("experience_operator", None)
+                        # 기술 스택 정보 명시적으로 빈 리스트로 초기화
+                        search_params["tech_stack"] = []
+                        # collection_step도 초기화하여 처음부터 다시 수집
+                        search_params.pop("collection_step", None)
+                        print(f"🔄 포지션 변경으로 인해 경력/기술 스택 정보 완전 초기화")
                     else:
-                        print(f"✅ LLM 포지션 추출: {normalized_position}")
+                        # 포지션이 새로 추가되거나 동일한 경우
+                        search_params["position"] = normalized_position
+                        if normalized_position != search_info.position:
+                            print(f"✅ LLM 포지션 추출 및 정규화: {search_info.position} → {normalized_position}")
+                        else:
+                            print(f"✅ LLM 포지션 추출: {normalized_position}")
             
             if search_info.experience_type:
                 normalized_experience_type = _normalize_experience_type(search_info.experience_type)
@@ -662,14 +759,36 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                     else:
                         print(f"✅ LLM 경력 타입 추출: {normalized_experience_type}")
             
-            if search_info.experience_years:
-                validated_years = _validate_experience_years(search_info.experience_years)
-                if validated_years:
-                    search_params["experience_years"] = validated_years
-                    if validated_years != search_info.experience_years:
-                        print(f"✅ LLM 경력년수 추출 및 검증: {search_info.experience_years} → {validated_years}")
-                    else:
-                        print(f"✅ LLM 경력년수 추출: {validated_years}")
+            # 경력 범위 조건 처리 (이상, 이하, 초과, 미만) - 포지션 변경 시 무시
+            if not position_changed:
+                if search_info.min_years is not None:
+                    validated_min = _validate_experience_years(search_info.min_years)
+                    if validated_min:
+                        search_params["min_years"] = validated_min
+                        print(f"✅ LLM 최소 경력년수 추출: {validated_min}년 이상")
+                
+                if search_info.max_years is not None:
+                    validated_max = _validate_experience_years(search_info.max_years)
+                    if validated_max:
+                        search_params["max_years"] = validated_max
+                        print(f"✅ LLM 최대 경력년수 추출: {validated_max}년 이하")
+                
+                if search_info.experience_operator:
+                    search_params["experience_operator"] = search_info.experience_operator
+                    print(f"✅ LLM 경력 조건 연산자 추출: {search_info.experience_operator}")
+                
+                # 기존 experience_years는 범위 조건이 없을 때만 사용
+                if search_info.experience_years and not search_params.get("min_years") and not search_params.get("max_years"):
+                    validated_years = _validate_experience_years(search_info.experience_years)
+                    if validated_years:
+                        search_params["experience_years"] = validated_years
+                        if validated_years != search_info.experience_years:
+                            print(f"✅ LLM 경력년수 추출 및 검증: {search_info.experience_years} → {validated_years}")
+                        else:
+                            print(f"✅ LLM 경력년수 추출: {validated_years}")
+            else:
+                # 포지션 변경 시 경력 정보는 초기화된 상태로 유지
+                print(f"🔄 포지션 변경으로 인해 경력 정보 초기화 유지")
             
             if search_info.tech_stack:
                 normalized_tech_stack = _validate_and_normalize_tech_stack(search_info.tech_stack)
@@ -723,6 +842,14 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 # 모든 정보가 있으면 완료
                 search_params["collection_step"] = "complete"
                 print("✅ 모든 정보 추출 완료")
+            
+            # 포지션이 변경된 경우, 누락된 정보를 다시 확인하여 collection_step 조정
+            if position_changed:
+                # 포지션이 변경되었으므로, 경력/기술 스택 정보를 완전히 초기화하고 처음부터 다시 수집
+                # 경력 정보부터 다시 수집
+                if not search_params.get("collection_step"):
+                    search_params["collection_step"] = "experience"
+                    print(f"🔄 포지션 변경으로 인해 경력 정보부터 재수집 시작")
                 
         except Exception as e:
             print(f"⚠️ LLM 기반 정보 추출 실패: {e}, 기존 로직 사용")
@@ -807,6 +934,16 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "workflow_steps": None,  # 워크플로우 단계 제거
         }
     
+    async def _get_database_insights(self) -> Dict[str, Any]:
+        """DB 분석 결과를 가져와서 인사이트 제공 (캐싱 가능)."""
+        try:
+            analysis_result = await analyze_resume_database()
+            if analysis_result.get("ok"):
+                return analysis_result.get("statistics", {})
+        except Exception as e:
+            logger.debug(f"DB 분석 실패 (무시): {e}")
+        return {}
+    
     async def collect_position_info(self, state: OrchestratorState) -> Dict[str, Any]:
         """포지션 정보 수집 (휴먼인더루프 1단계)."""
         print("--- [Recruitment Master] Collecting Position Info ---")
@@ -834,16 +971,44 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             # 포지션을 정규화하여 저장
             normalized_position = _normalize_position(position)
             if normalized_position:
-                search_params["position"] = normalized_position
-                search_params["collection_step"] = "experience"
-                recruitment_context["search_parameters"] = search_params
+                # 포지션 변경 감지
+                existing_position = search_params.get("position")
+                position_changed = existing_position and existing_position != normalized_position
                 
-                # 자연스러운 AI 답변 형식
-                response = f"네, '{normalized_position}' 포지션으로 인재를 찾아드리겠습니다.\n\n다음으로 경력 정보를 알려주시면 더 정확한 추천을 드릴 수 있습니다. 신입을 찾으시나요, 아니면 경력직을 찾으시나요? 경력직이시라면 원하시는 경력 년수도 함께 알려주세요. (예: 신입, 경력 3년, 5년 이상 등)"
+                if position_changed:
+                    print(f"🔄 포지션 변경 감지: '{existing_position}' → '{normalized_position}'")
+                    # 포지션이 변경되었으므로 기존 경력/기술 스택 정보 완전 초기화
+                    search_params["position"] = normalized_position
+                    # 신입/경력직 정보 초기화
+                    search_params.pop("experience_type", None)
+                    # 경력년수 정보 초기화
+                    search_params.pop("experience_years", None)
+                    search_params.pop("min_years", None)
+                    search_params.pop("max_years", None)
+                    search_params.pop("experience_operator", None)
+                    # 기술 스택 정보 초기화
+                    search_params.pop("tech_stack", None)
+                    # collection_step도 초기화하여 처음부터 다시 수집
+                    search_params.pop("collection_step", None)
+                    print(f"🔄 포지션 변경으로 인해 경력/기술 스택 정보 완전 초기화")
+                    
+                    # 포지션 변경 시 자연스러운 답변
+                    response = f"네, 포지션을 '{normalized_position}'로 변경하겠습니다.\n\n"
+                    
+                    # 다음 단계 결정 (경력 정보부터 다시 수집)
+                    search_params["collection_step"] = "experience"
+                    response += "경력 정보를 알려주시면 더 정확한 추천을 드릴 수 있습니다. 신입을 찾으시나요, 아니면 경력직을 찾으시나요? 경력직이시라면 원하시는 경력 년수도 함께 알려주세요. (예: 신입, 경력 3년, 5년 이상, 3년 이하, 5년 초과, 3년 미만 등)"
+                else:
+                    # 포지션이 새로 추가되거나 동일한 경우
+                    search_params["position"] = normalized_position
+                    search_params["collection_step"] = "experience"
+                    response = f"네, '{normalized_position}' 포지션으로 인재를 찾아드리겠습니다.\n\n다음으로 경력 정보를 알려주시면 더 정확한 추천을 드릴 수 있습니다. 신입을 찾으시나요, 아니면 경력직을 찾으시나요? 경력직이시라면 원하시는 경력 년수도 함께 알려주세요. (예: 신입, 경력 3년, 5년 이상 등)"
+                
+                recruitment_context["search_parameters"] = search_params
                 
                 return {
                     "recruitment_context": recruitment_context,
-                    "requires_input": False,
+                    "requires_input": False if search_params.get("collection_step") == "complete" else True,
                     "final_response": response,
                     "messages": [response],
                     "workflow_in_progress": False,  # 워크플로우 차단
@@ -852,7 +1017,18 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 }
         
         # 포지션을 찾지 못했으면 사용자에게 질문
-        response = "안녕하세요! 인재 추천을 도와드리겠습니다.\n\n먼저 어떤 포지션의 지원자를 찾으시나요? (예: 개발자, 백엔드 개발자, 데이터 엔지니어, 전자 엔지니어 등)"
+        # DB 분석 결과를 활용하여 사용 가능한 포지션 안내
+        insights = await self._get_database_insights()
+        available_positions = []
+        if insights:
+            top_positions = insights.get("top_positions", [])
+            available_positions = [pos[0] for pos in top_positions[:5]]
+        
+        if available_positions:
+            response = f"안녕하세요! 인재 추천을 도와드리겠습니다.\n\n먼저 어떤 포지션의 지원자를 찾으시나요?\n\n**현재 DB에 등록된 주요 포지션:**\n{chr(10).join([f'- {pos}' for pos in available_positions])}\n\n위 포지션 중에서 선택하시거나, 다른 포지션을 직접 입력해주세요."
+        else:
+            response = "안녕하세요! 인재 추천을 도와드리겠습니다.\n\n먼저 어떤 포지션의 지원자를 찾으시나요? (예: 개발자, 백엔드 개발자, 데이터 엔지니어, 전자 엔지니어, 인사 담당자 등)"
+        
         return {
             "recruitment_context": recruitment_context,
             "requires_input": True,
@@ -886,24 +1062,104 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         if search_params.get("position"):
             previous_context = f"{previous_context} {search_params.get('position')}".strip()
         
-        # 전체 컨텍스트로 경력 정보 추출
+        # 전체 컨텍스트로 경력 정보 추출 (ExperienceInfo 모델 사용)
         full_context = f"{previous_context} {query}".strip() if previous_context else query
-        experience_type, experience_years = await self._extract_experience_with_llm(full_context)
+        
+        # LLM으로 경력 정보 추출 (경력 범위 조건 포함)
+        try:
+            system_prompt = """
+사용자 입력에서 경력 정보를 추출하세요.
+
+경력 타입 (다양한 표현 인식):
+- 신입: "신입", "주니어", "junior", "entry level", "신입 개발자", "주니어 개발자", "초급", "entry", "신입급", "신입자", "신입 수준"
+- 경력직: "경력", "시니어", "senior", "experienced", "경력직", "경력 개발자", "시니어 개발자", "중급", "고급", "경력자", "경력 있는", "경력자급", "경력직급"
+- 명시되지 않았으면 experience_type=None
+
+경력년수 (다양한 표현 인식):
+- 기본 경력년수: "5년", "5년차", "약 5년", "5년 정도" → experience_years=5.0
+- 이상 조건: "5년 이상", "5년 이상 경력", "최소 5년", "5년 이상의 경력" → min_years=5.0, experience_operator="이상"
+- 이하 조건: "5년 이하", "5년 이하 경력", "최대 5년", "5년 이하의 경력" → max_years=5.0, experience_operator="이하"
+- 초과 조건: "5년 초과", "5년 초과 경력", "5년보다 많은" → min_years=5.0, experience_operator="초과"
+- 미만 조건: "5년 미만", "5년 미만 경력", "5년보다 적은" → max_years=5.0, experience_operator="미만"
+- 범위: "3-5년", "3~5년", "3년 이상 5년 이하", "3년에서 5년" → min_years=3.0, max_years=5.0, experience_operator="범위"
+- "신입"이면 experience_years=None, min_years=None, max_years=None
+- 명시되지 않았으면 모두 None
+
+추출 규칙:
+1. 경력 타입과 경력년수를 정확히 추출
+2. "이상", "이하", "초과", "미만" 키워드를 명확히 인식하여 min_years 또는 max_years 설정
+3. confidence는 추출 신뢰도를 0.0~1.0 사이 값으로 설정
+   - 명시적 언급: 0.9~0.95
+   - 암시적 언급: 0.7~0.85
+   - 없음: 0.0
+
+예시:
+- "경력 3년 이상" → experience_type="경력직", min_years=3.0, experience_operator="이상", confidence=0.95
+- "경력 3년 이하" → experience_type="경력직", max_years=3.0, experience_operator="이하", confidence=0.95
+- "경력 3년 초과" → experience_type="경력직", min_years=3.0, experience_operator="초과", confidence=0.95
+- "경력 3년 미만" → experience_type="경력직", max_years=3.0, experience_operator="미만", confidence=0.95
+- "3-5년 경력" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", confidence=0.95
+- "경력 5년" → experience_type="경력직", experience_years=5.0, confidence=0.95
+- "신입 찾아줘" → experience_type="신입", experience_years=None, confidence=0.9
+"""
+            
+            experience_info = await extract_structured_output(
+                query=full_context,
+                model_class=ExperienceInfo,
+                system_prompt=system_prompt,
+                temperature=0.0
+            )
+            
+            # 신뢰도가 0.7 이상이면 LLM 결과 사용
+            if experience_info.confidence >= 0.7:
+                experience_type = experience_info.experience_type
+                experience_years = experience_info.experience_years
+                min_years = experience_info.min_years
+                max_years = experience_info.max_years
+                experience_operator = experience_info.experience_operator
+                print(f"✅ LLM 기반 경력 정보 추출: type={experience_type}, years={experience_years}, min={min_years}, max={max_years}, operator={experience_operator} (신뢰도: {experience_info.confidence:.2f})")
+            else:
+                # 신뢰도가 낮으면 기존 로직 사용
+                experience_type, experience_years = await self._extract_experience_with_llm(full_context)
+                min_years = None
+                max_years = None
+                experience_operator = None
+        except Exception as e:
+            print(f"⚠️ LLM 기반 경력 정보 추출 실패: {e}, 기존 로직 사용")
+            experience_type, experience_years = await self._extract_experience_with_llm(full_context)
+            min_years = None
+            max_years = None
+            experience_operator = None
         
         # 경력 정보 정규화 및 검증
         normalized_experience_type = None
         validated_years = None
+        validated_min_years = None
+        validated_max_years = None
         
         if experience_type:
             normalized_experience_type = _normalize_experience_type(experience_type)
         if experience_years:
             validated_years = _validate_experience_years(experience_years)
+        if min_years is not None:
+            validated_min_years = _validate_experience_years(min_years)
+        if max_years is not None:
+            validated_max_years = _validate_experience_years(max_years)
         
-        if normalized_experience_type or validated_years:
+        if normalized_experience_type or validated_years or validated_min_years is not None or validated_max_years is not None:
             if normalized_experience_type:
                 search_params["experience_type"] = normalized_experience_type
             if validated_years:
                 search_params["experience_years"] = validated_years
+            if validated_min_years is not None:
+                search_params["min_years"] = validated_min_years
+                print(f"✅ 최소 경력년수 저장: {validated_min_years}년")
+            if validated_max_years is not None:
+                search_params["max_years"] = validated_max_years
+                print(f"✅ 최대 경력년수 저장: {validated_max_years}년")
+            if experience_operator:
+                search_params["experience_operator"] = experience_operator
+                print(f"✅ 경력 조건 연산자 저장: {experience_operator}")
             search_params["collection_step"] = "tech_stack"
             recruitment_context["search_parameters"] = search_params
             
@@ -912,7 +1168,15 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             exp_info = []
             if normalized_experience_type:
                 exp_info.append(normalized_experience_type)
-            if validated_years:
+            if validated_min_years is not None:
+                operator = experience_operator or "이상"
+                exp_info.append(f"{validated_min_years}년 {operator}")
+            elif validated_max_years is not None:
+                operator = experience_operator or "이하"
+                exp_info.append(f"{validated_max_years}년 {operator}")
+            elif validated_min_years is not None and validated_max_years is not None:
+                exp_info.append(f"{validated_min_years}년 이상 {validated_max_years}년 이하")
+            elif validated_years:
                 exp_info.append(f"{validated_years}년")
             
             exp_str = " ".join(exp_info) if exp_info else "경력 정보"
@@ -1048,6 +1312,10 @@ class RecruitmentMasterGraph(BaseMasterGraph):
     def route_after_intent(self, state: OrchestratorState) -> str:
         """의도 분류 후 라우팅."""
         intent = state.get("intent", "search")
+        
+        # 분석 요청은 바로 analyze_database로
+        if intent == "analyze":
+            return "analyze"
         
         # 워크플로우 진행 중이 아니고 단순 검색 요청인지 확인
         workflow_in_progress = state.get("workflow_in_progress", False)
@@ -1189,12 +1457,14 @@ class RecruitmentMasterGraph(BaseMasterGraph):
 - 명시되지 않았으면 experience_type=None
 
 경력년수 (다양한 표현 인식):
-- "5년", "5년차", "5년 이상", "5년 이상 경력", "최소 5년", "약 5년", "5년 정도", "5년 이상의 경력"
-- "3-5년", "3~5년", "3년 이상 5년 이하", "3년에서 5년"
-- "3년 이상", "3년 이상 경력", "최소 3년", "3년 이상의 경력"
-- "신입"이면 experience_years=None
-- 명시되지 않았으면 experience_years=None
-- 범위가 주어진 경우 (예: "3-5년") 최소값을 experience_years로 설정
+- 기본 경력년수: "5년", "5년차", "약 5년", "5년 정도" → experience_years=5.0
+- 이상 조건: "5년 이상", "5년 이상 경력", "최소 5년", "5년 이상의 경력" → min_years=5.0, experience_operator="이상"
+- 이하 조건: "5년 이하", "5년 이하 경력", "최대 5년", "5년 이하의 경력" → max_years=5.0, experience_operator="이하"
+- 초과 조건: "5년 초과", "5년 초과 경력", "5년보다 많은" → min_years=5.0, experience_operator="초과" (주의: 5년보다 많으므로 실제로는 5.1년 이상)
+- 미만 조건: "5년 미만", "5년 미만 경력", "5년보다 적은" → max_years=5.0, experience_operator="미만" (주의: 5년보다 적으므로 실제로는 4.9년 이하)
+- 범위: "3-5년", "3~5년", "3년 이상 5년 이하", "3년에서 5년" → min_years=3.0, max_years=5.0, experience_operator="범위"
+- "신입"이면 experience_years=None, min_years=None, max_years=None
+- 명시되지 않았으면 모두 None
 
 추출 규칙:
 1. 경력 타입과 경력년수를 정확히 추출
@@ -1208,13 +1478,17 @@ class RecruitmentMasterGraph(BaseMasterGraph):
 예시:
 - "경력 5년" → experience_type="경력직", experience_years=5.0, confidence=0.95
 - "5년차 개발자" → experience_type="경력직", experience_years=5.0, confidence=0.95
-- "5년 이상 경력" → experience_type="경력직", experience_years=5.0, confidence=0.95
-- "3-5년 경력" → experience_type="경력직", experience_years=3.0, confidence=0.95
-- "최소 3년 경력" → experience_type="경력직", experience_years=3.0, confidence=0.95
+- "5년 이상 경력" → experience_type="경력직", min_years=5.0, experience_operator="이상", confidence=0.95
+- "5년 이하 경력" → experience_type="경력직", max_years=5.0, experience_operator="이하", confidence=0.95
+- "5년 초과 경력" → experience_type="경력직", min_years=5.0, experience_operator="초과", confidence=0.95
+- "5년 미만 경력" → experience_type="경력직", max_years=5.0, experience_operator="미만", confidence=0.95
+- "3-5년 경력" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", confidence=0.95
+- "3년 이상 5년 이하" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", confidence=0.95
+- "최소 3년 경력" → experience_type="경력직", min_years=3.0, experience_operator="이상", confidence=0.95
 - "신입 찾아줘" → experience_type="신입", experience_years=None, confidence=0.9
 - "주니어 개발자" → experience_type="신입", experience_years=None, confidence=0.9
 - "시니어 개발자" → experience_type="경력직", experience_years=None, confidence=0.85
-- "5년 이상 경력 개발자" → experience_type="경력직", experience_years=5.0, confidence=0.95
+- "5년 이상 경력 개발자" → experience_type="경력직", min_years=5.0, experience_operator="이상", confidence=0.95
 - "개발자 추천해줘" → experience_type=None, experience_years=None, confidence=0.0
 """
             
@@ -1279,6 +1553,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
 - 빅데이터: Hadoop, Spark, Kafka, Airflow, Presto, Hive, HBase
 - 모니터링/로깅: Prometheus, Grafana, ELK Stack, Kibana, Splunk, Datadog, New Relic
 - 하드웨어/임베디드: C, C++, ARM, STM32, Arduino, Raspberry Pi, Verilog, VHDL, PCB Design, Altium, Cadence, OrCAD, KiCad, Eagle, LabVIEW
+- HR/인사 관련: HRIS, HRIS 운영, 인사 정보시스템, HR 시스템, 보상, 보상 제도, 보상·승진 제도, 보상 승진 제도, compensation, promotion, 승진, 승진 제도, 면접, 면접 진행, 면접 관리, interview, 인사관리, HR management, 채용관리, recruitment management, 인력 관리, workforce management, 성과 관리, performance management, HR Analytics, 인사 분석, 인사 데이터 분석
 - 기타: Git, SVN, Jira, Confluence, Figma, Sketch, Adobe XD, Postman, Swagger
 
 추출 규칙:
@@ -1303,6 +1578,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
 - "Java와 Spring Boot 사용 가능한" → tech_stack=["Java", "Spring Boot"], skip_requested=False, confidence=0.9
 - "ARM, STM32 경험" → tech_stack=["ARM", "STM32"], skip_requested=False, confidence=0.9
 - "TensorFlow, PyTorch 사용하는 AI 엔지니어" → tech_stack=["TensorFlow", "PyTorch"], skip_requested=False, confidence=0.9
+- "HRIS 운영, 보상·승진 제도 기술스택이 필요해" → tech_stack=["HRIS 운영", "보상·승진 제도"], skip_requested=False, confidence=0.95
+- "HRIS, 보상 제도, 면접 진행" → tech_stack=["HRIS", "보상 제도", "면접 진행"], skip_requested=False, confidence=0.95
+- "인사관리, 채용관리 시스템" → tech_stack=["인사관리", "채용관리"], skip_requested=False, confidence=0.9
 - "없어" → tech_stack=[], skip_requested=True, confidence=0.9
 - "필요없어요" → tech_stack=[], skip_requested=True, confidence=0.9
 - "개발자 추천해줘" → tech_stack=[], skip_requested=False, confidence=0.0
@@ -1334,11 +1612,81 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             print(f"✅ 키워드 기반 기술 스택 건너뛰기 감지")
             return [], True
         
-        tech_stack = _extract_skill_keywords(query)
-        if tech_stack:
-            print(f"✅ 키워드 기반 기술 스택 추출: {tech_stack}")
+        # 포지션 관련 키워드 제거 (기술 스택 추출 시 방해 요소)
+        # 포지션 키워드가 포함된 경우 기술 스택이 아닐 가능성이 높음
+        position_keywords = [
+            "개발자", "엔지니어", "담당자", "매니저", "관리자", "디자이너", "기획자",
+            "developer", "engineer", "manager", "designer", "planner",
+            "백엔드", "프론트엔드", "풀스택", "데이터", "ai", "데브옵스",
+            "backend", "frontend", "fullstack", "data", "devops",
+            "인사", "채용", "경영", "hr", "recruiter", "business",
+            "전자", "하드웨어", "임베디드", "반도체", "fpga", "펌웨어"
+        ]
         
-        return tech_stack, False
+        # 쿼리에서 포지션 키워드가 포함된 구문 제거
+        query_for_tech = query
+        for pos_kw in position_keywords:
+            # 포지션 키워드가 포함된 구문 패턴 제거 (예: "인사 담당자", "백엔드 개발자")
+            pattern = rf'\b\S*\s*{re.escape(pos_kw)}\s*\S*\b'
+            query_for_tech = re.sub(pattern, '', query_for_tech, flags=re.IGNORECASE)
+        
+        # 경력 관련 키워드도 제거
+        experience_keywords = ["경력", "신입", "년", "year", "years", "경험", "experience", "이상", "이하"]
+        for exp_kw in experience_keywords:
+            pattern = rf'\b\S*\s*{re.escape(exp_kw)}\s*\S*\b'
+            query_for_tech = re.sub(pattern, '', query_for_tech, flags=re.IGNORECASE)
+        
+        query_for_tech = query_for_tech.strip()
+        
+        # 정제된 쿼리가 비어있거나 너무 짧으면 기술 스택 없음
+        if not query_for_tech or len(query_for_tech) < 2:
+            print(f"✅ 키워드 기반 기술 스택 추출: [] (포지션/경력 정보만 포함)")
+            return [], False
+        
+        # HR 관련 복합 표현 직접 추출 (키워드 기반보다 우선)
+        hr_tech_patterns = [
+            (r'HRIS\s*운영', 'HRIS 운영'),
+            (r'보상\s*[··]\s*승진\s*제도', '보상·승진 제도'),
+            (r'보상\s*승진\s*제도', '보상·승진 제도'),
+            (r'보상\s*제도', '보상 제도'),
+            (r'승진\s*제도', '승진 제도'),
+            (r'면접\s*진행', '면접 진행'),
+            (r'면접\s*관리', '면접 관리'),
+            (r'인사관리', '인사관리'),
+            (r'채용관리', '채용관리'),
+            (r'인력\s*관리', '인력 관리'),
+            (r'성과\s*관리', '성과 관리'),
+            (r'HR\s*Analytics', 'HR Analytics'),
+            (r'인사\s*분석', '인사 분석'),
+            (r'인사\s*데이터\s*분석', '인사 데이터 분석'),
+        ]
+        
+        tech_stack = []
+        for pattern, tech_name in hr_tech_patterns:
+            if re.search(pattern, query_for_tech, re.IGNORECASE):
+                if tech_name not in tech_stack:
+                    tech_stack.append(tech_name)
+        
+        # 일반 기술 스택 키워드 추출 (HR 관련이 없을 때만, 정제된 쿼리 사용)
+        if not tech_stack:
+            tech_stack = _extract_skill_keywords(query_for_tech)
+        
+        # 추출된 기술 스택에서 포지션 키워드 제거 (혹시 모를 경우 대비)
+        filtered_tech_stack = []
+        for tech in tech_stack:
+            tech_lower = tech.lower()
+            # 포지션 키워드가 포함된 기술 스택은 제외
+            if not any(pos_kw in tech_lower for pos_kw in ["개발자", "엔지니어", "담당자", "매니저", "관리자", "디자이너", "기획자"]):
+                # 단순히 "인사", "채용", "경영"만 있는 경우도 제외 (포지션일 가능성)
+                if tech_lower not in ["인사", "채용", "경영", "hr", "recruiter", "business"]:
+                    filtered_tech_stack.append(tech)
+        
+        if filtered_tech_stack:
+            print(f"✅ 키워드 기반 기술 스택 추출: {filtered_tech_stack}")
+        else:
+            print(f"✅ 키워드 기반 기술 스택 추출: [] (기술 스택 없음)")
+        
+        return filtered_tech_stack, False
     
     async def search_resumes(self, state: OrchestratorState) -> Dict[str, Any]:
         """이력서 검색 & 인재 추천."""
@@ -1356,21 +1704,56 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         if search_params.get("position"):
             query_parts.append(search_params["position"])
         
-        if search_params.get("experience_type") == "경력직" and search_params.get("experience_years"):
-            query_parts.append(f"경력 {search_params['experience_years']}년")
+        # 경력 정보 구성 (범위 조건 지원)
+        if search_params.get("experience_type") == "경력직":
+            if search_params.get("min_years") is not None:
+                operator = search_params.get("experience_operator", "이상")
+                if operator == "초과":
+                    query_parts.append(f"경력 {search_params['min_years']}년 초과")
+                else:
+                    query_parts.append(f"경력 {search_params['min_years']}년 이상")
+            elif search_params.get("max_years") is not None:
+                operator = search_params.get("experience_operator", "이하")
+                if operator == "미만":
+                    query_parts.append(f"경력 {search_params['max_years']}년 미만")
+                else:
+                    query_parts.append(f"경력 {search_params['max_years']}년 이하")
+            elif search_params.get("min_years") is not None and search_params.get("max_years") is not None:
+                query_parts.append(f"경력 {search_params['min_years']}년 이상 {search_params['max_years']}년 이하")
+            elif search_params.get("experience_years"):
+                query_parts.append(f"경력 {search_params['experience_years']}년")
+            else:
+                query_parts.append("경력직")
         elif search_params.get("experience_type") == "신입":
             query_parts.append("신입")
         
         if search_params.get("tech_stack"):
             query_parts.extend(search_params["tech_stack"])
         
-        # 쿼리 구성 (수집된 파라미터가 있으면 우선 사용)
+        # 쿼리 구성 (수집된 파라미터 우선)
         if query_parts:
             enhanced_query = " ".join(query_parts)
             print(f"✅ 수집된 파라미터로 검색 쿼리 구성: {enhanced_query}")
         else:
             # 수집된 파라미터가 없으면 원본 쿼리 사용
             enhanced_query = query
+        
+        # 경력 범위 조건을 쿼리에 명시적으로 추가 (필터링을 위해)
+        # min_years나 max_years가 있으면 쿼리에 추가하여 _parse_query_filters가 추출할 수 있도록 함
+        if search_params.get("min_years") is not None and "이상" not in enhanced_query and "초과" not in enhanced_query:
+            operator = search_params.get("experience_operator", "이상")
+            if operator == "초과":
+                enhanced_query = f"{enhanced_query} 경력 {search_params['min_years']}년 초과"
+            else:
+                enhanced_query = f"{enhanced_query} 경력 {search_params['min_years']}년 이상"
+            print(f"✅ 경력 범위 조건 추가: {enhanced_query}")
+        elif search_params.get("max_years") is not None and "이하" not in enhanced_query and "미만" not in enhanced_query:
+            operator = search_params.get("experience_operator", "이하")
+            if operator == "미만":
+                enhanced_query = f"{enhanced_query} 경력 {search_params['max_years']}년 미만"
+            else:
+                enhanced_query = f"{enhanced_query} 경력 {search_params['max_years']}년 이하"
+            print(f"✅ 경력 범위 조건 추가: {enhanced_query}")
         
         # 이전 요청 확인 질문인지 감지
         is_history_check = any(k in query for k in [
@@ -1421,69 +1804,83 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             }
         
         # 일반 검색 요청 처리
-        # 구체적인 조건이 없는 일반적인 요청인지 확인
-        query_lower = query.lower().strip()
-        query_cleaned = re.sub(r'[^\w\s가-힣]', '', query_lower)  # 특수문자 제거
+        # search_params에 정보가 있으면 무조건 검색 실행 (HITL로 수집된 정보가 있으면)
+        has_collected_params = bool(
+            search_params.get("position") or 
+            search_params.get("experience_type") or 
+            search_params.get("experience_years") or 
+            search_params.get("min_years") or 
+            search_params.get("max_years") or 
+            search_params.get("tech_stack")
+        )
         
-        # 일반적인 요청 패턴 확인 (예: "인재 추천해줘", "인재 찾아줘", "추천해줘" 등)
-        general_request_keywords = [
-            "인재 추천", "인재 찾아", "인재 검색",
-            "인재를 추천", "인재를 찾아", "인재를 검색",
-            "인재 추천해", "인재 찾아줘", "인재 검색해",
-            "추천해줘", "찾아줘", "검색해줘",
-            "추천해달라", "찾아달라", "검색해달라",
-            "추천해주세요", "찾아주세요", "검색해주세요",
-            "인재 추천해줘", "인재 찾아줘", "인재 검색해줘",
-        ]
-        
-        is_general_request = any(keyword in query_cleaned for keyword in general_request_keywords)
-        
-        # 구체적인 조건이 있는지 확인
-        # 포지션 키워드 확인
-        position_keywords_list = [
-            "백엔드", "프론트엔드", "풀스택", "데이터", "ai", "데브옵스", "qa", "기획자", "디자이너",
-            "전자", "하드웨어", "임베디드", "반도체",
-            "backend", "frontend", "fullstack", "devops", "electronics", "hardware", "embedded"
-        ]
-        has_position = any(keyword in query_lower for keyword in position_keywords_list)
-        
-        # 기술 스택 키워드 확인 (일부 주요 기술만)
-        tech_keywords_list = [
-            "python", "java", "javascript", "typescript", "react", "vue", "angular",
-            "spring", "django", "flask", "node", "mysql", "postgresql",
-            "docker", "kubernetes", "aws", "gcp", "azure"
-        ]
-        has_tech = any(keyword in query_lower for keyword in tech_keywords_list)
-        
-        # 경력 관련 키워드 확인
-        experience_keywords = ["경력", "년", "year", "신입", "주니어", "시니어", "senior", "junior", "경험"]
-        has_experience = any(keyword in query_lower for keyword in experience_keywords)
-        
-        # 숫자 포함 여부 확인 (경력년수일 가능성)
-        has_numbers = bool(re.search(r'\d+', query))
-        
-        # 구체적인 조건이 있는지 확인
-        has_specific_conditions = has_position or has_tech or has_experience or has_numbers
-        
-        # 일반적인 요청이고 구체적인 조건이 없으면 안내 메시지 반환
-        if is_general_request and not has_specific_conditions:
-            print(f"✅ 일반적인 요청 감지 (구체 조건 없음): '{query}' - 안내 메시지 반환")
-            response = (
-                "어떤 인재를 추천 받고 싶은지 말씀해주세요!\n\n"
-                "예를 들어:\n"
-                "• \"Python 개발자 추천해줘\"\n"
-                "• \"데이터 엔지니어 경력 5년 이상 추천해줘\"\n"
-                "• \"백엔드 개발자 Java, Spring 경험자 추천해줘\"\n"
-                "• \"전자 엔지니어 추천해줘\"\n\n"
-                "포지션, 기술 스택, 경력년수 등을 포함해서 요청해주시면 더 정확한 추천을 받으실 수 있습니다."
-            )
-            return {
-                "final_response": response,
-                "messages": [response],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
-            }
+        if not has_collected_params:
+            # 구체적인 조건이 없는 일반적인 요청인지 확인
+            query_lower = query.lower().strip()
+            query_cleaned = re.sub(r'[^\w\s가-힣]', '', query_lower)  # 특수문자 제거
+            
+            # 일반적인 요청 패턴 확인 (예: "인재 추천해줘", "인재 찾아줘", "추천해줘" 등)
+            general_request_keywords = [
+                "인재 추천", "인재 찾아", "인재 검색",
+                "인재를 추천", "인재를 찾아", "인재를 검색",
+                "인재 추천해", "인재 찾아줘", "인재 검색해",
+                "추천해줘", "찾아줘", "검색해줘",
+                "추천해달라", "찾아달라", "검색해달라",
+                "추천해주세요", "찾아주세요", "검색해주세요",
+                "인재 추천해줘", "인재 찾아줘", "인재 검색해줘",
+            ]
+            
+            is_general_request = any(keyword in query_cleaned for keyword in general_request_keywords)
+            
+            # 구체적인 조건이 있는지 확인
+            # 포지션 키워드 확인 (인사, 채용, 경영 포함)
+            position_keywords_list = [
+                "백엔드", "프론트엔드", "풀스택", "데이터", "ai", "데브옵스", "qa", "기획자", "디자이너",
+                "전자", "하드웨어", "임베디드", "반도체",
+                "인사", "채용", "경영", "hr", "recruiter", "business",
+                "backend", "frontend", "fullstack", "devops", "electronics", "hardware", "embedded"
+            ]
+            has_position = any(keyword in query_lower for keyword in position_keywords_list)
+            
+            # 기술 스택 키워드 확인 (일부 주요 기술만)
+            tech_keywords_list = [
+                "python", "java", "javascript", "typescript", "react", "vue", "angular",
+                "spring", "django", "flask", "node", "mysql", "postgresql",
+                "docker", "kubernetes", "aws", "gcp", "azure"
+            ]
+            has_tech = any(keyword in query_lower for keyword in tech_keywords_list)
+            
+            # 경력 관련 키워드 확인
+            experience_keywords = ["경력", "년", "year", "신입", "주니어", "시니어", "senior", "junior", "경험"]
+            has_experience = any(keyword in query_lower for keyword in experience_keywords)
+            
+            # 숫자 포함 여부 확인 (경력년수일 가능성)
+            has_numbers = bool(re.search(r'\d+', query))
+            
+            # 구체적인 조건이 있는지 확인
+            has_specific_conditions = has_position or has_tech or has_experience or has_numbers
+            
+            # 일반적인 요청이고 구체적인 조건이 없으면 안내 메시지 반환
+            if is_general_request and not has_specific_conditions:
+                print(f"✅ 일반적인 요청 감지 (구체 조건 없음): '{query}' - 안내 메시지 반환")
+                response = (
+                    "어떤 인재를 추천 받고 싶은지 말씀해주세요!\n\n"
+                    "예를 들어:\n"
+                    "• \"Python 개발자 추천해줘\"\n"
+                    "• \"데이터 엔지니어 경력 5년 이상 추천해줘\"\n"
+                    "• \"백엔드 개발자 Java, Spring 경험자 추천해줘\"\n"
+                    "• \"전자 엔지니어 추천해줘\"\n\n"
+                    "포지션, 기술 스택, 경력년수 등을 포함해서 요청해주시면 더 정확한 추천을 받으실 수 있습니다."
+                )
+                return {
+                    "final_response": response,
+                    "messages": [response],
+                    "workflow_in_progress": False,  # 워크플로우 차단
+                    "workflow_type": None,
+                    "workflow_steps": None,
+                }
+        else:
+            print(f"✅ 수집된 파라미터가 있어 검색 실행: {search_params}")
         
         # LLM을 사용하여 프롬프트에서 적절한 검색 개수 추출
         print("--- [Recruitment Master] 검색 파라미터 추출 중 ---")
@@ -1583,9 +1980,10 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "total_count": len(sorted_resumes),  # 검색된 전체 개수
         }
         
-        # 검색 완료 후 search_parameters 초기화 (다음 검색을 위해)
-        recruitment_context["search_parameters"] = {}
-        print("🔄 검색 완료 - search_parameters 초기화")
+        # 검색 완료 후 search_parameters 초기화하지 않음
+        # 다음 검색 요청이 들어올 때 check_search_parameters에서 새로운 검색 요청인지 확인하여 초기화
+        # 이렇게 하면 사용자가 "다른 인재 추천해줘" 같은 요청을 할 때 이전 정보를 유지할 수 있음
+        # print("🔄 검색 완료 - search_parameters 유지 (다음 검색 요청 시 초기화)")
         
         print(f"✅ recruitment_context 업데이트 완료: {len(sorted_resumes)}개 인재 저장 (요청: {suggested_count}, 표시: {len(displayed_resumes)}개)")
         if sorted_resumes:
@@ -1717,6 +2115,110 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "messages": [result.get("message", "")],
             "recruitment_context": recruitment_context,
             "workflow_in_progress": False,  # 워크플로우 차단
+            "workflow_type": None,
+            "workflow_steps": None,
+        }
+    
+    async def analyze_database(self, state: OrchestratorState) -> Dict[str, Any]:
+        """Milvus DB 데이터를 분석하여 통계와 인사이트를 제공합니다."""
+        print("--- [Recruitment Master] Analyzing Database ---")
+        query = state.get("query", "")
+        
+        # 데이터 분석 실행
+        analysis_result = await analyze_resume_database()
+        
+        if not analysis_result.get("ok"):
+            return {
+                "final_response": analysis_result.get("message", "데이터 분석 중 오류가 발생했습니다."),
+                "messages": [analysis_result.get("message", "")],
+                "workflow_in_progress": False,
+                "workflow_type": None,
+                "workflow_steps": None,
+            }
+        
+        statistics = analysis_result.get("statistics", {})
+        
+        # 분석 결과를 자연어로 설명
+        total_count = statistics.get('total_count', 0)
+        top_positions = statistics.get('top_positions', [])[:5]
+        experience_dist = statistics.get('experience_distribution', {})
+        experience_years_dist = dict(list(statistics.get('experience_years_distribution', {}).items())[:5])
+        top_skills = statistics.get('top_skills', [])[:10]
+        hr_count = statistics.get('hr_related_count', 0)
+        tech_count = statistics.get('tech_related_count', 0)
+        
+        # 사용자 질문에 맞춰 답변 생성
+        query_lower = query.lower()
+        
+        if any(kw in query_lower for kw in ["포지션", "직무", "어떤 포지션"]):
+            # 포지션 관련 질문
+            positions_text = "\n".join([f"- {pos}: {count}명" for pos, count in top_positions])
+            final_response = f"""현재 DB에 등록된 주요 포지션은 다음과 같습니다:
+
+{positions_text}
+
+총 {total_count}명의 인재가 등록되어 있으며, 위 포지션 외에도 다양한 포지션의 인재가 있습니다."""
+        
+        elif any(kw in query_lower for kw in ["기술", "스택", "어떤 기술"]):
+            # 기술 스택 관련 질문
+            skills_text = "\n".join([f"- {skill}: {count}회" for skill, count in top_skills])
+            final_response = f"""현재 DB에 등록된 인재들이 보유한 주요 기술 스택은 다음과 같습니다:
+
+{skills_text}
+
+총 {total_count}명의 인재 데이터를 분석한 결과입니다."""
+        
+        elif any(kw in query_lower for kw in ["경력", "경험", "몇 년"]):
+            # 경력 관련 질문
+            exp_text = "\n".join([f"- {exp_type}: {count}명" for exp_type, count in experience_dist.items()])
+            years_text = "\n".join([f"- {years}: {count}명" for years, count in experience_years_dist.items()]) if experience_years_dist else "경력년수 정보 없음"
+            final_response = f"""현재 DB의 경력 분포는 다음과 같습니다:
+
+**경력 타입별:**
+{exp_text}
+
+**경력년수별:**
+{years_text}
+
+총 {total_count}명의 인재 데이터를 분석한 결과입니다."""
+        
+        elif any(kw in query_lower for kw in ["인사", "채용", "hr"]):
+            # 인사/채용 관련 질문
+            final_response = f"""현재 DB에 인사/채용 관련 인재가 {hr_count}명 등록되어 있습니다.
+
+주요 포지션:
+{chr(10).join([f"- {pos}: {count}명" for pos, count in top_positions if any(kw in pos.lower() for kw in ['인사', '채용', 'hr'])])}
+
+총 {total_count}명 중 {hr_count}명이 인사/채용 관련 포지션입니다."""
+        
+        else:
+            # 일반 통계 답변
+            positions_text = "\n".join([f"- {pos}: {count}명" for pos, count in top_positions])
+            exp_text = "\n".join([f"- {exp_type}: {count}명" for exp_type, count in experience_dist.items()])
+            skills_text = "\n".join([f"- {skill}: {count}회" for skill, count in top_skills[:5]])
+            
+            final_response = f"""현재 DB에 총 {total_count}명의 인재가 등록되어 있습니다.
+
+**주요 포지션 분포:**
+{positions_text}
+
+**경력 분포:**
+{exp_text}
+
+**인기 기술 스택 (상위 5개):**
+{skills_text}
+
+**카테고리별 인재 수:**
+- 인사/채용 관련: {hr_count}명
+- 기술 관련: {tech_count}명
+
+더 자세한 정보가 필요하시면 구체적으로 질문해주세요!"""
+        
+        return {
+            "final_response": final_response,
+            "messages": [final_response],
+            "statistics": statistics,
+            "workflow_in_progress": False,
             "workflow_type": None,
             "workflow_steps": None,
         }

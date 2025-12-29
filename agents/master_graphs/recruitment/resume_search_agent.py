@@ -12,6 +12,13 @@ from collections import OrderedDict
 from pathlib import Path
 
 try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    yaml = None
+
+try:
     from pymilvus import connections, Collection, utility
     MILVUS_AVAILABLE = True
 except ImportError:
@@ -23,6 +30,89 @@ except ImportError:
 from agents.embedding_utils import get_embedding_generator
 
 logger = logging.getLogger(__name__)
+
+
+# ==================== 키워드 로더 함수 ====================
+
+def _load_keywords_from_yaml() -> Dict[str, Any]:
+    """YAML 파일에서 키워드를 로드합니다.
+    
+    Returns:
+        키워드 딕셔너리. 로드 실패 시 빈 딕셔너리 반환.
+    """
+    if not YAML_AVAILABLE:
+        logger.warning("yaml 모듈이 설치되지 않았습니다. 키워드 YAML 로드 불가.")
+        return {}
+    
+    try:
+        current_dir = Path(__file__).parent
+        yaml_path = current_dir / "prompts.yaml"
+        
+        if not yaml_path.exists():
+            logger.warning(f"키워드 YAML 파일을 찾을 수 없습니다: {yaml_path}")
+            return {}
+        
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            keywords = data.get("keywords", {})
+            logger.info(f"키워드 YAML 파일 로드 완료: {yaml_path}")
+            return keywords
+    except Exception as e:
+        logger.error(f"키워드 YAML 파일 로드 실패: {e}", exc_info=True)
+        return {}
+
+# 모듈 로드 시 키워드 로드
+_KEYWORDS = _load_keywords_from_yaml()
+
+def get_position_keywords() -> Dict[str, List[str]]:
+    """포지션 키워드를 반환합니다.
+    
+    Returns:
+        포지션명을 키로, 키워드 리스트를 값으로 하는 딕셔너리.
+    """
+    return _KEYWORDS.get("position", {})
+
+def get_tech_stack_keywords() -> List[str]:
+    """기술 스택 키워드를 평탄화하여 반환합니다.
+    
+    Returns:
+        모든 기술 스택 키워드의 평탄화된 리스트.
+    """
+    tech_stack = _KEYWORDS.get("tech_stack", {})
+    all_keywords = []
+    for category, keywords in tech_stack.items():
+        if isinstance(keywords, list):
+            all_keywords.extend(keywords)
+    return all_keywords
+
+def get_experience_type_keywords() -> Dict[str, List[str]]:
+    """경력 타입 키워드를 반환합니다.
+    
+    Returns:
+        경력 타입별 키워드 딕셔너리 (senior, junior).
+    """
+    return _KEYWORDS.get("experience_type", {})
+
+def get_experience_range_patterns() -> List[Tuple[str, str]]:
+    """경력 범위 패턴을 반환합니다.
+    
+    Returns:
+        (패턴, 타입) 튜플 리스트.
+    """
+    patterns = _KEYWORDS.get("experience_range_patterns", [])
+    result = []
+    for p in patterns:
+        if isinstance(p, dict) and "pattern" in p and "type" in p:
+            result.append((p["pattern"], p["type"]))
+    return result
+
+def get_other_keywords() -> Dict[str, List[str]]:
+    """기타 키워드를 반환합니다.
+    
+    Returns:
+        기타 키워드 딕셔너리.
+    """
+    return _KEYWORDS.get("other", {})
 
 
 # ==================== 상수 정의 ====================
@@ -44,30 +134,37 @@ MAX_NAME_LENGTH = 5
 MIN_SKILL_LENGTH = 2
 MAX_SKILL_LENGTH = 30
 
-# 키워드 리스트
-DIFFERENT_REQUEST_KEYWORDS = ["다른", "다시", "추가", "더", "another", "different", "more"]
-SENIOR_KEYWORDS = ["경력직", "경력", "시니어", "senior", "experienced"]
-JUNIOR_KEYWORDS = ["신입", "주니어", "junior", "entry"]
+# 키워드 리스트 (YAML에서 로드, 실패 시 기본값 사용)
+_OTHER_KEYWORDS = get_other_keywords()
+_EXPERIENCE_TYPE_KEYWORDS = get_experience_type_keywords()
+_EXPERIENCE_RANGE_PATTERNS = get_experience_range_patterns()
+
+DIFFERENT_REQUEST_KEYWORDS = _OTHER_KEYWORDS.get("different_request", ["다른", "다시", "추가", "더", "another", "different", "more"])
+SENIOR_KEYWORDS = _EXPERIENCE_TYPE_KEYWORDS.get("senior", ["경력직", "경력", "시니어", "senior", "experienced"])
+JUNIOR_KEYWORDS = _EXPERIENCE_TYPE_KEYWORDS.get("junior", ["신입", "주니어", "junior", "entry"])
 QUERY_CLEANUP_PATTERNS = r'\s*(추천|검색|찾아|해줘|해달라|요청).*$'
 
-# 경력년수 범위 패턴
-EXPERIENCE_RANGE_PATTERNS = [
-    # "3년 이상", "5년 이상", "10 years or more"
-    (r'(\d+\.?\d*)\s*년?\s*(?:이상|이상의|over|more|or\s+more)', 'min'),
-    (r'(\d+\.?\d*)\s*years?\s*(?:이상|over|more|or\s+more)', 'min'),
-    # "5년 이하", "3년 미만", "under 5 years"
-    (r'(\d+\.?\d*)\s*년?\s*(?:이하|미만|under|less)', 'max'),
-    (r'(\d+\.?\d*)\s*years?\s*(?:이하|under|less)', 'max'),
-    # "3-5년", "3~5년", "3 to 5 years", "3년부터 5년까지"
-    (r'(\d+\.?\d*)\s*(?:[-~부터]|to|~)\s*(\d+\.?\d*)\s*년?', 'range'),
-    (r'(\d+\.?\d*)\s*years?\s*(?:[-~부터]|to|~)\s*(\d+\.?\d*)\s*years?', 'range'),
-    # "3년 이상 5년 이하", "3 to 5 years experience"
-    (r'(\d+\.?\d*)\s*년?\s*이상\s*(\d+\.?\d*)\s*년?\s*이하', 'range'),
-    (r'(\d+\.?\d*)\s*years?\s*(?:and|to)\s*(\d+\.?\d*)\s*years?', 'range'),
-    # "약 3년", "about 3 years"
-    (r'약\s*(\d+\.?\d*)\s*년?', 'exact'),
-    (r'about\s*(\d+\.?\d*)\s*years?', 'exact'),
-]
+# 경력년수 범위 패턴 (YAML에서 로드, 실패 시 기본값 사용)
+if _EXPERIENCE_RANGE_PATTERNS:
+    EXPERIENCE_RANGE_PATTERNS = _EXPERIENCE_RANGE_PATTERNS
+else:
+    # 기본값 (YAML 로드 실패 시)
+    EXPERIENCE_RANGE_PATTERNS = [
+        (r'(\d+\.?\d*)\s*년?\s*(?:이상|이상의|over|more|or\s+more)', 'min'),
+        (r'(\d+\.?\d*)\s*years?\s*(?:이상|over|more|or\s+more)', 'min'),
+        (r'(\d+\.?\d*)\s*년?\s*(?:초과|보다\s*많은|over)', 'min_over'),
+        (r'(\d+\.?\d*)\s*years?\s*(?:over|more\s+than)', 'min_over'),
+        (r'(\d+\.?\d*)\s*년?\s*(?:이하|under|less)', 'max'),
+        (r'(\d+\.?\d*)\s*years?\s*(?:이하|under|less)', 'max'),
+        (r'(\d+\.?\d*)\s*년?\s*(?:미만|보다\s*적은|less\s+than)', 'max_under'),
+        (r'(\d+\.?\d*)\s*years?\s*(?:less\s+than)', 'max_under'),
+        (r'(\d+\.?\d*)\s*(?:[-~부터]|to|~)\s*(\d+\.?\d*)\s*년?', 'range'),
+        (r'(\d+\.?\d*)\s*years?\s*(?:[-~부터]|to|~)\s*(\d+\.?\d*)\s*years?', 'range'),
+        (r'(\d+\.?\d*)\s*년?\s*이상\s*(\d+\.?\d*)\s*년?\s*이하', 'range'),
+        (r'(\d+\.?\d*)\s*years?\s*(?:and|to)\s*(\d+\.?\d*)\s*years?', 'range'),
+        (r'약\s*(\d+\.?\d*)\s*년?', 'exact'),
+        (r'about\s*(\d+\.?\d*)\s*years?', 'exact'),
+    ]
 
 # 필드명 후보 목록
 POSSIBLE_NAME_FIELDS = ["name", "이름", "applicant_name", "candidate_name", "person_name"]
@@ -115,47 +212,78 @@ DEFAULT_NAME = "이름 없음"
 DEFAULT_POSITION = "포지션 미지정"
 DEFAULT_EXPERIENCE = "경력 정보 없음"
 
-# 포지션 키워드
-POSITION_KEYWORDS = {
-    "백엔드": ["백엔드", "backend", "서버", "server", "api", "rest"],
-    "프론트엔드": ["프론트엔드", "프론트", "frontend", "front", "ui", "ux"],
-    "풀스택": ["풀스택", "fullstack", "full-stack", "full stack"],
-    "데이터": ["데이터", "데이터분석", "데이터엔지니어", "data", "analyst", "engineer"],
-    "AI": ["ai", "인공지능", "머신러닝", "ml", "딥러닝", "deep learning"],
-    "데브옵스": ["데브옵스", "devops", "dev-ops", "dev ops", "인프라", "infrastructure", "인프라스트럭처"],
-    "QA": ["qa", "테스트", "test", "quality"],
-    "기획자": ["기획자", "기획", "pm", "product"],
-    "디자이너": ["디자이너", "디자인", "designer", "ui/ux"],
-    "전자": ["전자", "전자공학", "전자엔지니어", "전자기술", "electronics", "electronic", "eletronics", "eletronic"],
-    "하드웨어": ["하드웨어", "하드웨어엔지니어", "hw", "hardware", "hw engineer", "hardware engineer"],
-    "임베디드": ["임베디드", "임베디드개발", "임베디드엔지니어", "embedded", "embedded engineer", "embedded system"],
-    "반도체": ["반도체", "반도체엔지니어", "semiconductor", "semiconductor engineer", "chip"],
-    "인사": ["인사", "인사담당", "인사담당자", "인사팀", "인사관리", "hr", "human resources", "hr manager", "hr specialist", "hr generalist", "인사채용", "인사채용담당", "인사채용담당자"],
-    "채용": ["채용", "채용담당", "채용담당자", "채용팀", "채용관리", "recruiter", "recruitment", "talent acquisition", "채용전문가", "채용컨설턴트", "채용매니저"],
-    "경영": ["경영", "경영관리", "경영관리자", "경영팀", "경영지원", "business", "business management", "business manager", "경영전략", "경영기획", "경영기획자", "경영전략가"],
-    "경영지원": ["경영지원", "경영지원팀", "경영지원담당", "business support", "business support team"],
-    "인사채용": ["인사채용", "인사채용담당", "인사채용담당자", "인사채용팀", "hr recruitment", "hr and recruitment"],
-}
+# 포지션 키워드 (YAML에서 로드, 실패 시 기본값 사용)
+_POSITION_KEYWORDS_YAML = get_position_keywords()
+if _POSITION_KEYWORDS_YAML:
+    POSITION_KEYWORDS = _POSITION_KEYWORDS_YAML
+else:
+    # 기본값 (YAML 로드 실패 시)
+    POSITION_KEYWORDS = {
+        "백엔드": ["백엔드", "backend", "서버", "server", "api", "rest"],
+        "프론트엔드": ["프론트엔드", "프론트", "frontend", "front", "ui", "ux"],
+        "풀스택": ["풀스택", "fullstack", "full-stack", "full stack"],
+        "데이터": ["데이터", "데이터분석", "데이터엔지니어", "data", "analyst", "engineer"],
+        "AI": ["ai", "인공지능", "머신러닝", "ml", "딥러닝", "deep learning"],
+        "데브옵스": ["데브옵스", "devops", "dev-ops", "dev ops", "인프라", "infrastructure", "인프라스트럭처"],
+        "QA": ["qa", "테스트", "test", "quality"],
+        "기획자": ["기획자", "기획", "pm", "product"],
+        "디자이너": ["디자이너", "디자인", "designer", "ui/ux"],
+        "전자": ["전자", "전자공학", "전자엔지니어", "전자기술", "electronics", "electronic", "eletronics", "eletronic"],
+        "하드웨어": ["하드웨어", "하드웨어엔지니어", "hw", "hardware", "hw engineer", "hardware engineer"],
+        "임베디드": ["임베디드", "임베디드개발", "임베디드엔지니어", "embedded", "embedded engineer", "embedded system"],
+        "반도체": ["반도체", "반도체엔지니어", "semiconductor", "semiconductor engineer", "chip"],
+        # 인사 관련 포지션들을 모두 "인사"로 통합
+        "인사": [
+            "인사", "인사담당", "인사담당자", "인사팀", "인사관리", 
+            "hr", "human resources", "hr manager", "hr specialist", "hr generalist", 
+            "인사채용", "인사채용담당", "인사채용담당자",
+            "채용", "채용담당", "채용담당자", "채용팀", "채용관리", 
+            "recruiter", "recruitment", "talent acquisition", "채용전문가", "채용컨설턴트", "채용매니저",
+            "hr 제도", "hr 평가", "hr 제도/평가", "hr 제도/평가 담당자",
+            "교육", "조직문화", "교육·조직문화", "교육·조직문화 담당자",
+            "교육 담당자", "조직문화 담당자", "인재 개발", "talent development"
+        ],
+        "경영": ["경영", "경영관리", "경영관리자", "경영팀", "경영지원", "business", "business management", "business manager", "경영전략", "경영기획", "경영기획자", "경영전략가", "경영관리자", "총무", "총무담당", "총무담당자"],
+        "경영지원": ["경영지원", "경영지원팀", "경영지원담당", "경영지원 담당자", "business support", "business support team", "총무", "총무담당", "총무담당자"],
+        # 인사채용은 이미 "인사"에 포함되므로 제거하거나 주석 처리
+        # "인사채용": ["인사채용", "인사채용담당", "인사채용담당자", "인사채용팀", "hr recruitment", "hr and recruitment", "hr 인사/채용", "hr 인사/채용 담당자"],
+        "RF": ["rf", "rf/무선통신", "rf/무선통신 엔지니어", "radio frequency", "wireless"],
+        "FPGA": ["fpga", "fpga/반도체", "fpga/반도체 설계", "field programmable gate array"],
+        "펌웨어": ["펌웨어", "firmware", "펌웨어/테스트", "펌웨어/테스트 엔지니어"],
+    }
 
-# 기술 스택 키워드 (일반적인 기술들)
-COMMON_TECH_KEYWORDS = [
-    "python", "java", "javascript", "typescript", "react", "vue", "angular",
-    "node.js", "spring", "django", "flask", "express", "mysql", "postgresql",
-    "mongodb", "redis", "docker", "kubernetes", "aws", "gcp", "azure",
-    "git", "jenkins", "ci/cd", "graphql", "rest", "microservices",
-    # 전자/하드웨어 관련 기술 키워드
-    "전자", "electronics", "electronic", "하드웨어", "hardware", "hw",
-    "임베디드", "embedded", "반도체", "semiconductor", "chip",
-    "회로", "circuit", "pcb", "아날로그", "analog", "디지털", "digital",
-    "fpga", "cpld", "mcu", "microcontroller", "microprocessor", "soc",
-    "rf", "무선", "wireless", "블루투스", "bluetooth", "wifi", "wifi",
-    "센서", "sensor", "actuator", "액추에이터", "iot", "사물인터넷",
-    "전력", "power", "전압", "voltage", "전류", "current", "저항", "resistance",
-    "오실로스코프", "oscilloscope", "멀티미터", "multimeter", "신호처리", "signal processing",
-    "altium", "cadence", "orcad", "kicad", "eagle", "pcb design",
-    "arm", "cortex", "stm32", "arduino", "raspberry pi", "라즈베리파이",
-    "c", "c++", "assembly", "어셈블리", "vhdl", "verilog", "시스템프로그래밍"
-]
+# 기술 스택 키워드 (YAML에서 로드, 실패 시 기본값 사용)
+_TECH_STACK_KEYWORDS_YAML = get_tech_stack_keywords()
+if _TECH_STACK_KEYWORDS_YAML:
+    COMMON_TECH_KEYWORDS = _TECH_STACK_KEYWORDS_YAML
+else:
+    # 기본값 (YAML 로드 실패 시)
+    COMMON_TECH_KEYWORDS = [
+        "python", "java", "javascript", "typescript", "react", "vue", "angular",
+        "node.js", "spring", "django", "flask", "express", "mysql", "postgresql",
+        "mongodb", "redis", "docker", "kubernetes", "aws", "gcp", "azure",
+        "git", "jenkins", "ci/cd", "graphql", "rest", "microservices",
+        "전자", "electronics", "electronic", "하드웨어", "hardware", "hw",
+        "임베디드", "embedded", "반도체", "semiconductor", "chip",
+        "회로", "circuit", "pcb", "아날로그", "analog", "디지털", "digital",
+        "fpga", "cpld", "mcu", "microcontroller", "microprocessor", "soc",
+        "rf", "무선", "wireless", "블루투스", "bluetooth", "wifi",
+        "센서", "sensor", "actuator", "액추에이터", "iot", "사물인터넷",
+        "전력", "power", "전압", "voltage", "전류", "current", "저항", "resistance",
+        "오실로스코프", "oscilloscope", "멀티미터", "multimeter", "신호처리", "signal processing",
+        "altium", "cadence", "orcad", "kicad", "eagle", "pcb design",
+        "arm", "cortex", "stm32", "arduino", "raspberry pi", "라즈베리파이",
+        "c", "c++", "assembly", "어셈블리", "vhdl", "verilog", "시스템프로그래밍",
+        "hr", "human resources", "인사", "채용", "recruitment", "recruiter", "talent acquisition",
+        "hr analytics", "인사 분석", "hr 분석", "인사 데이터", "hr data",
+        "보상", "compensation", "승진", "promotion", "보상·승진", "보상 승진", "compensation and promotion",
+        "면접", "interview", "면접 진행", "interview process", "면접 관리", "interview management",
+        "인사관리", "hr management", "인사 시스템", "hr system", "인사 제도", "hr policy",
+        "채용 관리", "recruitment management", "채용 프로세스", "recruitment process",
+        "인력 관리", "workforce management", "인력 계획", "workforce planning",
+        "성과 관리", "performance management", "성과 평가", "performance evaluation",
+        "교육", "training", "교육 관리", "training management", "인재 개발", "talent development"
+    ]
 
 # 임베딩 캐시 설정
 EMBEDDING_CACHE_SIZE = 100  # 최대 캐시 크기
@@ -305,6 +433,26 @@ def _extract_position_keywords(query: str) -> List[str]:
             if any(keyword in query_lower for keyword in keywords):
                 found_positions.append(position_name)
     
+    # 추가: 복합 포지션명에서도 추출 (예: "인사 담당자" -> "인사")
+    # 포지션명이 아직 추출되지 않았고, 쿼리에 "담당자", "관리자", "개발자" 등이 포함된 경우
+    if not found_positions:
+        for position_name in POSITION_KEYWORDS.keys():
+            # "인사 담당자"에서 "인사" 추출
+            position_keywords = POSITION_KEYWORDS.get(position_name, [])
+            for keyword in position_keywords:
+                # 키워드 + " 담당자", " 관리자", " 개발자" 등의 패턴 확인
+                patterns = [
+                    rf'\b{re.escape(keyword)}\s+(?:담당자|관리자|개발자|엔지니어|매니저|전문가)',
+                    rf'\b{re.escape(keyword)}\s+(?:담당|관리|개발|엔지니어링)',
+                ]
+                for pattern in patterns:
+                    if re.search(pattern, query_lower, re.IGNORECASE):
+                        if position_name not in found_positions:
+                            found_positions.append(position_name)
+                            break
+                if position_name in found_positions:
+                    break
+    
     return found_positions
 
 
@@ -363,8 +511,16 @@ def _extract_experience_range(query: str) -> Tuple[Optional[float], Optional[flo
             if pattern_type == 'min':
                 min_years = float(match.group(1))
                 break
+            elif pattern_type == 'min_over':
+                # 초과: 5년 초과 = 5.1년 이상
+                min_years = float(match.group(1)) + 0.1
+                break
             elif pattern_type == 'max':
                 max_years = float(match.group(1))
+                break
+            elif pattern_type == 'max_under':
+                # 미만: 5년 미만 = 4.9년 이하
+                max_years = float(match.group(1)) - 0.1
                 break
             elif pattern_type == 'range':
                 min_years = float(match.group(1))
@@ -490,19 +646,54 @@ def _restore_previous_query_filters(
 def _build_search_query(
     query: str,
     is_different_request: bool,
-    last_query: Optional[str]
+    last_query: Optional[str],
+    position_keywords: Optional[List[str]] = None,
+    skill_keywords: Optional[List[str]] = None,
+    min_years: Optional[float] = None,
+    max_years: Optional[float] = None,
+    experience_type: Optional[str] = None
 ) -> str:
     """
-    검색 쿼리를 생성합니다 (이전 쿼리 복원 포함).
+    검색 쿼리를 생성합니다 (포지션, 경력, 기술스택 정보 포함하여 임베딩 검색 최적화).
     
     Args:
         query: 현재 쿼리
         is_different_request: 다른 인재 요청 여부
         last_query: 이전 쿼리
+        position_keywords: 포지션 키워드 리스트
+        skill_keywords: 기술 스택 키워드 리스트
+        min_years: 최소 경력년수
+        max_years: 최대 경력년수
+        experience_type: 경력 타입 (신입/경력직)
         
     Returns:
-        검색에 사용할 쿼리
+        검색에 사용할 쿼리 (임베딩 생성용)
     """
+    query_parts = []
+    
+    # 포지션 정보 추가 (임베딩 검색 품질 향상)
+    if position_keywords:
+        query_parts.extend(position_keywords)
+    
+    # 경력 정보 추가
+    if experience_type:
+        query_parts.append(experience_type)
+        if min_years is not None:
+            query_parts.append(f"경력 {min_years}년 이상")
+        elif max_years is not None:
+            query_parts.append(f"경력 {max_years}년 이하")
+    
+    # 기술 스택 정보 추가
+    if skill_keywords:
+        query_parts.extend(skill_keywords)
+    
+    # 구성된 쿼리가 있으면 사용, 없으면 원본 쿼리 또는 이전 쿼리 사용
+    if query_parts:
+        enhanced_query = " ".join(query_parts)
+        logger.debug(f"검색 쿼리 구성 (포지션/경력/기술스택 포함): '{query}' -> '{enhanced_query}'")
+        return enhanced_query
+    
+    # 구성된 쿼리가 없으면 이전 쿼리 복원 또는 원본 쿼리 사용
     if is_different_request and last_query:
         cleaned_last_query = re.sub(
             QUERY_CLEANUP_PATTERNS, 
@@ -715,6 +906,23 @@ def _parse_name_position_from_title(document_title: str) -> Tuple[Optional[str],
         if name and position and len(name) >= 2 and len(position) >= 2:
             # 포지션에서 불필요한 부분 제거
             position = re.sub(r'\s*이력서\s*$', '', position, flags=re.IGNORECASE).strip()
+            
+            # 특수 포지션 정규화: 인사 관련 포지션들을 모두 "인사 담당자"로 통합
+            # "HR 인사/채용 담당자", "HR 제도/평가 담당자", "교육·조직문화 담당자", "채용 담당자" -> "인사 담당자"
+            hr_keywords = ["인사", "채용", "hr", "human resources", "recruiter", "recruitment", 
+                          "talent acquisition", "제도", "평가", "교육", "조직문화", "인재 개발"]
+            if any(kw in position.lower() for kw in hr_keywords):
+                # 인사 관련 포지션이면 모두 "인사 담당자"로 통합
+                position = "인사 담당자"
+            
+            # "경영관리자" -> "경영 관리자"
+            if "경영관리자" in position:
+                position = "경영 관리자"
+            
+            # "경영지원 담당자" 정규화
+            if "경영지원" in position and "담당자" not in position:
+                position = position + " 담당자"
+            
             return name, position
     
     # 패턴 2: '이름 - 직무' 형식 (이력서 없이)
@@ -801,13 +1009,12 @@ def _extract_position_from_content(content_lines: List[str]) -> str:
         position = re.sub(r'\s*\d+\s*년\s*차\s*', '', position).strip()
         position = re.sub(r'\s*(지망|의|로서).*$', '', position).strip()
         
-        # 인사/채용/경영 관련 포지션 정규화
-        if any(kw in position for kw in ['인사', '채용', 'HR']):
-            if '/' in position:
-                # "HR 인사/채용 담당자" -> "인사채용 담당자"
-                position = position.replace('HR ', '').replace('인사/채용', '인사채용')
-            if '담당자' not in position and '담당' not in position:
-                position = position + ' 담당자'
+        # 인사/채용/경영 관련 포지션 정규화: 인사 관련 포지션들을 모두 "인사 담당자"로 통합
+        hr_keywords = ["인사", "채용", "hr", "human resources", "recruiter", "recruitment", 
+                      "talent acquisition", "제도", "평가", "교육", "조직문화", "인재 개발"]
+        if any(kw in position.lower() for kw in hr_keywords):
+            # 인사 관련 포지션이면 모두 "인사 담당자"로 통합
+            position = "인사 담당자"
         
         if len(position) > MAX_POSITION_LENGTH:
             position = ' '.join(position.split()[:4])  # 최대 4단어까지
@@ -885,6 +1092,7 @@ def _extract_experience_from_content(content_lines: List[str]) -> str:
 def _extract_skills_from_content(content_lines: List[str]) -> List[str]:
     """
     content에서 기술 스택을 추출합니다.
+    '보유 역량 및 기술' 섹션을 우선적으로 추출합니다.
     
     Args:
         content_lines: content를 줄 단위로 분리한 리스트
@@ -895,87 +1103,146 @@ def _extract_skills_from_content(content_lines: List[str]) -> List[str]:
     # 전체 텍스트에서 기술 스택 키워드 찾기
     full_text = ' '.join(content_lines).lower()
     
-    # 일반적인 기술 스택 키워드 (더 포괄적으로)
-    tech_keywords = [
-        # 프로그래밍 언어
-        'python', 'java', 'javascript', 'typescript', 'c', 'c++', 'c#', 'go', 'rust', 'ruby', 'php', 'kotlin', 'swift', 'scala',
-        # 프론트엔드
-        'react', 'vue', 'angular', 'next.js', 'nuxt.js', 'svelte', 'html', 'css', 'scss', 'sass', 'tailwind', 'bootstrap',
-        # 백엔드
-        'node.js', 'express', 'nestjs', 'django', 'flask', 'fastapi', 'spring', 'spring boot', 'asp.net', '.net', 'laravel', 'ruby on rails',
-        # 모바일
-        'react native', 'flutter', 'ios', 'android', 'xamarin', 'ionic',
-        # 데이터베이스
-        'mysql', 'postgresql', 'mongodb', 'redis', 'oracle', 'sql server', 'mariadb', 'dynamodb', 'cassandra', 'elasticsearch',
-        # 클라우드/인프라
-        'aws', 'gcp', 'azure', 'docker', 'kubernetes', 'terraform', 'ansible', 'jenkins', 'gitlab ci/cd', 'github actions', 'circleci', 'travis ci',
-        # AI/ML
-        'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy', 'jupyter', 'r', 'matlab',
-        # 빅데이터
-        'hadoop', 'spark', 'kafka', 'airflow', 'presto', 'hive', 'hbase',
-        # 모니터링/로깅
-        'prometheus', 'grafana', 'elk stack', 'kibana', 'splunk', 'datadog', 'new relic',
-        # 하드웨어/임베디드
-        'arm', 'cortex', 'stm32', 'arduino', 'raspberry pi', 'verilog', 'vhdl', 'pcb', 'altium', 'cadence', 'orcad', 'kicad', 'eagle', 'labview',
-        # 기타
-        'git', 'svn', 'jira', 'confluence', 'figma', 'sketch', 'adobe xd', 'postman', 'swagger', 'graphql', 'rest', 'microservices', 'ci/cd'
-    ]
+    # 일반적인 기술 스택 키워드 (COMMON_TECH_KEYWORDS 사용)
+    tech_keywords = COMMON_TECH_KEYWORDS
     
     found_skills = []
-    for tech in tech_keywords:
-        # 단어 경계를 고려한 매칭
-        pattern = r'\b' + re.escape(tech) + r'\b'
-        if re.search(pattern, full_text, re.IGNORECASE):
-            found_skills.append(tech)
     
-    # 기존 로직도 유지 (명시적인 기술 스택 섹션에서)
+    # 1. '보유 역량 및 기술' 섹션 우선 추출
+    skills_section_started = False
+    skills_section_lines = []
+    skills_section_keywords = [
+        "보유 역량", "보유 역량 및 기술", "보유 역량 및 기술 스택",
+        "기술", "기술 스택", "스택", "skill", "skills", "tech", "tech stack",
+        "사용 기술", "사용 가능한 기술", "기술 역량", "기술 능력",
+        "주요 기술", "핵심 기술", "기술 경험", "기술 경력"
+    ]
+    
     for i, line in enumerate(content_lines):
-        if any(keyword in line.lower() for keyword in ["기술", "스택", "skill", "tech", "사용", "경험"]):
-            skill_lines = '\n'.join(content_lines[i:i+10])
-            
-            # 쉼표로 구분된 기술들
-            comma_skills = re.findall(SKILL_PATTERN_COMMA, skill_lines)
-            
-            # 줄바꿈으로 구분된 기술들
-            line_skills = []
-            for skill_line in content_lines[i+1:i+15]:
-                skill_line = skill_line.strip()
-                if (skill_line and 
-                    not re.match(r'^[\d\s\-~년]+$', skill_line) and 
-                    len(skill_line) < MAX_SKILL_LENGTH):
-                    if re.match(SKILL_PATTERN_LINE, skill_line):
-                        line_skills.append(skill_line)
-            
-            # 괄호 안의 기술들
-            bracket_skills = re.findall(SKILL_PATTERN_BRACKET, skill_lines)
-            
-            # 모든 기술 합치기
-            all_skills = []
-            for skill_list in [comma_skills, line_skills, bracket_skills]:
-                for skill in skill_list:
+        line_lower = line.lower()
+        
+        # '보유 역량 및 기술' 섹션 시작 감지
+        if any(keyword in line_lower for keyword in skills_section_keywords):
+            skills_section_started = True
+            skills_section_lines = []
+            # 현재 줄부터 다음 20줄까지를 기술 스택 섹션으로 간주
+            for j in range(i, min(i + 20, len(content_lines))):
+                skills_section_lines.append(content_lines[j])
+            break
+    
+    # '보유 역량 및 기술' 섹션이 있으면 우선적으로 추출
+    if skills_section_lines:
+        skills_section_text = '\n'.join(skills_section_lines)
+        skills_section_text_lower = skills_section_text.lower()
+        
+        # 쉼표로 구분된 기술들
+        comma_skills = re.findall(SKILL_PATTERN_COMMA, skills_section_text)
+        
+        # 줄바꿈으로 구분된 기술들
+        line_skills = []
+        for skill_line in skills_section_lines:
+            skill_line = skill_line.strip()
+            if skill_line and not any(exclude in skill_line.lower() for exclude in SKILL_EXCLUDE_WORDS):
+                # 숫자나 특수문자로 시작하지 않는 줄만 기술로 간주
+                if re.match(SKILL_PATTERN_LINE, skill_line) or re.match(r'^[가-힣a-zA-Z\s,]+$', skill_line):
+                    line_skills.append(skill_line)
+        
+        # 괄호 안의 기술들
+        bracket_skills = re.findall(SKILL_PATTERN_BRACKET, skills_section_text)
+        
+        # 모든 기술 합치기
+        all_skills = []
+        for skill_list in [comma_skills, line_skills, bracket_skills]:
+            for skill in skill_list:
+                if isinstance(skill, tuple):
+                    all_skills.extend([s.strip() for s in skill.split(',')])
+                else:
                     if ',' in skill:
                         all_skills.extend([s.strip() for s in skill.split(',')])
                     else:
                         all_skills.append(skill.strip())
-            
-            # 필터링
-            for skill in all_skills:
-                skill = skill.strip()
-                if (len(skill) >= MIN_SKILL_LENGTH and
-                    not re.match(r'^[\d\s\-~.]+$', skill) and
-                    skill.lower() not in SKILL_EXCLUDE_WORDS and
-                    not skill.isdigit()):
-                    skill_lower = skill.lower()
-                    # tech_keywords에 있는지 확인
-                    for tech in tech_keywords:
-                        if tech.lower() in skill_lower or skill_lower in tech.lower():
-                            if tech not in found_skills:
-                                found_skills.append(tech)
-                            break
-                    else:
-                        # tech_keywords에 없어도 추가 (유효한 기술로 보이면)
-                        if skill_lower not in [s.lower() for s in found_skills]:
-                            found_skills.append(skill)
+        
+        # 기술 키워드와 매칭되는 것만 추가
+        for skill in all_skills:
+            skill = skill.strip()
+            if (len(skill) >= MIN_SKILL_LENGTH and
+                not re.match(r'^[\d\s\-~.]+$', skill) and
+                skill.lower() not in SKILL_EXCLUDE_WORDS and
+                not skill.isdigit()):
+                skill_lower = skill.lower()
+                # tech_keywords에 있는 기술인지 확인
+                matched = False
+                for tech in tech_keywords:
+                    if tech.lower() in skill_lower or skill_lower in tech.lower():
+                        if tech not in found_skills:
+                            found_skills.append(tech)
+                        matched = True
+                        break
+                if not matched:
+                    # tech_keywords에 없어도 추가 (유효한 기술로 보이면)
+                    if skill_lower not in [s.lower() for s in found_skills]:
+                        found_skills.append(skill)
+    
+    # 2. '보유 역량 및 기술' 섹션이 없거나 기술이 부족한 경우 전체 텍스트에서 추출
+    if len(found_skills) < 3:
+        # 전체 텍스트에서 기술 키워드 검색
+        for tech in tech_keywords:
+            # 단어 경계를 고려한 매칭
+            pattern = r'\b' + re.escape(tech) + r'\b'
+            if re.search(pattern, full_text, re.IGNORECASE):
+                if tech not in found_skills:
+                    found_skills.append(tech)
+        
+        # 명시적인 기술 스택 섹션에서 추출 (보유 역량 섹션이 아닌 경우)
+        if not skills_section_started:
+            for i, line in enumerate(content_lines):
+                if any(keyword in line.lower() for keyword in ["기술", "스택", "skill", "tech", "사용", "경험"]):
+                    skill_lines = '\n'.join(content_lines[i:i+10])
+                    
+                    # 쉼표로 구분된 기술들
+                    comma_skills = re.findall(SKILL_PATTERN_COMMA, skill_lines)
+                    
+                    # 줄바꿈으로 구분된 기술들
+                    line_skills = []
+                    for skill_line in content_lines[i+1:i+15]:
+                        skill_line = skill_line.strip()
+                        if (skill_line and 
+                            not re.match(r'^[\d\s\-~년]+$', skill_line) and 
+                            len(skill_line) < MAX_SKILL_LENGTH):
+                            if re.match(SKILL_PATTERN_LINE, skill_line):
+                                line_skills.append(skill_line)
+                    
+                    # 괄호 안의 기술들
+                    bracket_skills = re.findall(SKILL_PATTERN_BRACKET, skill_lines)
+                    
+                    # 모든 기술 합치기
+                    all_skills = []
+                    for skill_list in [comma_skills, line_skills, bracket_skills]:
+                        for skill in skill_list:
+                            if ',' in skill:
+                                all_skills.extend([s.strip() for s in skill.split(',')])
+                            else:
+                                all_skills.append(skill.strip())
+                    
+                    # 필터링
+                    for skill in all_skills:
+                        skill = skill.strip()
+                        if (len(skill) >= MIN_SKILL_LENGTH and
+                            not re.match(r'^[\d\s\-~.]+$', skill) and
+                            skill.lower() not in SKILL_EXCLUDE_WORDS and
+                            not skill.isdigit()):
+                            skill_lower = skill.lower()
+                            # tech_keywords에 있는지 확인
+                            for tech in tech_keywords:
+                                if tech.lower() in skill_lower or skill_lower in tech.lower():
+                                    if tech not in found_skills:
+                                        found_skills.append(tech)
+                                    break
+                            else:
+                                # tech_keywords에 없어도 추가 (유효한 기술로 보이면)
+                                if skill_lower not in [s.lower() for s in found_skills]:
+                                    found_skills.append(skill)
+                    break
     
     # 중복 제거 및 최대 개수 제한
     seen = set()
@@ -1092,7 +1359,38 @@ def _check_position_match(
     if not required_positions:
         return True  # 필터 조건 없으면 통과
     
-    position_lower = position.lower()
+    # position이 비어있으면 content에서 추출 시도
+    if not position or position.strip() == "" or position == DEFAULT_POSITION:
+        # content에서 포지션 추출 시도
+        if content:
+            content_lines = content.split('\n')
+            extracted_position = _extract_position_from_content(content_lines)
+            if extracted_position and extracted_position != DEFAULT_POSITION:
+                position = extracted_position
+                position_lower = position.lower()
+                logger.debug(f"포지션 content에서 추출: {position}")
+            else:
+                # chunk_text의 첫 줄에서 추출 시도
+                if content_lines:
+                    first_line = content_lines[0].strip()
+                    _, parsed_position = _parse_name_position_from_title(first_line)
+                    if parsed_position and parsed_position != DEFAULT_POSITION:
+                        position = parsed_position
+                        position_lower = position.lower()
+                        logger.debug(f"포지션 첫 줄에서 추출: {position}")
+                    else:
+                        position_lower = ""
+                        logger.debug(f"포지션 추출 실패: position={position}, first_line={first_line[:50] if first_line else ''}")
+                else:
+                    position_lower = ""
+                    logger.debug(f"포지션 추출 실패: content_lines가 비어있음")
+        else:
+            position_lower = ""
+            logger.debug(f"포지션 추출 실패: content가 비어있음")
+    else:
+        position_lower = position.lower()
+        logger.debug(f"포지션 필드 사용: {position}")
+    
     content_lower = content.lower() if content else ""
     
     # 모든 required_positions 중 하나라도 매칭되면 True
@@ -1100,20 +1398,75 @@ def _check_position_match(
         # 포지션 키워드 매칭
         position_keywords = POSITION_KEYWORDS.get(req_position, [])
         
+        # 인사 관련 포지션 요청인지 확인 (인사, 채용, 인사채용 모두 포함)
+        is_hr_request = (req_position.lower() in ["인사", "채용", "인사채용"] or 
+                       "인사" in req_position.lower() or
+                       req_position in POSITION_KEYWORDS.get("인사", []))
+        
         # 포지션 이름 자체가 매칭되는지 확인
+        # "인사" in "인사 담당자" -> True
         if req_position.lower() in position_lower:
+            # 경영 관련 포지션 요청 시 인사/채용 관련 포지션은 제외
+            if req_position.lower() in ["경영", "경영지원"]:
+                hr_exclude = ["인사", "채용", "hr", "인사담당", "채용담당", "인사채용"]
+                if any(kw in position_lower for kw in hr_exclude):
+                    logger.debug(f"경영 포지션 요청 시 인사/채용 제외: position={position}, req_position={req_position}")
+                    return False
+            # 인사/채용 관련 포지션 요청 시 경영 관련 포지션은 제외
+            elif req_position.lower() in ["인사", "채용", "인사채용"]:
+                business_exclude = ["총무", "경영", "business", "management", "경영관리", "경영지원", "경영담당", "경영관리자"]
+                if any(kw in position_lower for kw in business_exclude):
+                    logger.debug(f"인사 포지션 요청 시 경영 제외: position={position}, req_position={req_position}")
+                    return False
+            logger.debug(f"포지션 직접 매칭 성공: position={position}, req_position={req_position}")
             return True
         
         # position 필드에서 키워드 확인
         if any(keyword in position_lower for keyword in position_keywords):
+            # 경영 관련 포지션 요청 시 인사/채용 관련 포지션은 제외
+            if req_position.lower() in ["경영", "경영지원"]:
+                hr_exclude = ["인사", "채용", "hr", "인사담당", "채용담당", "인사채용", "제도", "평가", "교육", "조직문화"]
+                if any(kw in position_lower for kw in hr_exclude):
+                    return False
+            # 인사/채용 관련 포지션 요청 시 경영 관련 포지션은 제외 (인사로 통합)
+            elif is_hr_request:
+                business_exclude = ["총무", "경영", "business", "management", "경영관리", "경영지원", "경영담당", "경영관리자"]
+                if any(kw in position_lower for kw in business_exclude):
+                    return False
             return True
         
         # content에서 키워드 확인 (단어 경계 고려하여 더 정확하게)
         for keyword in position_keywords:
-            # 단어 경계를 고려한 매칭 (더 정확함)
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, content_lower, re.IGNORECASE):
-                return True
+            # 경영 관련 포지션 요청 시 인사/채용 관련 키워드는 제외
+            if req_position.lower() in ["경영", "경영지원"]:
+                hr_exclude = ["인사", "채용", "hr", "인사담당", "채용담당", "인사채용"]
+                if keyword.lower() in [kw.lower() for kw in hr_exclude]:
+                    continue  # 인사/채용 관련 키워드는 건너뛰기
+            
+            # 인사/채용 관련 포지션 요청 시 경영 관련 키워드는 제외 (인사로 통합)
+            elif is_hr_request:
+                business_exclude = ["총무", "경영", "business", "management", "경영관리", "경영지원", "경영담당", "경영관리자"]
+                if keyword.lower() in [kw.lower() for kw in business_exclude]:
+                    continue  # 경영 관련 키워드는 건너뛰기
+                
+                # 학과명 등은 제외
+                content_exclude_patterns = [
+                    r'인사\s*조직', r'인사\s*학과', r'인사\s*전공', r'인사\s*과',
+                    r'인사조직학과', r'인사조직학', r'인사학과', r'인사과'
+                ]
+                content_for_check = content_lower
+                for pattern in content_exclude_patterns:
+                    content_for_check = re.sub(pattern, '', content_for_check, flags=re.IGNORECASE)
+                
+                # 단어 경계를 고려한 매칭 (더 정확함)
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, content_for_check, re.IGNORECASE):
+                    return True
+            else:
+                # 단어 경계를 고려한 매칭 (더 정확함)
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, content_lower, re.IGNORECASE):
+                    return True
         
         # 추가: 포지션 필드에 "/"가 포함된 경우 (예: "HR 인사/채용 담당자")
         # 각 부분을 개별적으로 확인
@@ -1128,13 +1481,72 @@ def _check_position_match(
         
         # 인사/채용/경영 관련 특수 처리
         if req_position.lower() in ["인사", "채용", "인사채용"]:
-            hr_keywords = ["인사", "채용", "hr", "human resources", "recruiter", "talent acquisition", "인사담당", "채용담당", "인사채용", "인사/채용"]
-            if any(kw in position_lower for kw in hr_keywords) or any(kw in content_lower for kw in hr_keywords):
+            # 경영 관련 포지션 제외 (총무, 경영지원, 경영관리 등)
+            business_exclude_keywords = ["총무", "경영", "business", "management", "경영관리", "경영지원", "경영담당", "경영관리자"]
+            if any(kw in position_lower for kw in business_exclude_keywords):
+                return False  # 경영 관련 포지션은 명시적으로 제외
+            
+            # 인사 관련 키워드 (통합)
+            hr_keywords = [
+                "인사", "채용", "hr", "human resources", "recruiter", "talent acquisition", 
+                "인사담당", "채용담당", "인사채용", "인사/채용", "hr 인사/채용",
+                "hr 제도", "hr 평가", "hr 제도/평가", "제도/평가 담당자",
+                "교육", "조직문화", "교육·조직문화", "교육·조직문화 담당자", "교육 담당자", "조직문화 담당자"
+            ]
+            
+            # position 필드에서 먼저 확인 (더 정확함)
+            if any(kw in position_lower for kw in hr_keywords):
+                matched_kw = [kw for kw in hr_keywords if kw in position_lower]
+                logger.debug(f"인사 포지션 HR 키워드 매칭 성공: position={position}, req_position={req_position}, matched_keywords={matched_kw}")
                 return True
+            
+            # content에서 확인 (학과명 등은 제외)
+            # "인사조직", "인사학과" 같은 학과명은 제외
+            content_exclude_patterns = [
+                r'인사\s*조직', r'인사\s*학과', r'인사\s*전공', r'인사\s*과',
+                r'인사조직학과', r'인사조직학', r'인사학과', r'인사과'
+            ]
+            content_for_check = content_lower
+            for pattern in content_exclude_patterns:
+                content_for_check = re.sub(pattern, '', content_for_check, flags=re.IGNORECASE)
+            
+            # HR 관련 키워드가 content에 있는지 확인
+            for kw in hr_keywords:
+                if kw in content_for_check:
+                    # 단어 경계를 고려한 정확한 매칭
+                    pattern = r'\b' + re.escape(kw) + r'\b'
+                    if re.search(pattern, content_for_check, re.IGNORECASE):
+                        return True
         
         if req_position.lower() in ["경영", "경영지원"]:
-            business_keywords = ["경영", "business", "management", "경영관리", "경영지원", "business support", "경영담당", "경영관리자"]
-            if any(kw in position_lower for kw in business_keywords) or any(kw in content_lower for kw in business_keywords):
+            # 인사/채용 관련 포지션 제외
+            hr_exclude_keywords = ["인사", "채용", "hr", "human resources", "recruiter", "인사담당", "채용담당", "인사채용"]
+            if any(kw in position_lower for kw in hr_exclude_keywords):
+                return False  # 인사/채용 관련 포지션은 명시적으로 제외
+            
+            business_keywords = ["경영", "business", "management", "경영관리", "경영지원", "business support", "경영담당", "경영관리자", "경영 관리자", "총무"]
+            
+            # position 필드에서 먼저 확인 (더 정확함)
+            if any(kw in position_lower for kw in business_keywords):
+                return True
+            
+            # content에서 확인
+            for kw in business_keywords:
+                if kw in content_lower:
+                    pattern = r'\b' + re.escape(kw) + r'\b'
+                    if re.search(pattern, content_lower, re.IGNORECASE):
+                        return True
+        
+        # 전자/하드웨어/임베디드 관련 특수 처리
+        if req_position.lower() in ["전자", "하드웨어", "임베디드", "반도체"]:
+            electronics_keywords = ["전자", "electronics", "하드웨어", "hardware", "hw", "임베디드", "embedded", "반도체", "semiconductor", "전자회로", "pcb", "rf", "fpga", "펌웨어", "firmware"]
+            if any(kw in position_lower for kw in electronics_keywords) or any(kw in content_lower for kw in electronics_keywords):
+                return True
+        
+        # 풀스택 관련 특수 처리
+        if req_position.lower() in ["풀스택"]:
+            fullstack_keywords = ["풀스택", "fullstack", "full-stack", "full stack", "풀스택 개발자"]
+            if any(kw in position_lower for kw in fullstack_keywords) or any(kw in content_lower for kw in fullstack_keywords):
                 return True
     
     return False
@@ -1170,7 +1582,7 @@ def _check_skills_match(
         # skills 필드에서 확인 (정확한 매칭 우선)
         for skill_lower in skills_lower:
             # 정확히 일치하거나 포함 관계 확인
-            if req_skill_lower == skill_lower or req_skill_lower in skill_lower:
+            if req_skill_lower == skill_lower or req_skill_lower in skill_lower or skill_lower in req_skill_lower:
                 matched = True
                 break
         
@@ -1180,6 +1592,61 @@ def _check_skills_match(
             pattern = r'\b' + re.escape(req_skill_lower) + r'\b'
             if re.search(pattern, content_lower, re.IGNORECASE):
                 matched = True
+            
+            # 부분 매칭도 시도 (HR 관련 기술 스택의 경우)
+            if not matched:
+                # 요청된 기술 스택의 주요 키워드 추출
+                req_keywords = req_skill_lower.split()
+                if len(req_keywords) > 1:
+                    # 복합 기술 스택 (예: "조직문화 프로그램")의 경우 주요 키워드만으로도 매칭
+                    for keyword in req_keywords:
+                        if len(keyword) >= 2:  # 최소 2글자 이상
+                            if keyword in content_lower:
+                                matched = True
+                                break
+        
+        # HR 관련 키워드의 경우 더 유연한 매칭
+        if not matched:
+            hr_skill_mappings = {
+                "hr analytics": ["hr analytics", "인사 분석", "hr 분석", "인사 데이터", "hr data", "인사 데이터 분석", "analytics"],
+                "보상·승진 제도": ["보상", "compensation", "승진", "promotion", "보상·승진", "보상 승진", "compensation and promotion", "보상 제도", "승진 제도"],
+                "면접 진행": ["면접", "interview", "면접 진행", "interview process", "면접 관리", "interview management", "면접 프로세스", "면접 기획", "면접 체계"],
+                "조직문화 프로그램": ["조직문화", "organizational culture", "조직 문화", "조직문화 프로그램", "organizational culture program", "문화 프로그램", "culture program", "조직 개발", "organization development", "od"],
+                "채용 기획": ["채용 기획", "recruitment planning", "채용 계획", "recruitment plan", "채용 전략", "recruitment strategy", "채용 전략 수립", "talent acquisition planning"],
+                "인사": ["인사", "hr", "human resources", "인사관리", "hr management", "인사 시스템", "hr system"],
+                "채용": ["채용", "recruitment", "recruiter", "talent acquisition", "채용 관리", "recruitment management", "채용 프로세스"]
+            }
+            
+            for key, variations in hr_skill_mappings.items():
+                # 요청된 기술 스택이 매핑의 키나 변형에 포함되는지 확인
+                key_lower = key.lower()
+                if (req_skill_lower in key_lower or 
+                    key_lower in req_skill_lower or 
+                    any(var.lower() in req_skill_lower or req_skill_lower in var.lower() for var in variations)):
+                    # content에서 변형 키워드가 있는지 확인
+                    if any(var.lower() in content_lower for var in variations):
+                        matched = True
+                        break
+                    # 주요 키워드만으로도 매칭 시도 (예: "조직문화 프로그램" -> "조직문화"만 있어도 매칭)
+                    if not matched:
+                        # 키워드에서 주요 단어 추출
+                        key_words = key_lower.split()
+                        for word in key_words:
+                            if len(word) >= 2 and word in content_lower:
+                                matched = True
+                                break
+                        if matched:
+                            break
+                    # 주요 키워드만으로도 매칭 시도 (예: "조직문화 프로그램" -> "조직문화"만 있어도 매칭)
+                    if not matched:
+                        # 키워드에서 주요 단어 추출
+                        key_words = key_lower.split()
+                        for word in key_words:
+                            if len(word) >= 2 and word in content_lower:
+                                matched = True
+                                break
+                        if matched:
+                            break
         
         # 전자 관련 키워드의 경우 더 유연한 매칭 (예: "전자" -> "전자공학", "전자엔지니어" 등)
         if not matched and req_skill_lower in ["전자", "electronics", "electronic"]:
@@ -1191,12 +1658,24 @@ def _check_skills_match(
             matched_count += 1
     
     # 요구 기술 중 최소 50% 이상 매칭되어야 통과 (더 엄격한 필터링)
-    # 단, 전자 관련 키워드가 하나라도 있으면 더 유연하게 처리 (30% 이상)
+    # 단, 전자 또는 HR 관련 키워드가 하나라도 있으면 더 유연하게 처리 (20% 이상)
     has_electronics_keyword = any(
         keyword in [s.lower() for s in required_skills] 
         for keyword in ["전자", "electronics", "electronic", "하드웨어", "hardware", "임베디드", "embedded", "반도체", "semiconductor"]
     )
-    min_match_ratio = 0.3 if has_electronics_keyword else 0.5
+    has_hr_keyword = any(
+        keyword.lower() in [s.lower() for s in required_skills] or any(s.lower() in keyword.lower() or keyword.lower() in s.lower() for s in required_skills)
+        for keyword in [
+            "hr", "human resources", "인사", "채용", "recruitment", "recruiter", 
+            "hr analytics", "보상", "승진", "면접", "인사관리", "채용관리",
+            "조직문화", "organizational culture", "조직 문화", "조직문화 프로그램",
+            "채용 기획", "recruitment planning", "채용 계획", "채용 전략",
+            "면접 진행", "면접 관리", "면접 프로세스", "면접 기획",
+            "보상·승진", "보상 제도", "승진 제도", "compensation", "promotion",
+            "인재 개발", "talent development", "조직 개발", "organization development"
+        ]
+    )
+    min_match_ratio = 0.2 if (has_electronics_keyword or has_hr_keyword) else 0.5
     match_ratio = matched_count / len(required_skills) if required_skills else 0.0
     
     return match_ratio >= min_match_ratio
@@ -1242,26 +1721,100 @@ def _should_filter_resume(
     if is_different_request and str(resume_id) in excluded_ids:
         return True
     
-    # 포지션 필터링 (강화: required_positions가 있으면 반드시 매칭되어야 함)
+    # 포지션 필터링 (강화: 포지션이 명시적으로 요구되면 반드시 매칭되어야 함)
+    # 모든 포지션에 대해 content 기반 매칭도 시도 (position 필드가 비어있을 경우 대비)
     if required_positions:
         # 빈 리스트가 아닌 경우에만 필터링
         if len(required_positions) > 0:
-            if not _check_position_match(position, content, required_positions):
-                logger.debug(
-                    f"포지션 필터링: resume_id={resume_id}, position={position}, "
-                    f"required_positions={required_positions}"
+            # 포지션 매칭 확인
+            position_matched = _check_position_match(position, content, required_positions)
+            logger.info(
+                f"포지션 매칭 결과: resume_id={resume_id}, position={position}, "
+                f"required_positions={required_positions}, matched={position_matched}"
+            )
+            print(f"🔍 [포지션 매칭] resume_id={resume_id}, position={position}, required_positions={required_positions}, matched={position_matched}")
+            
+            # position 필드가 비어있거나 매칭되지 않은 경우, content에서 추가 확인
+            if not position_matched and content:
+                # 모든 포지션에 대해 content 기반 매칭 시도
+                for req_position in required_positions:
+                    position_keywords = POSITION_KEYWORDS.get(req_position, [])
+                    if not position_keywords:
+                        # 키워드가 없으면 포지션 이름 자체를 키워드로 사용
+                        position_keywords = [req_position]
+                    
+                    content_lower = content.lower()
+                    
+                    # 포지션 키워드가 content에 있는지 확인
+                    for keyword in position_keywords:
+                        if keyword.lower() in content_lower:
+                            # 단어 경계를 고려한 정확한 매칭
+                            pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
+                            if re.search(pattern, content_lower, re.IGNORECASE):
+                                position_matched = True
+                                logger.debug(
+                                    f"포지션 content 기반 매칭: resume_id={resume_id}, "
+                                    f"position={position}, required_position={req_position}, "
+                                    f"matched_keyword={keyword}"
+                                )
+                                break
+                    
+                    if position_matched:
+                        break
+            
+            if not position_matched:
+                logger.warning(
+                    f"포지션 필터링 제외: resume_id={resume_id}, position={position}, "
+                    f"required_positions={required_positions}, "
+                    f"position_lower={position.lower() if position else ''}, "
+                    f"content_preview={content[:200] if content else ''}"
                 )
+                print(f"⚠️ [포지션 필터링] 제외: resume_id={resume_id}, position={position}, required_positions={required_positions}")
+                # 포지션이 명시적으로 요구되었지만 매칭되지 않으면 제외
                 return True
     
-    # 기술 스택 필터링 (강화)
+    # 기술 스택 필터링 (유연하게: HR 관련 기술은 일부만 매칭되어도 통과)
     if required_skills:
         if len(required_skills) > 0:
-            if not _check_skills_match(skills, content, required_skills):
-                logger.debug(
-                    f"기술 스택 필터링: resume_id={resume_id}, "
-                    f"skills={skills[:3] if skills else []}, required_skills={required_skills}"
-                )
-                return True
+            # HR 관련 기술 키워드인 경우 더 유연하게 처리
+            hr_skill_keywords = [
+                "hr", "human resources", "인사", "채용", "recruitment", "recruiter", 
+                "hr analytics", "보상", "승진", "면접", "인사관리", "채용관리",
+                "조직문화", "organizational culture", "조직 문화", "조직문화 프로그램",
+                "채용 기획", "recruitment planning", "채용 계획", "채용 전략",
+                "면접 진행", "면접 관리", "면접 프로세스", "면접 기획",
+                "보상·승진", "보상 제도", "승진 제도", "compensation", "promotion",
+                "인재 개발", "talent development", "조직 개발", "organization development"
+            ]
+            is_hr_related = any(any(hr_kw.lower() in skill.lower() or skill.lower() in hr_kw.lower() for hr_kw in hr_skill_keywords) 
+                               for skill in required_skills)
+            
+            # HR 관련 기술은 일부만 매칭되어도 통과 (더 유연하게)
+            if is_hr_related:
+                matched_skills = sum(1 for skill in required_skills 
+                                   if _check_skills_match(skills, content, [skill]))
+                # HR 관련 기술은 20% 이상 매칭되면 통과 (더 유연하게)
+                min_match_ratio = 0.2
+                if matched_skills / len(required_skills) < min_match_ratio:
+                    logger.debug(
+                        f"HR 기술 스택 필터링 (매칭률 부족): resume_id={resume_id}, "
+                        f"matched={matched_skills}/{len(required_skills)}, required_skills={required_skills}, "
+                        f"skills={skills}, content_preview={content[:100] if content else ''}"
+                    )
+                    return True
+            else:
+                # 일반 기술 스택도 유연하게 처리 (일부만 매칭되어도 통과)
+                matched_skills = sum(1 for skill in required_skills 
+                                   if _check_skills_match(skills, content, [skill]))
+                # 기술 스택이 1개면 100% 매칭, 2개 이상이면 50% 이상 매칭되어야 통과
+                min_match_ratio = 1.0 if len(required_skills) == 1 else 0.5
+                if matched_skills / len(required_skills) < min_match_ratio:
+                    logger.debug(
+                        f"기술 스택 필터링 (매칭률 부족): resume_id={resume_id}, "
+                        f"matched={matched_skills}/{len(required_skills)}, required_skills={required_skills}, "
+                        f"skills={skills}, content_preview={content[:100] if content else ''}"
+                    )
+                    return True
     
     # content에서 경력 정보 확인
     has_exp_years, has_junior, has_senior, extracted_years = _check_experience_in_content(content)
@@ -1272,22 +1825,24 @@ def _should_filter_resume(
     if resume_years is None:
         resume_years = _extract_years_from_experience(experience, content)
     
-    # 경력년수 범위 필터링 (강화)
+    # 경력년수 범위 필터링 (유연하게: 경력년수 추출 실패 시에도 통과)
     if min_years is not None or max_years is not None:
-        # 경력년수를 추출할 수 없으면 제외 (더 엄격하게)
+        # 경력년수를 추출할 수 없으면 통과 (다른 조건으로 필터링)
         if resume_years is None:
             logger.debug(
-                f"경력년수 추출 실패로 필터링: resume_id={resume_id}, "
+                f"경력년수 추출 실패 (통과): resume_id={resume_id}, "
                 f"experience={experience}, min_years={min_years}, max_years={max_years}"
             )
-            return True
+            # 경력년수를 추출할 수 없어도 통과 (다른 조건으로 필터링)
+            pass
         
         # 최소 경력년수 미만이면 제외
-        if min_years is not None and resume_years < min_years:
-            logger.debug(
+        if min_years is not None and resume_years is not None and resume_years < min_years:
+            logger.warning(
                 f"최소 경력년수 미만으로 필터링: resume_id={resume_id}, "
-                f"resume_years={resume_years}, min_years={min_years}"
+                f"resume_years={resume_years}, min_years={min_years}, position={position}"
             )
+            print(f"⚠️ [경력년수 필터링] 제외: resume_id={resume_id}, resume_years={resume_years}, min_years={min_years}, position={position}")
             return True
         
         # 최대 경력년수 초과면 제외
@@ -1300,19 +1855,38 @@ def _should_filter_resume(
     
     # 경력직만 요청
     if is_senior_only:
-        # 신입 키워드 확인
+        # 신입 키워드 확인 (경력년수가 없고 신입 키워드만 있는 경우)
         if any(kw in experience_lower for kw in ["신입", "junior", "entry"]):
             if not re.search(r'\d+\s*년', experience) and not re.search(r'\d+\s*year', experience_lower):
-                return True
+                # 경력년수가 명시적으로 추출되지 않은 경우에만 제외
+                if not has_exp_years:
+                    logger.debug(
+                        f"경력직만 요청: 신입 키워드로 필터링: resume_id={resume_id}, "
+                        f"experience={experience}, has_exp_years={has_exp_years}"
+                    )
+                    return True
         
-        # content에서 신입/주니어 키워드 발견 시 제외
+        # content에서 신입/주니어 키워드 발견 시 제외 (경력년수가 없는 경우에만)
         if has_junior and not has_exp_years:
-            return True
+            # 경력년수가 명시적으로 추출되지 않은 경우에만 제외
+            if not re.search(r'\d+\s*년', experience) and not re.search(r'\d+\s*year', experience_lower):
+                logger.debug(
+                    f"경력직만 요청: 신입/주니어 키워드로 필터링: resume_id={resume_id}, "
+                    f"has_junior={has_junior}, has_exp_years={has_exp_years}"
+                )
+                return True
         
         # 경력년수가 없는 경우 제외 (단, 시니어 키워드가 있으면 포함)
+        # 단, min_years가 설정되어 있으면 경력년수 필터링에서 처리하므로 여기서는 제외하지 않음
         if not has_exp_years and not has_senior:
             if not re.search(r'\d+\s*년', experience) and not re.search(r'\d+\s*year', experience_lower):
-                return True
+                # min_years가 설정되어 있으면 경력년수 필터링에서 처리하므로 여기서는 제외하지 않음
+                if min_years is None:
+                    logger.debug(
+                        f"경력직만 요청: 경력년수 없음으로 필터링: resume_id={resume_id}, "
+                        f"experience={experience}, has_exp_years={has_exp_years}, has_senior={has_senior}, min_years={min_years}"
+                    )
+                    return True
     
     # 신입만 요청
     if is_junior_only:
@@ -1467,8 +2041,69 @@ async def search_resumes(
         if skill_keywords is None:
             skill_keywords = []
         
-        # 검색 쿼리 생성
-        search_query = _build_search_query(query, is_different_request, last_query)
+        # search_params에서 포지션과 기술 스택 정보 가져오기 (HITL로 수집된 정보)
+        if state:
+            recruitment_context = state.get("recruitment_context", {}) or {}
+            search_params = recruitment_context.get("search_parameters", {})
+            
+            # search_params의 position을 position_keywords로 변환
+            if search_params.get("position") and not position_keywords:
+                position_from_params = search_params.get("position")
+                # "인사 담당자" -> "인사" 추출
+                position_normalized = _extract_position_keywords(position_from_params)
+                if position_normalized:
+                    position_keywords = position_normalized
+                    logger.debug(f"search_params에서 포지션 추출: {position_from_params} -> {position_keywords}")
+                else:
+                    # 직접 매칭 시도 (예: "인사 담당자" -> ["인사"])
+                    position_lower = position_from_params.lower()
+                    for pos_name in POSITION_KEYWORDS.keys():
+                        if pos_name.lower() in position_lower or position_lower in pos_name.lower():
+                            position_keywords = [pos_name]
+                            logger.debug(f"search_params에서 포지션 직접 매칭: {position_from_params} -> {position_keywords}")
+                            break
+                    
+                    # 🔍 매칭 실패 시 원본 포지션을 키워드로 사용
+                    if not position_keywords:
+                        # "인사 담당자"에서 "인사"만 추출 시도
+                        position_words = position_from_params.split()
+                        for word in position_words:
+                            if word in POSITION_KEYWORDS:
+                                position_keywords = [word]
+                                logger.debug(f"search_params에서 포지션 단어 추출: {position_from_params} -> {position_keywords}")
+                                break
+                        
+                        # 그래도 없으면 원본을 그대로 사용
+                        if not position_keywords:
+                            position_keywords = [position_from_params]
+                            logger.warning(f"포지션 키워드 추출 실패, 원본 사용: {position_keywords}")
+            
+            # search_params의 min_years, max_years를 사용 (쿼리에서 추출한 것보다 우선)
+            if search_params.get("min_years") is not None:
+                min_years = search_params.get("min_years")
+                logger.debug(f"search_params에서 min_years 사용: {min_years}")
+            if search_params.get("max_years") is not None:
+                max_years = search_params.get("max_years")
+                logger.debug(f"search_params에서 max_years 사용: {max_years}")
+            
+            # search_params의 tech_stack을 skill_keywords로 변환
+            if search_params.get("tech_stack") and not skill_keywords:
+                tech_stack_from_params = search_params.get("tech_stack", [])
+                if isinstance(tech_stack_from_params, list) and tech_stack_from_params:
+                    skill_keywords = tech_stack_from_params
+                    logger.debug(f"search_params에서 기술 스택 추출: {skill_keywords}")
+        
+        # 검색 쿼리 생성 (포지션, 경력, 기술스택 정보 포함하여 임베딩 검색 최적화)
+        search_query = _build_search_query(
+            query, 
+            is_different_request, 
+            last_query,
+            position_keywords=position_keywords,
+            skill_keywords=skill_keywords,
+            min_years=min_years,
+            max_years=max_years,
+            experience_type="경력직" if is_senior_only else ("신입" if is_junior_only else None)
+        )
         
         # 제외할 이력서 ID 가져오기
         excluded_ids = _get_excluded_resume_ids(state, is_different_request)
@@ -1511,19 +2146,42 @@ async def search_resumes(
             "params": {"nprobe": milvus_nprobe},
         }
         
-        search_results = await asyncio.to_thread(
-            _collection.search,
-            data=[query_embedding],
-            anns_field="embedding",
-            param=search_params,
-            limit=search_limit,
-            output_fields=output_fields if output_fields else None,
-        )
+        try:
+            search_results = await asyncio.to_thread(
+                _collection.search,
+                data=[query_embedding],
+                anns_field="embedding",
+                param=search_params,
+                limit=search_limit,
+                output_fields=output_fields if output_fields else None,
+            )
+            
+            # 🔍 벡터 검색 결과 개수 로그
+            num_search_results = len(search_results[0]) if search_results and len(search_results) > 0 else 0
+            logger.info(
+                f"벡터 검색 결과: {num_search_results}개 (검색 쿼리: '{search_query}', "
+                f"position_keywords={position_keywords}, skill_keywords={skill_keywords}, "
+                f"min_years={min_years}, max_years={max_years}, search_limit={search_limit})"
+            )
+            print(f"🔍 [벡터 검색] 결과: {num_search_results}개 (검색 쿼리: '{search_query}')")
+        except Exception as e:
+            logger.error(f"벡터 검색 실패: {e}", exc_info=True)
+            print(f"❌ [벡터 검색] 실패: {e}")
+            return {
+                "message": f"이력서 검색 중 오류가 발생했습니다: {str(e)}",
+                "resumes": [],
+                "total_count": 0,
+                "ok": False,
+            }
         
         # 검색 결과 처리
         resumes = []
         scores = []  # 유사도 점수 저장
         filtered_count = 0
+        
+        if not search_results or len(search_results) == 0 or len(search_results[0]) == 0:
+            logger.warning(f"벡터 검색 결과가 비어있습니다. search_results={search_results}")
+            print(f"⚠️ [벡터 검색] 결과가 비어있습니다.")
         
         for idx, hit in enumerate(search_results[0], 1):
             # 유사도 점수 추출 (distance를 score로 변환)
@@ -1532,6 +2190,20 @@ async def search_resumes(
             score = 1.0 / (1.0 + distance) if distance != float('inf') else 0.0
             
             resume_data = hit.entity
+            
+            # 🔍 필터링 전 로그 (처음 몇 개만)
+            if idx <= 3:
+                # 임시로 position 추출 (나중에 정확히 추출됨)
+                temp_position = ""
+                try:
+                    if hasattr(resume_data, 'get'):
+                        temp_position = resume_data.get("position", "") or ""
+                except:
+                    pass
+                logger.debug(
+                    f"검색 결과 {idx}: hit_id={hit.id if hasattr(hit, 'id') else idx}, "
+                    f"position={temp_position}, distance={distance:.4f}, score={score:.4f}"
+                )
             
             # Entity를 딕셔너리로 변환
             entity_dict = {}
@@ -1619,13 +2291,38 @@ async def search_resumes(
                 if not skills:
                     skills = _extract_skills_from_content(content_lines)
             
+            # 🔍 필터링 전 디버깅 로그 (처음 5개만)
+            if idx <= 5:
+                logger.info(
+                    f"필터링 전: resume_id={resume_id}, position={position}, "
+                    f"position_keywords={position_keywords}, experience={experience}, "
+                    f"min_years={min_years}, max_years={max_years}"
+                )
+                print(f"🔍 [필터링 전] resume_id={resume_id}, position={position}, position_keywords={position_keywords}")
+            
+            # 포지션 매칭이 성공했는지 먼저 확인 (keyword_match_score 필터링을 건너뛰기 위해)
+            position_matched = False
+            if position_keywords:
+                position_matched = _check_position_match(position, content, position_keywords)
+            
             # 필터링
-            if _should_filter_resume(
+            should_filter = _should_filter_resume(
                 resume_id, experience, position, skills, content, excluded_ids,
                 is_different_request, is_senior_only, is_junior_only,
                 min_years, max_years, position_keywords, skill_keywords
-            ):
+            )
+            if should_filter:
                 filtered_count += 1
+                # 🔍 필터링 이유 로그 추가 (처음 10개만, 더 자세하게)
+                if filtered_count <= 10:
+                    logger.warning(
+                        f"필터링 제외 {filtered_count}: resume_id={resume_id}, "
+                        f"position={position}, required_positions={position_keywords}, "
+                        f"experience={experience}, min_years={min_years}, max_years={max_years}, "
+                        f"is_senior_only={is_senior_only}, is_junior_only={is_junior_only}, "
+                        f"position_matched={position_matched}, required_skills={skill_keywords}"
+                    )
+                    print(f"🔍 [필터링] 제외 {filtered_count}: resume_id={resume_id}, position={position}, position_matched={position_matched}, is_senior_only={is_senior_only}, is_junior_only={is_junior_only}, experience={experience}")
                 continue
             
             # 키워드 매칭 점수 계산
@@ -1645,16 +2342,26 @@ async def search_resumes(
             # 최종 점수 = 유사도 점수(70%) + 키워드 매칭 점수(30%)
             final_score = (score * 0.7) + (keyword_match_score * 0.3)
             
-            # 최종 점수 기반 필터링 (강화: 키워드 매칭 점수가 너무 낮으면 제외)
-            # 포지션이나 기술 스택이 요구되었는데 키워드 매칭 점수가 0.3 미만이면 제외
-            if (position_keywords or skill_keywords) and keyword_match_score < 0.3:
-                logger.debug(
-                    f"키워드 매칭 점수 부족으로 필터링: resume_id={resume_id}, "
-                    f"keyword_match_score={keyword_match_score:.3f}, "
-                    f"position_keywords={position_keywords}, skill_keywords={skill_keywords}"
-                )
-                filtered_count += 1
-                continue
+            # 최종 점수 기반 필터링 (완화: 키워드 매칭 점수가 너무 낮으면 제외)
+            # 포지션이나 기술 스택이 요구되었는데 키워드 매칭 점수가 0.1 미만이면 제외 (더 유연하게)
+            # 단, 포지션 매칭이 이미 성공한 경우에는 keyword_match_score 필터링을 건너뜀
+            if (position_keywords or skill_keywords) and keyword_match_score < 0.1:
+                # 포지션 매칭이 성공했으면 keyword_match_score 필터링을 건너뜀
+                if not position_matched:
+                    logger.debug(
+                        f"키워드 매칭 점수 부족으로 필터링: resume_id={resume_id}, "
+                        f"keyword_match_score={keyword_match_score:.3f}, "
+                        f"position_keywords={position_keywords}, skill_keywords={skill_keywords}, "
+                        f"position_matched={position_matched}"
+                    )
+                    print(f"⚠️ [키워드 매칭 점수] 제외: resume_id={resume_id}, keyword_match_score={keyword_match_score:.3f}, position_matched={position_matched}")
+                    filtered_count += 1
+                    continue
+                else:
+                    logger.debug(
+                        f"포지션 매칭 성공으로 keyword_match_score 필터링 건너뜀: resume_id={resume_id}, "
+                        f"keyword_match_score={keyword_match_score:.3f}, position_matched={position_matched}"
+                    )
             
             resumes.append({
                 "index": str(len(resumes) + 1),
@@ -1720,10 +2427,12 @@ async def search_resumes(
             filter_msg = f" ({', '.join(filter_info)} 필터)" if filter_info else ""
             message = f"'{query}' 조건{filter_msg}에 맞는 인재를 찾을 수 없습니다."
         
-        logger.debug(
+        logger.info(
             f"검색 완료: {len(resumes)}개 결과, "
-            f"{filtered_count}개 조건 필터링"
+            f"{filtered_count}개 조건 필터링, "
+            f"벡터 검색 결과: {num_search_results}개"
         )
+        print(f"✅ [검색 완료] 최종 결과: {len(resumes)}개, 필터링: {filtered_count}개, 벡터 검색: {num_search_results}개")
         
         return {
             "message": message,
@@ -1741,4 +2450,226 @@ async def search_resumes(
             "resumes": [],
             "total_count": 0,
             "ok": False,
+        }
+
+
+# ==================== 데이터 분석 함수 ====================
+
+async def analyze_resume_database() -> Dict[str, Any]:
+    """
+    Milvus DB의 모든 이력서 데이터를 분석하여 통계와 인사이트를 추출합니다.
+    
+    Returns:
+        분석 결과 딕셔너리 (통계, 포지션 분포, 기술 스택 분포 등)
+    """
+    if not MILVUS_AVAILABLE:
+        return {
+            "ok": False,
+            "error": "pymilvus가 설치되지 않았습니다.",
+            "message": "pymilvus가 설치되지 않았습니다."
+        }
+    
+    if _collection is None:
+        _initialize_milvus()
+    
+    if _collection is None:
+        return {
+            "ok": False,
+            "error": "Milvus DB 연결 실패",
+            "message": "Milvus DB에 연결할 수 없습니다."
+        }
+    
+    try:
+        logger.info("Milvus DB 데이터 분석 시작...")
+        
+        # 컬렉션 스키마 확인
+        schema = _collection.schema
+        field_names = [field.name for field in schema.fields]
+        
+        # 출력 필드 결정
+        output_fields = []
+        for field_name in ["name", "position", "experience", "skills", "content", "chunk_text", "document_title"]:
+            if field_name in field_names:
+                output_fields.append(field_name)
+        
+        if not output_fields:
+            return {
+                "ok": False,
+                "error": "필수 필드가 없습니다.",
+                "message": "이력서 데이터를 분석할 수 있는 필드가 없습니다."
+            }
+        
+        # 전체 데이터 쿼리 (빈 표현식 = 모든 데이터)
+        # 대량 데이터를 위해 배치로 처리
+        total_count = _collection.num_entities
+        logger.info(f"전체 이력서 수: {total_count}개")
+        
+        # 통계 초기화
+        statistics = {
+            "total_count": total_count,
+            "positions": {},  # 포지션별 분포
+            "experience_distribution": {},  # 경력 분포
+            "skills_frequency": {},  # 기술 스택 빈도
+            "experience_years_distribution": {},  # 경력년수 분포
+            "top_positions": [],  # 상위 포지션
+            "top_skills": [],  # 상위 기술 스택
+            "hr_related_count": 0,  # 인사/채용 관련 인재 수
+            "tech_related_count": 0,  # 기술 관련 인재 수
+        }
+        
+        # 배치 크기 설정 (한 번에 너무 많이 가져오지 않도록)
+        # Milvus는 offset을 지원하지 않으므로, 모든 데이터를 한 번에 가져오거나
+        # expr을 사용하여 필터링해야 합니다.
+        # 여기서는 전체 데이터를 가져오되, 배치 처리는 메모리 효율성을 위해 나중에 고려
+        try:
+            # 전체 데이터 쿼리 (expr=""는 모든 데이터)
+            # 대량 데이터의 경우 limit을 설정하되, 실제로는 모든 데이터를 가져와야 함
+            # 일단 전체 데이터를 가져오되, 너무 많으면 샘플링
+            max_query_limit = min(total_count, 10000)  # 최대 10000개까지
+            
+            results = await asyncio.to_thread(
+                _collection.query,
+                expr="",  # 모든 데이터
+                output_fields=output_fields,
+                limit=max_query_limit
+            )
+            
+            if not results:
+                logger.warning("쿼리 결과가 없습니다.")
+                return {
+                    "ok": False,
+                    "error": "데이터가 없습니다.",
+                    "message": "DB에 이력서 데이터가 없습니다."
+                }
+            
+            # 배치 처리 루프 제거 (이미 전체 데이터를 가져옴)
+            entities_to_process = results
+                
+            # 각 이력서 데이터 분석
+            for entity in entities_to_process:
+                    # Entity를 딕셔너리로 변환
+                    entity_dict = {}
+                    if hasattr(entity, 'get'):
+                        for field in output_fields:
+                            try:
+                                val = entity.get(field)
+                                if val is not None:
+                                    entity_dict[field] = val
+                            except Exception:
+                                pass
+                    
+                    # 포지션 추출 및 통계
+                    position = _extract_field_from_entity(
+                        entity_dict, POSSIBLE_POSITION_FIELDS, ""
+                    )
+                    if not position or position == DEFAULT_POSITION:
+                        # chunk_text나 document_title에서 추출 시도
+                        chunk_text = entity_dict.get("chunk_text") or ""
+                        document_title = entity_dict.get("document_title") or ""
+                        if chunk_text:
+                            first_line = chunk_text.split('\n')[0].strip() if chunk_text else ""
+                            _, position = _parse_name_position_from_title(first_line)
+                        if not position and document_title:
+                            _, position = _parse_name_position_from_title(document_title)
+                    
+                    if position and position != DEFAULT_POSITION:
+                        # 포지션 정규화
+                        normalized_position = position.lower()
+                        if "인사" in normalized_position or "채용" in normalized_position or "hr" in normalized_position:
+                            statistics["hr_related_count"] += 1
+                        if any(kw in normalized_position for kw in ["개발자", "엔지니어", "engineer", "developer"]):
+                            statistics["tech_related_count"] += 1
+                        
+                        # 포지션별 카운트
+                        if position not in statistics["positions"]:
+                            statistics["positions"][position] = 0
+                        statistics["positions"][position] += 1
+                    
+                    # 경력 정보 추출 및 통계
+                    experience = _extract_field_from_entity(
+                        entity_dict, POSSIBLE_EXPERIENCE_FIELDS, ""
+                    )
+                    content = _extract_field_from_entity(
+                        entity_dict, POSSIBLE_CONTENT_FIELDS, ""
+                    )
+                    chunk_text = entity_dict.get("chunk_text") or ""
+                    search_content = chunk_text if chunk_text else content
+                    
+                    if experience and experience != DEFAULT_EXPERIENCE:
+                        # 경력 타입 분류
+                        exp_lower = experience.lower()
+                        if any(kw in exp_lower for kw in ["신입", "junior", "entry"]):
+                            exp_type = "신입"
+                        elif any(kw in exp_lower for kw in ["경력", "senior", "experienced"]):
+                            exp_type = "경력직"
+                        else:
+                            exp_type = "기타"
+                        
+                        if exp_type not in statistics["experience_distribution"]:
+                            statistics["experience_distribution"][exp_type] = 0
+                        statistics["experience_distribution"][exp_type] += 1
+                        
+                        # 경력년수 추출
+                        if search_content:
+                            _, _, _, extracted_years = _check_experience_in_content(search_content)
+                            if extracted_years:
+                                years_key = f"{int(extracted_years)}년"
+                                if years_key not in statistics["experience_years_distribution"]:
+                                    statistics["experience_years_distribution"][years_key] = 0
+                                statistics["experience_years_distribution"][years_key] += 1
+                    
+                    # 기술 스택 추출 및 통계
+                    skills = entity_dict.get("skills") or []
+                    if isinstance(skills, str):
+                        skills = [s.strip() for s in skills.split(",") if s.strip()]
+                    
+                    if not skills and search_content:
+                        content_lines = search_content.split('\n')
+                        skills = _extract_skills_from_content(content_lines)
+                    
+                    for skill in skills:
+                        if skill and len(skill) >= 2:
+                            skill_lower = skill.lower()
+                            # 기술 스택 빈도 카운트
+                            if skill_lower not in statistics["skills_frequency"]:
+                                statistics["skills_frequency"][skill_lower] = 0
+                                statistics["skills_frequency"][skill_lower] += 1
+            
+            logger.debug(f"데이터 분석 진행: {len(entities_to_process)}/{total_count}개 처리 완료")
+            
+        except Exception as e:
+            logger.error(f"데이터 쿼리/분석 중 오류: {e}", exc_info=True)
+            return {
+                "ok": False,
+                "error": str(e),
+                "message": f"데이터 분석 중 오류가 발생했습니다: {str(e)}"
+            }
+        
+        # 상위 포지션 및 기술 스택 정렬
+        statistics["top_positions"] = sorted(
+            statistics["positions"].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]  # 상위 10개
+        
+        statistics["top_skills"] = sorted(
+            statistics["skills_frequency"].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:20]  # 상위 20개
+        
+        logger.info(f"데이터 분석 완료: 총 {statistics['total_count']}개 이력서 분석")
+        
+        return {
+            "ok": True,
+            "statistics": statistics,
+            "message": "데이터 분석이 완료되었습니다."
+        }
+        
+    except Exception as e:
+        logger.error(f"데이터 분석 실패: {e}", exc_info=True)
+        return {
+            "ok": False,
+            "error": str(e),
+            "message": f"데이터 분석 중 오류가 발생했습니다: {str(e)}"
         }
