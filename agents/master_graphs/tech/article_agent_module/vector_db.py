@@ -134,23 +134,20 @@ async def initialize_milvus() -> None:
 
 
 def extract_keyword_from_text(text: str) -> str:
-    """텍스트에서 주요 키워드를 추출한다.
+    """텍스트에서 키워드를 추출 (Fallback용)."""
+    # 도메인 키워드 제거
+    domain_keywords = ["논문", "paper", "학술", "ScienceON", "검색", "찾아", "알려", "줘", "주세요", "해줘", "웹", "사내", "서버"]
+    cleaned_text = text
+    for kw in domain_keywords:
+        pattern = rf'\b{re.escape(kw)}\b'
+        cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.IGNORECASE)
     
-    Args:
-        text: 분석할 텍스트
-        
-    Returns:
-        추출된 키워드
-    """
-    keywords = [
-        "디스플레이", "display", "인공지능", "ai", "머신러닝", "딥러닝",
-        "배터리", "battery", "반도체", "semiconductor", "센서", "sensor",
-    ]
+    cleaned_text = " ".join(cleaned_text.split())
     
-    text_lower = text.lower()
-    for keyword in keywords:
-        if keyword.lower() in text_lower:
-            return keyword
+    # 한글/영문 단어만 추출
+    words = re.findall(r'[가-힣a-zA-Z]{2,}', cleaned_text)
+    if words:
+        return ", ".join(words[:2])  # 상위 2개만
     
     return "기타"
 
@@ -303,7 +300,7 @@ async def get_or_create_paper_collection(collection_name: str) -> Optional[Any]:
             FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=512),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=2000),
             FieldSchema(name="paper_keyword", dtype=DataType.VARCHAR, max_length=128),
-            FieldSchema(name="pdf_link", dtype=DataType.VARCHAR, max_length=512),  # 🆕 추가
+            FieldSchema(name="pdf_link", dtype=DataType.VARCHAR, max_length=512),
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1536),
         ]
         schema = CollectionSchema(fields, description=f"ScienceON 논문 임베딩 데이터 - {collection_name}")
@@ -371,7 +368,6 @@ async def check_vector_db(query: str, limit: int = 5, max_distance: float = 1.5,
         if not keyword:
             keyword = extract_keyword_from_text(query)
         
-        # 🔧 개선: 다중 컬렉션 검색 지원
         collections = await _load_paper_collections_for_query(keyword)
         if not collections:
             return []

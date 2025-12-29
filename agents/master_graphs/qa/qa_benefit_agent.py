@@ -269,7 +269,7 @@ def vector_search(state: BenefitState) -> BenefitState:
 	# 검색 파라미터 (YAML에서 로드)
 	config = load_qa_benefit_config()
 	search_params = config.get("search_params", {})
-	vector_search_limit = search_params.get("vector_search_limit", 15)
+	vector_search_limit = search_params.get("vector_search_limit", 22)
 	milvus_metric_type = search_params.get("milvus_metric_type", "L2")
 	milvus_nprobe = search_params.get("milvus_nprobe", 10)
 	
@@ -411,7 +411,7 @@ def hybrid_merge(state: BenefitState) -> BenefitState:
 	# 상위 결과 개수 (YAML에서 로드)
 	config = load_qa_benefit_config()
 	search_params = config.get("search_params", {})
-	top_results_count = search_params.get("top_results_count", 7)
+	top_results_count = search_params.get("top_results_count", 5)
 	top_results = final_results[:top_results_count]
 	retrieved_contexts = [r["content"] for r in top_results]
 	

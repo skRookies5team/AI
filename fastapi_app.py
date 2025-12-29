@@ -368,6 +368,18 @@ class SessionUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, description="새 세션 제목")
 
 
+class MessagePayload(BaseModel):
+    """단일 메시지 페이로드."""
+    role: str = Field(..., description="메시지 역할 (user 또는 assistant)")
+    content: str = Field(..., description="메시지 내용")
+    timestamp: Optional[str] = Field(default=None, description="타임스탬프 (ISO 8601)")
+
+
+class AddMessagesRequest(BaseModel):
+    """메시지 추가 요청 모델."""
+    messages: List[MessagePayload] = Field(..., description="추가할 메시지 리스트")
+
+
 class DocumentUploadResponse(BaseModel):
     """문서 업로드 응답 모델."""
 
@@ -839,6 +851,14 @@ async def chat_stream_endpoint(
                 email_ids: list[str] = []
                 email_draft = None
                 if last_domain == "recruitment":
+                    search_results = final_state.get("search_results", [])
+                    if search_results:
+                        rows = search_results
+                elif last_domain == "tech":
+                    # Tech 도메인(논문/특허)인 경우 검색 결과를 rows에 포함
+                    search_results = final_state.get("search_results", [])
+                    if search_results:
+                        rows = search_results
                     rows = final_state.get("search_results", []) or []
                 elif last_domain == "email":
                     rows = final_state.get("search_results", []) or []
@@ -854,15 +874,38 @@ async def chat_stream_endpoint(
                                 email_draft.setdefault("cc", ctx.get("cc"))
                             if ctx.get("bcc"):
                                 email_draft.setdefault("bcc", ctx.get("bcc"))
-                
+
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
                 
+                # 면접 일정 조정 관련 플래그 확인
+                # 1순위: final_state 최상위 레벨 (schedule_nodes.py에서 직접 반환)
+                # 2순위: schedule_context.interview (하위 호환성)
+                schedule_context = final_state.get("schedule_context") or {}  # ✅ None 체크 추가
+                interview_context = schedule_context.get("interview", {}) if schedule_context else {}  # ✅ 안전하게 처리
+
+                # 최상위 레벨 우선, 없으면 interview_context에서 읽기
+                requires_interviewer_selection = final_state.get("requires_interviewer_selection",
+                                                                 interview_context.get("requires_interviewer_selection", False))
+                requires_date_range = final_state.get("requires_date_range_input",
+                                                     interview_context.get("requires_date_range", False))
+                requires_duration_selection = final_state.get("requires_duration_selection",
+                                                               interview_context.get("requires_duration_selection", False))  # ✅ 추가
+                requires_slot_selection = final_state.get("requires_slot_selection",
+                                                         interview_context.get("requires_slot_selection", False))
+                interviewer_selection_config = final_state.get("interviewer_selection_config",
+                                                              interview_context.get("interviewer_selection_config"))
+                available_slots = final_state.get("available_slots",
+                                                 interview_context.get("available_slots")) or []  # ✅ None일 경우 빈 배열로 처리 or []  # ✅ None일 경우 빈 배열로 처리
+
                 # 디버깅: 문서 업데이트 UI 플래그 확인
                 print(f"🔍 [FastAPI] 문서 업데이트 UI 플래그: {show_document_update_ui}")
+                print(f"🔍 [FastAPI] 면접관 선택 플래그: {requires_interviewer_selection}")
+                print(f"🔍 [FastAPI] 기간 입력 플래그: {requires_date_range}")
+                print(f"🔍 [FastAPI] 지속 시간 선택 플래그: {requires_duration_selection}")  # ✅ 추가
+                print(f"🔍 [FastAPI] 시간대 선택 플래그: {requires_slot_selection}")
+                print(f"🔍 [FastAPI] interview_context: {interview_context}")
                 print(f"🔍 [FastAPI] final_state keys: {list(final_state.keys())}")
-                if "show_document_update_ui" in final_state:
-                    print(f"🔍 [FastAPI] show_document_update_ui 값: {final_state['show_document_update_ui']}")
                 
                 result = {
                     "type": "complete",
@@ -876,9 +919,17 @@ async def chat_stream_endpoint(
                     "requires_input": requires_input,
                     "last_domain": last_domain,  # LLM 라우팅 시 결정된 도메인
                     "show_document_update_ui": show_document_update_ui,  # 문서 업데이트 UI 표시 플래그
+                # 면접 일정 조정 관련 플래그
+                "requires_interviewer_selection": requires_interviewer_selection,
+                "requires_date_range": requires_date_range,
+                "requires_duration_selection": requires_duration_selection,  # ✅ 수정: 계산된 변수 사용
+                "requires_slot_selection": requires_slot_selection,
+                "interviewer_selection_config": interviewer_selection_config,
+                "available_slots": available_slots,
                 }
                 
                 print(f"🔍 [FastAPI] 응답에 포함된 show_document_update_ui: {result.get('show_document_update_ui')}")
+                print(f"🔍 [FastAPI] 응답에 포함된 requires_interviewer_selection: {result.get('requires_interviewer_selection')}")
                 yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
                 
                 # 노드 실행 후 세션 데이터 저장 (conversation_history + 컨텍스트들)
@@ -1259,9 +1310,9 @@ async def chat_endpoint(
         email_ids: list[str] = []
         email_draft = None
         if last_domain == "recruitment":
-            # search_results 또는 recruitment_context에서 결과 가져오기
             search_results = final_state.get("search_results", [])
             if search_results:
+                # 카드 형식으로 변환
                 rows = search_results
                 print(f"✅ search_results에서 {len(rows)}개 인재 결과 추출")
             else:
@@ -1287,6 +1338,11 @@ async def chat_endpoint(
                         email_draft.setdefault("cc", ctx.get("cc"))
                     if ctx.get("bcc"):
                         email_draft.setdefault("bcc", ctx.get("bcc"))
+        elif last_domain == "tech":
+            # Tech 도메인(논문/특허)인 경우 검색 결과를 rows에 포함
+            search_results = final_state.get("search_results", [])
+            if search_results:
+                rows = search_results
 
         return ChatResponse(
             ok=True,
@@ -2035,6 +2091,75 @@ async def update_session(
         raise HTTPException(status_code=500, detail=f"세션 업데이트 실패: {str(exc)}") from exc
 
 
+@app.post("/api/sessions/{session_id}/messages")
+async def add_messages_to_session(
+    session_id: str,
+    payload: 'AddMessagesRequest',
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """프론트엔드 UI 상호작용 메시지를 conversation_history에 추가.
+
+    AI 그래프 실행 없이 메시지만 저장합니다.
+    카테고리 선택, FAQ 클릭 등 프론트엔드에서 처리되는 상호작용에 사용.
+
+    Args:
+        session_id: 세션 ID
+        payload: 추가할 메시지 리스트
+        current_user: 인증된 사용자
+
+    Returns:
+        저장 결과
+    """
+    try:
+        employee_id = current_user["employee_id"]
+        session_manager = await get_session_manager()
+        if not session_manager:
+            raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
+
+        # 기존 세션 데이터 로드 (없으면 새로 생성)
+        try:
+            session_data = await session_manager.load_session_data(session_id, employee_id)
+        except Exception:
+            # 세션이 없으면 새로 생성 (session_id를 지정하여 생성)
+            await session_manager.create_session(
+                employee_id=employee_id,
+                session_id=session_id,
+                title="새 대화"
+            )
+            session_data = await session_manager.load_session_data(session_id, employee_id)
+
+        conversation_history = session_data.get("conversation_history", [])
+
+        # 새 메시지 추가
+        for msg in payload.messages:
+            conversation_history.append({
+                "role": msg.role,
+                "content": msg.content,
+                "timestamp": msg.timestamp or datetime.now().isoformat()
+            })
+
+        # conversation_history만 업데이트하여 저장
+        session_data["conversation_history"] = conversation_history
+
+        # ✅ employee_id 추가 (save_session_state에서 필수로 요구)
+        if "employee_id" not in session_data:
+            session_data["employee_id"] = employee_id
+
+        await session_manager.save_session_state(session_id, session_data)
+
+        return {
+            "ok": True,
+            "message": f"{len(payload.messages)}개 메시지가 저장되었습니다.",
+            "message_count": len(conversation_history)
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"메시지 저장 실패: {str(exc)}") from exc
+
+
 @app.post("/api/session/new", response_model=SessionResponse)
 async def create_new_session(employee_id: int = 4003) -> SessionResponse:
     """새 세션 생성 (하위 호환성 유지용 - /api/sessions 사용 권장).
@@ -2524,7 +2649,7 @@ async def get_meeting_rooms(
         )
         
         # 날짜/시간 기반 예약 가능 여부 필터링 (선택사항)
-        available_rooms     = rooms
+        available_rooms = rooms
         if start_date and start_time and end_date and end_time:
             from datetime import datetime
             try:
@@ -2580,3 +2705,83 @@ async def get_meeting_rooms(
             "count": 0,
             "message": f"회의실 목록 조회 실패: {str(e)}"
         }
+
+
+@app.get("/api/employees", response_model=List[Dict[str, Any]])
+async def get_employees(
+    dept: Optional[str] = Query(None, description="부서 필터"),
+    position: Optional[str] = Query(None, description="직급 필터"),
+    status: Optional[str] = Query(None, description="직원 상태 (Active, 재직 중, etc.)"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> List[Dict[str, Any]]:
+    """사원 목록 조회 (부서, 직급 필터링 지원).
+
+    면접관 선택 등에 사용됩니다.
+
+    Args:
+        dept: 부서 필터 (예: "개발팀")
+        position: 직급 필터 (예: "과장")
+        status: 직원 상태 (기본값: "Active")
+
+    Returns:
+        사원 목록 [{"employee_id": int, "name": str, "dept": str, ...}, ...]
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        from sqlalchemy import text
+
+        db = DatabaseService()
+
+        clauses = []
+        params: Dict[str, Any] = {}
+
+        if dept:
+            clauses.append("dept = :dept")
+            params["dept"] = dept
+
+        if position:
+            clauses.append("(position = :position OR job_title = :position)")
+            params["position"] = position
+
+        # ✅ status 필터 수정: 'Active' 또는 '재직 중' 둘 다 매칭
+        if status and status.strip():
+            if status.lower() == 'active':
+                # 'Active' 또는 '재직 중' 둘 다 포함
+                clauses.append("(employment_status = 'Active' OR employment_status = '재직 중')")
+            else:
+                clauses.append("employment_status = :status")
+                params["status"] = status
+        # status가 None이면 필터 적용 안 함 (전체 조회)
+
+        where_sql = " AND ".join(clauses) if clauses else "1=1"
+
+        sql = f"""
+        SELECT
+            employee_id,
+            name,
+            dept,
+            position,
+            job_title,
+            email,
+            employment_status
+        FROM employee
+        WHERE {where_sql}
+        ORDER BY dept, position, name
+        """
+
+        async with db._session() as session:
+            result = await session.execute(text(sql), params)
+            employees = [dict(row) for row in result.mappings().all()]
+
+        # ✅ 로그 추가
+        print(f"✅ [API] /api/employees 조회 결과: {len(employees)}명")
+        if employees:
+            print(f"✅ [API] 첫 번째 사원 예시: {employees[0]}")
+        else:
+            print(f"⚠️ [API] 사원 데이터가 없습니다. SQL: {sql}, params: {params}")
+
+        return employees
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return []

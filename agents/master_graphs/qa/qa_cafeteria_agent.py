@@ -502,62 +502,69 @@ def _calculate_relative_date(question: str, current_date_str: str, weekday_names
     from datetime import datetime, timedelta
     
     try:
-        # 현재 날짜 파싱
+        # 현재 날짜 파싱 및 기준점(이번 주 월요일) 설정
         current_date = datetime.strptime(current_date_str, date_format)
         current_weekday = current_date.weekday()  # 0=월요일, 6=일요일
         
-        # 질문에서 날짜 표현 감지 및 계산
-        question_lower = question.lower()
+        # 이번 주 월요일 계산
+        this_week_monday = current_date - timedelta(days=current_weekday)
         
-        # "오늘" → 현재 날짜
-        if "오늘" in question:
+        # 질문 전처리 (띄어쓰기 정규화)
+        question_clean = question.replace(" ", "").lower()
+        
+        # -------------------------------------------------------
+        # Case A: 단순 상대어 (오늘, 내일, 모레)
+        # -------------------------------------------------------
+        if "오늘" in question_clean:
             return current_date_str
         
-        # "내일 모레" 또는 "내일 모래" → 현재 날짜 + 2일 (우선 처리)
-        if "내일 모레" in question or "내일 모래" in question:
-            day_after_tomorrow = current_date + timedelta(days=2)
-            return day_after_tomorrow.strftime(date_format)
+        if "내일모레" in question_clean or "내일모래" in question_clean:
+            return (current_date + timedelta(days=2)).strftime(date_format)
         
-        # "내일" → 현재 날짜 + 1일 ("내일 모레/모래"가 아닌 경우만)
-        if "내일" in question and "모레" not in question and "모래" not in question:
-            tomorrow = current_date + timedelta(days=1)
-            return tomorrow.strftime(date_format)
+        if "내일" in question_clean and "모레" not in question_clean and "모래" not in question_clean:
+            return (current_date + timedelta(days=1)).strftime(date_format)
         
-        # "모레" 또는 "모래" → 현재 날짜 + 2일 ("내일 모레/모래"가 아닌 경우만)
-        if ("모레" in question or "모래" in question) and "내일 모레" not in question and "내일 모래" not in question:
-            day_after_tomorrow = current_date + timedelta(days=2)
-            return day_after_tomorrow.strftime(date_format)
+        if ("모레" in question_clean or "모래" in question_clean) and "내일모레" not in question_clean and "내일모래" not in question_clean:
+            return (current_date + timedelta(days=2)).strftime(date_format)
         
-        # "다음주 [요일]" 계산
-        if "다음주" in question:
-            # 요일 찾기
-            for idx, weekday_name in enumerate(weekday_names):
-                weekday_short = weekday_name.replace("요일", "")  # "월", "화", "수" 등
-                if weekday_short in question or weekday_name in question:
-                    target_weekday = idx  # 0=월요일, 6=일요일
-                    # 다음 주의 해당 요일까지의 일수 계산
-                    # 현재 요일에서 다음 주의 해당 요일까지: (7 - current_weekday) + target_weekday
-                    days_until_next_weekday = (7 - current_weekday) + target_weekday
-                    next_week_date = current_date + timedelta(days=days_until_next_weekday)
-                    return next_week_date.strftime(date_format)
+        # -------------------------------------------------------
+        # Case B: 특정 주 + 요일 (예: "다음 주 금요일")
+        # -------------------------------------------------------
+        target_weekday_idx = -1
+        for idx, weekday_name in enumerate(weekday_names):
+            weekday_short = weekday_name.replace("요일", "")  # "월", "화", "수" 등
+            if weekday_short in question_clean or weekday_name in question_clean:
+                target_weekday_idx = idx
+                break
         
-        # "이번주 [요일]" 계산
-        if "이번주" in question:
-            # 요일 찾기
-            for idx, weekday_name in enumerate(weekday_names):
-                if weekday_name.replace("요일", "") in question or weekday_name in question:
-                    target_weekday = idx
-                    # 이번 주의 해당 요일까지의 일수 계산
-                    days_until_weekday = (target_weekday - current_weekday) % 7
-                    if days_until_weekday == 0:
-                        # 오늘이 해당 요일이면 오늘 반환
-                        return current_date_str
-                    this_week_date = current_date + timedelta(days=days_until_weekday)
-                    return this_week_date.strftime(date_format)
+        # "다음주" + [요일]
+        if "다음주" in question_clean and target_weekday_idx != -1:
+            target_date = this_week_monday + timedelta(weeks=1) + timedelta(days=target_weekday_idx)
+            return target_date.strftime(date_format)
+        
+        # "이번주" + [요일]
+        if "이번주" in question_clean and target_weekday_idx != -1:
+            target_date = this_week_monday + timedelta(days=target_weekday_idx)
+            return target_date.strftime(date_format)
+        
+        # -------------------------------------------------------
+        # Case C: 요일 없이 범위만 물어볼 때 (예: "이번 주 일정 어때?")
+        # -------------------------------------------------------
+        # "다음주" 범위
+        if "다음주" in question_clean:
+            start_date = this_week_monday + timedelta(weeks=1)
+            end_date = start_date + timedelta(days=6)  # 일요일까지
+            return f"{start_date.strftime(date_format)}부터 {end_date.strftime(date_format)}까지"
+        
+        # "이번주" 범위
+        if "이번주" in question_clean:
+            start_date = this_week_monday
+            end_date = start_date + timedelta(days=6)  # 일요일까지
+            return f"{start_date.strftime(date_format)}부터 {end_date.strftime(date_format)}까지"
         
         return None
     except Exception as e:
-        print(f"⚠️ 날짜 계산 실패: {e}")
+        print(f"⚠️ 날짜 계산 오류: {e}")
         return None
 
 
@@ -599,23 +606,35 @@ def generate_answer(state: GraphState) -> GraphState:
     date_info_text = f"**현재 날짜와 시간: {current_date} ({current_weekday}) {current_time}**"
     
     if calculated_date:
-        # 계산된 날짜의 요일도 계산
-        from datetime import datetime
-        date_format, _, weekday_names = _get_date_config()
-        try:
-            calculated_datetime = datetime.strptime(calculated_date, date_format)
-            calculated_weekday = weekday_names[calculated_datetime.weekday()]
-            # 계산된 날짜를 더 강조하여 프롬프트에 포함 (요일 포함)
-            date_info_text += f"\n\n**⚠️ 매우 중요: 사용자가 요청한 정확한 날짜는 {calculated_date} ({calculated_weekday})입니다.**"
-            date_info_text += f"\n**반드시 식단표에서 {calculated_date} ({calculated_weekday})의 식단만 찾아 답변하세요.**"
-            date_info_text += f"\n**다른 날짜(예: 18일, 19일 등)나 다른 요일의 식단을 반환하지 마세요. 오직 {calculated_date} ({calculated_weekday})의 식단만 찾아주세요.**"
-            print(f"✅ 프롬프트에 날짜 및 요일 포함: {calculated_date} ({calculated_weekday})")
-        except Exception as e:
-            # 날짜 파싱 실패 시 요일 없이 날짜만 포함
-            date_info_text += f"\n\n**⚠️ 매우 중요: 사용자가 요청한 정확한 날짜는 {calculated_date}입니다.**"
+        # 범위 문자열인지 확인 ("~부터 ~까지" 형식)
+        if "부터" in calculated_date and "까지" in calculated_date:
+            # 범위 문자열이면 그대로 사용
+            date_info_text += f"\n\n**⚠️ 매우 중요: 사용자가 요청한 날짜 범위는 {calculated_date}입니다.**"
             date_info_text += f"\n**반드시 식단표에서 {calculated_date}의 식단만 찾아 답변하세요.**"
-            date_info_text += f"\n**다른 날짜(예: 18일, 19일 등)의 식단을 반환하지 마세요. 오직 {calculated_date}의 식단만 찾아주세요.**"
-            print(f"⚠️ 날짜 파싱 실패, 요일 없이 날짜만 포함: {e}")
+            date_info_text += f"\n**다른 날짜의 식단을 반환하지 마세요. 오직 {calculated_date}의 식단만 찾아주세요.**"
+            date_info_text += f"\n**⚠️ 검색된 컨텍스트에 {calculated_date} 범위 내의 날짜가 일부 없으면, 식단이 있는 날짜만 답변하세요.**"
+            date_info_text += f"\n**⚠️ 검색된 컨텍스트에 {calculated_date} 범위 내의 날짜가 모두 없으면, 절대 답변을 생성하지 말고 '해당 날짜의 식단 정보는 없습니다.'라고 답변하세요.**"
+            print(f"✅ 프롬프트에 날짜 범위 포함: {calculated_date}")
+        else:
+            # 단일 날짜인 경우 기존 로직 사용
+            from datetime import datetime
+            date_format, _, weekday_names = _get_date_config()
+            try:
+                calculated_datetime = datetime.strptime(calculated_date, date_format)
+                calculated_weekday = weekday_names[calculated_datetime.weekday()]
+                # 계산된 날짜를 더 강조하여 프롬프트에 포함 (요일 포함)
+                date_info_text += f"\n\n**⚠️ 매우 중요: 사용자가 요청한 정확한 날짜는 {calculated_date} ({calculated_weekday})입니다.**"
+                date_info_text += f"\n**반드시 식단표에서 {calculated_date} ({calculated_weekday})의 식단만 찾아 답변하세요.**"
+                date_info_text += f"\n**다른 날짜(예: 18일, 19일 등)나 다른 요일의 식단을 반환하지 마세요. 오직 {calculated_date} ({calculated_weekday})의 식단만 찾아주세요.**"
+                date_info_text += f"\n**⚠️ 검색된 컨텍스트에 {calculated_date} ({calculated_weekday})의 식단이 없으면, 절대 답변을 생성하지 말고 '해당 날짜의 식단 정보는 없습니다.' 또는 '요청하신 날짜의 식단 정보가 식단표에 등록되어 있지 않습니다.'라고만 답변하세요.**"
+                print(f"✅ 프롬프트에 날짜 및 요일 포함: {calculated_date} ({calculated_weekday})")
+            except Exception as e:
+                # 날짜 파싱 실패 시 요일 없이 날짜만 포함
+                date_info_text += f"\n\n**⚠️ 매우 중요: 사용자가 요청한 정확한 날짜는 {calculated_date}입니다.**"
+                date_info_text += f"\n**반드시 식단표에서 {calculated_date}의 식단만 찾아 답변하세요.**"
+                date_info_text += f"\n**다른 날짜(예: 18일, 19일 등)의 식단을 반환하지 마세요. 오직 {calculated_date}의 식단만 찾아주세요.**"
+                date_info_text += f"\n**⚠️ 검색된 컨텍스트에 {calculated_date}의 식단이 없으면, 절대 답변을 생성하지 말고 '해당 날짜의 식단 정보는 없습니다.' 또는 '요청하신 날짜의 식단 정보가 식단표에 등록되어 있지 않습니다.'라고만 답변하세요.**"
+                print(f"⚠️ 날짜 파싱 실패, 요일 없이 날짜만 포함: {e}")
 
     # 프롬프트 및 설정 (YAML에서 로드)
     config = load_qa_cafeteria_config()
@@ -701,15 +720,20 @@ def generate_answer(state: GraphState) -> GraphState:
     
     # 계산된 날짜가 있으면 user_prompt에도 명시적으로 포함
     if calculated_date:
-        # 계산된 날짜의 요일도 포함
-        from datetime import datetime
-        date_format, _, weekday_names = _get_date_config()
-        try:
-            calculated_datetime = datetime.strptime(calculated_date, date_format)
-            calculated_weekday = weekday_names[calculated_datetime.weekday()]
-            user_prompt_template += f"\n\n**중요: 반드시 {calculated_date} ({calculated_weekday})의 식단만 찾아 답변하세요. 다른 날짜나 다른 요일의 식단을 반환하지 마세요.**"
-        except Exception as e:
+        # 범위 문자열인지 확인
+        if "부터" in calculated_date and "까지" in calculated_date:
+            # 범위 문자열이면 그대로 사용
             user_prompt_template += f"\n\n**중요: 반드시 {calculated_date}의 식단만 찾아 답변하세요. 다른 날짜의 식단을 반환하지 마세요.**"
+        else:
+            # 단일 날짜인 경우 요일도 포함
+            from datetime import datetime
+            date_format, _, weekday_names = _get_date_config()
+            try:
+                calculated_datetime = datetime.strptime(calculated_date, date_format)
+                calculated_weekday = weekday_names[calculated_datetime.weekday()]
+                user_prompt_template += f"\n\n**중요: 반드시 {calculated_date} ({calculated_weekday})의 식단만 찾아 답변하세요. 다른 날짜나 다른 요일의 식단을 반환하지 마세요.**"
+            except Exception as e:
+                user_prompt_template += f"\n\n**중요: 반드시 {calculated_date}의 식단만 찾아 답변하세요. 다른 날짜의 식단을 반환하지 마세요.**"
     
     messages.append(("user", user_prompt_template))
     

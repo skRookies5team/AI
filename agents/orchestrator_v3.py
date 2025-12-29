@@ -256,7 +256,11 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         query: 사용자 쿼리
         
     Returns:
-        {'is_workflow_request': bool, 'confidence': float}
+        {
+            'is_workflow_request': bool,
+            'confidence': float,
+            'output': int  # 1: 워크플로우, 0: 일반
+        }
     """
     step_start = time.time()
 
@@ -273,7 +277,8 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
                 print(f"✅ 1단계 분류 (ML): {'워크플로우' if result['is_workflow_request'] else '일반 요청'} (신뢰도: {result['confidence']:.2f}, {step_elapsed_sec:.2f}초)")
                 return {
                     "is_workflow_request": result['is_workflow_request'],
-                    "confidence": result['confidence']
+                    "confidence": result['confidence'],
+                    "output": 1 if result['is_workflow_request'] else 0
                 }
             # ML 모델 fallback 발생 시 조용히 LLM으로 전환 (로그 없음)
     except Exception as e:
@@ -287,13 +292,13 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
     if not request_classification:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 설정을 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        return {"is_workflow_request": False, "confidence": 0.5, "output": 0}
     
     system_prompt_template = request_classification.get("system_prompt", "")
     if not system_prompt_template:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 프롬프트를 찾을 수 없습니다. 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        return {"is_workflow_request": False, "confidence": 0.5, "output": 0}
     
     # 프롬프트에 query 삽입
     system_prompt = system_prompt_template.format(query=query)
@@ -310,12 +315,13 @@ async def classify_request_type(query: str) -> Dict[str, Any]:
         print(f"✅ 1단계 분류 (LLM): {'워크플로우' if result.is_workflow_request else '일반 요청'} (신뢰도: {result.confidence:.2f}, {step_elapsed/1000:.2f}초)")
         return {
             "is_workflow_request": result.is_workflow_request,
-            "confidence": result.confidence
+            "confidence": result.confidence,
+            "output": 1 if result.is_workflow_request else 0
         }
     except Exception as e:
         step_elapsed = (time.time() - step_start) * 1000
         print(f"⚠️ 워크플로우 분류 중 오류 발생: {e}, 기본값(일반 요청)으로 처리 ({step_elapsed/1000:.2f}초)")
-        return {"is_workflow_request": False, "confidence": 0.5}
+        return {"is_workflow_request": False, "confidence": 0.5, "output": 0}
 
 
 async def detect_workflow_type_with_llm(query: str) -> Optional[Dict[str, Any]]:
@@ -871,6 +877,26 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 print(f"⚠️ Redis에서 워크플로우 상태 복구 실패: {e}")
 
         # last_domain에서 워크플로우 정보 복구
+        # 단, workflow_type이나 workflow_steps가 명시적으로 없는 경우(종료된 경우)에는 복구하지 않음
+        if not workflow_in_progress and not workflow_type and not workflow_steps and last_domain and "step" in last_domain.lower():
+            # 워크플로우가 진행 중이 아니고 타입/단계 정보도 없는데 last_domain에만 step이 있다면,
+            # 이는 방금 종료된 워크플로우의 잔재일 가능성이 높으므로 복구하지 않고 일반 라우팅 진행
+            print(f"ℹ️ 종료된 워크플로우 잔재 감지 ({last_domain}). 복구하지 않고 일반 라우팅 진행.")
+            # last_domain을 일반 도메인으로 정규화 (예: "Apply for a business trip step4" -> "email")
+            if "business trip" in last_domain.lower() or "출장" in last_domain:
+                last_domain = "schedule"
+            elif "recruitment" in last_domain.lower() or "채용" in last_domain:
+                last_domain = "recruitment"
+            elif "document" in last_domain.lower() or "문서" in last_domain:
+                last_domain = "document"
+            elif "email" in last_domain.lower() or "이메일" in last_domain:
+                last_domain = "email"
+            else:
+                last_domain = None
+            
+            state["last_domain"] = last_domain
+
+        # 실제 복구 로직 (위의 필터링을 통과한 경우에만)
         if not workflow_in_progress and last_domain and "step" in last_domain.lower():
             # last_domain이 "Apply for a business trip step1" 형식이면 워크플로우 진행 중으로 간주
             # 워크플로우 타입 추출
@@ -1015,14 +1041,18 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         if is_cancel:
             print(f"⚠️ 워크플로우 취소 요청: {workflow_type}")
             if workflow_type == "business_trip" and any(kw in query for kw in ["출장", "business_trip"]):
+                # 워크플로우 취소
+                print(f"✅ 워크플로우 취소 요청 감지: {workflow_type}")
                 return {
                     "workflow_type": None,
                     "workflow_steps": None,
                     "current_workflow_step_index": None,
                     "workflow_completed_steps": None,
                     "workflow_in_progress": False,
+                    "workflow_temp_data": {},  # 임시 데이터 초기화
                     "next_domain": None,
                     "domain": "schedule",
+                    "last_domain": "schedule",  # last_domain 정규화
                     "conversation_history": [user_message],
                     **current_date_info
                 }
@@ -1032,8 +1062,10 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "current_workflow_step_index": None,
                 "workflow_completed_steps": None,
                 "workflow_in_progress": False,
+                "workflow_temp_data": {},  # 임시 데이터 초기화
                 "next_domain": None,
                 "domain": None,
+                "last_domain": None,  # last_domain 초기화
                 "final_response": f"워크플로우({workflow_type})가 취소되었습니다.",
                 "conversation_history": [user_message],
                 **current_date_info
@@ -1084,6 +1116,7 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "workflow_in_progress": False,
                 "next_domain": None,
                 "domain": None,
+                "last_domain": None,  # last_domain 초기화
                 "workflow_temp_data": {},
                 "final_response": completion_message,
                 "conversation_history": [user_message],
@@ -1330,6 +1363,60 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 "conversation_history": [user_message],
                 **current_date_info  # 날짜 정보 포함
             }
+
+    # ============================================
+    # 면접 일정 진행 중 체크 (Structured Output Parser 호출 전)
+    # ============================================
+    schedule_context = state.get("schedule_context") or {}
+    interview_context = schedule_context.get("interview") or {}
+    
+    # 면접 관련 키워드 체크 (면접 컨텍스트가 없어도 체크)
+    interview_keywords = ["면접", "면접관", "면접 일정", "면접일정", "면접관을 선택", "면접관을", "면접관 선택"]
+    has_interview_keyword = any(keyword in query for keyword in interview_keywords)
+    
+    # 면접 컨텍스트에 선택된 면접관, 지속 시간, 시간대 선택 플래그가 있으면 schedule로 강제 라우팅
+    has_interview_data = False
+    if interview_context:
+        has_interview_data = (
+            interview_context.get("selected_interviewers") or 
+            interview_context.get("duration_minutes") or 
+            interview_context.get("requires_slot_selection") or
+            interview_context.get("available_slots") or
+            interview_context.get("requires_interviewer_selection") or
+            interview_context.get("requires_duration_selection") or
+            interview_context.get("date_range") or
+            interview_context.get("requires_date_range")
+        )
+    
+    # JSON 데이터 체크 (면접관 선택, 지속 시간 선택, 시간대 선택)
+    is_interview_json = False
+    try:
+        import json
+        if query.strip().startswith('{') or query.strip().startswith('['):
+            query_json = json.loads(query)
+            if isinstance(query_json, dict):
+                if any(key in query_json for key in ["selectedInterviewers", "duration_minutes", "slot_index", "start", "end"]):
+                    is_interview_json = True
+            elif isinstance(query_json, list):
+                # 면접관 선택 JSON 배열 체크
+                if query_json and isinstance(query_json[0], dict) and "employee_id" in query_json[0]:
+                    is_interview_json = True
+    except (json.JSONDecodeError, AttributeError, IndexError):
+        pass
+    
+    # last_domain이 schedule이고 면접 관련 키워드가 있으면 면접 진행 중일 가능성이 높음
+    is_schedule_domain_with_interview = (last_domain == "schedule" and has_interview_keyword)
+    
+    # 면접 일정 진행 중인지 확인
+    if has_interview_keyword or has_interview_data or is_interview_json or is_schedule_domain_with_interview:
+        print(f"✅ 면접 일정 진행 중 감지 (orchestrator) - schedule으로 강제 라우팅")
+        print(f"   - 면접 키워드: {has_interview_keyword}, 면접 데이터: {has_interview_data}, JSON: {is_interview_json}, schedule 도메인+면접 키워드: {is_schedule_domain_with_interview}")
+        _routing_logger.info(f"[라우팅 완료] 면접 컨텍스트 기반: schedule (요청: {query})")
+        return {
+            "domain": "schedule",
+            "conversation_history": [user_message],
+            **current_date_info
+        }
 
     # Structured Output Parser를 사용한 의도 분석 (LLM + YAML 프롬프트)
     # 하드코딩된 키워드 매칭 제거로 인해 LLM 기반 분류만 사용

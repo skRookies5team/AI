@@ -121,8 +121,17 @@ def process_domain_node_result(
         
         # ✅ 워크플로우 종료 확인 (result에 workflow_in_progress=False가 설정된 경우)
         if result.get("workflow_in_progress") is False:
-            # 워크플로우가 종료된 경우 - 검증 및 다음 단계 진행 로직 건너뛰기
-            print(f"✅ 워크플로우 종료 감지: workflow_in_progress=False")
+            # 워크플로우가 종료된 경우 - 임시 데이터 초기화 및 상태 정리
+            print(f"✅ 워크플로우 종료 감지: workflow_in_progress=False - 상태 초기화 수행")
+            result["workflow_temp_data"] = {}
+            result["workflow_type"] = None
+            result["workflow_steps"] = None
+            result["current_workflow_step_index"] = 0
+            result["workflow_completed_steps"] = None
+            result["next_domain"] = None
+            
+            # last_domain을 더 이상 step 형식이 아닌 일반 도메인으로 변경 (복구 방지)
+            result["last_domain"] = domain_name
             return result
         
         # 디버깅: state와 result의 workflow_temp_data 확인
@@ -270,6 +279,16 @@ def process_domain_node_result(
                     result["next_domain"] = None
                     result["workflow_completed_steps"] = workflow_completed_steps
                     result["workflow_in_progress"] = False
+                    
+                    # ✅ 워크플로우 임시 데이터 및 상태 초기화
+                    result["workflow_temp_data"] = {}
+                    result["workflow_type"] = None
+                    result["workflow_steps"] = None
+                    result["current_workflow_step_index"] = 0
+                    result["workflow_completed_steps"] = None
+                    
+                    # last_domain을 더 이상 step 형식이 아닌 일반 도메인으로 변경 (복구 방지)
+                    result["last_domain"] = domain_name
                     
                     # 워크플로우 완료 메시지 추가
                     try:

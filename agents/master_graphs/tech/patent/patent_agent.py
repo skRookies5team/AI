@@ -137,11 +137,19 @@ async def patent_search(
                 message += f"\n... 외 {results_count - 5}개 더 있습니다."
             message += "\n\n자세히 보고 싶은 특허 번호를 선택해주세요."
             
+            items = [{
+                "index": str(idx),
+                "application_number": p.get("application_number", ""),
+                "title": p.get("title", "제목 없음"),
+                "abstract": p.get("abstract", "")[:200] + "..." if len(p.get("abstract", "")) > 200 else p.get("abstract", ""),
+                "domain": "patent"
+            } for idx, p in enumerate(previous_results, 1)]
+            
             return {
                 "ok": True,
                 "message": message,
-                "items": [{"index": idx, "application_number": p.get("application_number"), "title": p.get("title"), "abstract": p.get("abstract", "")[:200]} for idx, p in enumerate(previous_results, 1)],
-                "search_results": previous_results,
+                "items": items,
+                "search_results": items,
             }
         
         if last_intent == "ask_search_mode" and last_query:
@@ -340,23 +348,56 @@ async def patent_search(
                                 raise ValueError(f"rag_answer_node가 dict를 반환하지 않았습니다: {type(result)}")
 
                         if result.get("answer"):
+                            items = [{
+                                "index": "1",
+                                "application_number": selected_patent.get("application_number", ""),
+                                "title": selected_patent.get("title", "제목 없음"),
+                                "abstract": selected_patent.get("abstract", ""),
+                                "domain": "patent",
+                                "pdf_link": result.get("pdf_link", "")
+                            }]
+                            
                             return {
                                 "ok": True,
                                 "message": result["answer"],
+                                "items": items,
+                                "search_results": items,
                                 "patent": selected_patent,
                                 "pdf_link": result.get("pdf_link", ""),
                             }
                         elif result.get("pdf_content") and "실패" not in result.get("pdf_content", ""):
+                            items = [{
+                                "index": "1",
+                                "application_number": selected_patent.get("application_number", ""),
+                                "title": selected_patent.get("title", "제목 없음"),
+                                "abstract": selected_patent.get("abstract", ""),
+                                "domain": "patent",
+                                "pdf_link": result.get("pdf_link", "")
+                            }]
+                            
                             return {
                                 "ok": True,
                                 "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}\n\nPDF 다운로드 완료",
+                                "items": items,
+                                "search_results": items,
                                 "patent": selected_patent,
                                 "pdf_link": result.get("pdf_link", ""),
                             }
                         elif result.get("pdf_content"):
+                            items = [{
+                                "index": "1",
+                                "application_number": selected_patent.get("application_number", ""),
+                                "title": selected_patent.get("title", "제목 없음"),
+                                "abstract": selected_patent.get("abstract", ""),
+                                "domain": "patent",
+                                "pdf_link": result.get("pdf_link", "")
+                            }]
+                            
                             return {
                                 "ok": True,
                                 "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}\n\n⚠️ {result.get('pdf_content', 'PDF 다운로드 실패')}",
+                                "items": items,
+                                "search_results": items,
                                 "patent": selected_patent,
                                 "pdf_link": result.get("pdf_link", ""),
                             }
@@ -365,9 +406,19 @@ async def patent_search(
                     error_detail = traceback.format_exc()
                     LOGGER.exception("상세 처리 오류: %s", e)
                     try:
+                        items = [{
+                            "index": "1",
+                            "application_number": selected_patent.get("application_number", ""),
+                            "title": selected_patent.get("title", "제목 없음"),
+                            "abstract": selected_patent.get("abstract", ""),
+                            "domain": "patent"
+                        }]
+                        
                         return {
                             "ok": True,
                             "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}\n\n⚠️ 상세 정보 처리 중 오류가 발생했습니다: {str(e)}",
+                            "items": items,
+                            "search_results": items,
                             "patent": selected_patent,
                         }
                     except Exception:
@@ -376,9 +427,19 @@ async def patent_search(
                             "error": f"특허 상세 정보 처리 중 오류가 발생했습니다: {str(e)}",
                         }
 
+            items = [{
+                "index": "1",
+                "application_number": selected_patent.get("application_number", ""),
+                "title": selected_patent.get("title", "제목 없음"),
+                "abstract": selected_patent.get("abstract", ""),
+                "domain": "patent"
+            }]
+            
             return {
                 "ok": True,
                 "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}",
+                "items": items,
+                "search_results": items,
                 "patent": selected_patent,
             }
         else:
@@ -492,12 +553,27 @@ async def patent_search(
                 })
 
         if results:
+            # 구조화된 특허 데이터 생성
+            items = []
+            for i, res in enumerate(results, 1):
+                patent = res["patent"]
+                items.append({
+                    "index": str(i),
+                    "application_number": patent.get("application_number", ""),
+                    "title": patent.get("title", "제목 없음"),
+                    "abstract": patent.get("abstract", ""),
+                    "domain": "patent",
+                    "pdf_link": res.get("pdf_link", "")
+                })
+            
+            # 원래 메시지 형식으로 복원 (특허 정보 포함)
             message_lines = [f"📋 선택한 {len(results)}개 특허의 상세 정보:\n"]
             for i, res in enumerate(results, 1):
+                patent = res["patent"]
                 message_lines.append(f"\n{'='*60}")
-                message_lines.append(f"[{i}] {res['patent'].get('application_number', 'N/A')}")
-                message_lines.append(f"{res['patent'].get('title', '제목 없음')}")
-                message_lines.append(f"\n{res['message']}")
+                message_lines.append(f"[{i}] {patent.get('application_number', 'N/A')}")
+                message_lines.append(f"{patent.get('title', '제목 없음')}")
+                message_lines.append(f"\n초록: {patent.get('abstract', '초록 없음')}")
                 
                 # PDF 링크가 message에 이미 포함되어 있지 않은 경우만 추가 (중복 방지)
                 pdf_link = res.get('pdf_link', '')
@@ -505,10 +581,14 @@ async def patent_search(
                 if pdf_link and "🔗 PDF 링크" not in message_text and "🔗 참고 PDF 링크" not in message_text:
                     message_lines.append(f"\n🔗 PDF 링크: {pdf_link}")
 
+            message = "\n".join(message_lines)
+
             return {
                 "ok": True,
-                "message": "\n".join(message_lines),
-                "patents": [r["patent"] for r in results],
+                "message": message,
+                "items": items,
+                "search_results": items,
+                "patents": [r["patent"] for r in results],  # 하위 호환성 유지
                 "multiple": True,
             }
         else:
@@ -569,23 +649,57 @@ async def patent_search(
                                 raise ValueError(f"rag_answer_node가 dict를 반환하지 않았습니다: {type(result)}")
 
                         if result.get("answer"):
+                            # 구조화된 특허 데이터 생성
+                            items = [{
+                                "index": "1",
+                                "application_number": selected_patent.get("application_number", ""),
+                                "title": selected_patent.get("title", "제목 없음"),
+                                "abstract": selected_patent.get("abstract", ""),
+                                "domain": "patent",
+                                "pdf_link": result.get("pdf_link", "")
+                            }]
+                            
                             return {
                                 "ok": True,
                                 "message": result["answer"],
+                                "items": items,
+                                "search_results": items,
                                 "patent": selected_patent,
                                 "pdf_link": result.get("pdf_link", ""),
                             }
                         elif result.get("pdf_content") and "실패" not in result.get("pdf_content", ""):
+                            items = [{
+                                "index": "1",
+                                "application_number": selected_patent.get("application_number", ""),
+                                "title": selected_patent.get("title", "제목 없음"),
+                                "abstract": selected_patent.get("abstract", ""),
+                                "domain": "patent",
+                                "pdf_link": result.get("pdf_link", "")
+                            }]
+                            
                             return {
                                 "ok": True,
                                 "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}\n\nPDF 다운로드 완료",
+                                "items": items,
+                                "search_results": items,
                                 "patent": selected_patent,
                                 "pdf_link": result.get("pdf_link", ""),
                             }
                         elif result.get("pdf_content"):
+                            items = [{
+                                "index": "1",
+                                "application_number": selected_patent.get("application_number", ""),
+                                "title": selected_patent.get("title", "제목 없음"),
+                                "abstract": selected_patent.get("abstract", ""),
+                                "domain": "patent",
+                                "pdf_link": result.get("pdf_link", "")
+                            }]
+                            
                             return {
                                 "ok": True,
                                 "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}\n\n⚠️ {result.get('pdf_content', 'PDF 다운로드 실패')}",
+                                "items": items,
+                                "search_results": items,
                                 "patent": selected_patent,
                                 "pdf_link": result.get("pdf_link", ""),
                             }
@@ -593,9 +707,19 @@ async def patent_search(
                     import traceback
                     LOGGER.exception("상세 처리 오류: %s", e)
                     try:
+                        items = [{
+                            "index": "1",
+                            "application_number": selected_patent.get("application_number", ""),
+                            "title": selected_patent.get("title", "제목 없음"),
+                            "abstract": selected_patent.get("abstract", ""),
+                            "domain": "patent"
+                        }]
+                        
                         return {
                             "ok": True,
                             "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}\n\n⚠️ 상세 정보 처리 중 오류가 발생했습니다: {str(e)}",
+                            "items": items,
+                            "search_results": items,
                             "patent": selected_patent,
                         }
                     except Exception:
@@ -604,9 +728,19 @@ async def patent_search(
                             "error": f"특허 상세 정보 처리 중 오류가 발생했습니다: {str(e)}",
                         }
 
+            items = [{
+                "index": "1",
+                "application_number": selected_patent.get("application_number", ""),
+                "title": selected_patent.get("title", "제목 없음"),
+                "abstract": selected_patent.get("abstract", ""),
+                "domain": "patent"
+            }]
+            
             return {
                 "ok": True,
                 "message": f"[{selected_patent.get('application_number', 'N/A')}] {selected_patent.get('title', '제목 없음')}\n\n초록: {selected_patent.get('abstract', '초록 없음')}",
+                "items": items,
+                "search_results": items,
                 "patent": selected_patent,
             }
     
@@ -687,12 +821,25 @@ async def patent_search(
                     # next_action이 ask_web_search이면 requires_user_input 설정
                     requires_user_input = result.get("next_action") == "ask_web_search"
                     
-                    LOGGER.info("patent_agent: answer 경로로 반환 - answer 길이=%d, next_action=%s, requires_user_input=%s", 
-                               len(message), result.get("next_action"), requires_user_input)
+                    # vector_db_results를 기반으로 구조화된 items 생성 (웹 검색과 동일한 형식)
+                    items = []
+                    for idx, patent in enumerate(vector_results, 1):
+                        items.append({
+                            "index": str(idx),
+                            "application_number": patent.get("application_number", ""),
+                            "title": patent.get("title", "제목 없음"),
+                            "abstract": patent.get("abstract", "")[:200] + "..." if len(patent.get("abstract", "")) > 200 else patent.get("abstract", ""),
+                            "domain": "patent"
+                        })
+                    
+                    LOGGER.info("patent_agent: answer 경로로 반환 - answer 길이=%d, next_action=%s, requires_user_input=%s, items_count=%d", 
+                               len(message), result.get("next_action"), requires_user_input, len(items))
 
                     return {
                         "ok": True,
                         "message": message,
+                        "items": items,
+                        "search_results": items,
                         "vector_db_results": vector_results,
                         "progress_status": result.get("progress_status", ""),
                         "requires_user_input": requires_user_input,
@@ -741,10 +888,11 @@ async def patent_search(
                         items = []
                         for idx, patent in enumerate(search_results, 1):
                             items.append({
-                                "index": idx,
+                                "index": str(idx),
                                 "application_number": patent["application_number"],
                                 "title": patent["title"],
                                 "abstract": patent["abstract"][:200] + "..." if len(patent.get("abstract", "")) > 200 else patent.get("abstract", ""),
+                                "domain": "patent"
                             })
                         
                         message_lines = [
@@ -753,11 +901,6 @@ async def patent_search(
                             "다음 특허 중에서 자세히 보고 싶은 번호를 선택해주세요:"
                         ]
 
-                        for item in items:
-                            message_lines.append(f"{item['index']}. [{item['application_number']}] {item['title']}")
-                            if item.get('abstract'):
-                                message_lines.append(f"   {item['abstract']}")
-
                         message_lines.append("")
                         message_lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,3,5' 또는 '1 3 5'")
 
@@ -765,7 +908,7 @@ async def patent_search(
                             "ok": True,
                             "message": "\n".join(message_lines),
                             "items": items,
-                            "search_results": search_results,
+                            "search_results":  items,
                             "progress_status": result.get("progress_status", ""),
                         }
                     else:
@@ -807,10 +950,11 @@ async def patent_search(
             search_results.append(patent_info)
 
             items.append({
-                "index": idx,
+                "index": str(idx),
                 "application_number": app_no,
                 "title": title,
                 "abstract": abstract[:200] + "..." if len(abstract) > 200 else abstract,
+                "domain": "patent"
             })
 
         if not search_results:
@@ -835,7 +979,7 @@ async def patent_search(
             "ok": True,
             "message": f"🔍 '{extracted_keyword}' 관련 특허 {len(search_results)}개를 찾았습니다.",
             "items": items,
-            "search_results": search_results,
+            "search_results": items,
         }
     except Exception as e:
         LOGGER.exception("특허 검색 중 오류: %s", e)

@@ -26,9 +26,10 @@ from agents.master_graphs.schedule.utils.prompt_loader import (
 _scheduler: Optional[HybridScheduler] = None
 DEFAULT_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
 
-RESERVATION_SLOT_ORDER = ["title", "start_time", "end_time", "participants", "room"]
+RESERVATION_SLOT_ORDER = ["title", "description", "start_time", "end_time", "participants", "room"]
 RESERVATION_SLOT_DESCRIPTIONS = {
     "title": "회의 제목",
+    "description": "회의 안건",
     "start_time": "시작 일시 (예: 2025-12-13 14:00)",
     "end_time": "종료 일시(또는 지속 시간)",
     "participants": "참석 인원 수",
@@ -420,8 +421,8 @@ async def _handle_query(
     }
     context["recommendation_ready"] = True
     
-    # 추천 시 입력받은 시간, 인원 정보를 slot_state에 저장 (예약 전환 시 재사용)
-    if parsed.start_time or parsed.end_time or parsed.participants:
+    # 추천 시 입력받은 시간, 인원, 제목, 안건 정보를 slot_state에 저장 (예약 전환 시 재사용)
+    if parsed.start_time or parsed.end_time or parsed.participants or parsed.title or parsed.description:
         slot_state = context.get("slot_state") or {}
         slots = slot_state.get("slots") or {}
         if parsed.start_time:
@@ -430,6 +431,10 @@ async def _handle_query(
             slots["end_time"] = _normalize_iso(parsed.end_time)
         if parsed.participants:
             slots["participants"] = parsed.participants
+        if parsed.title and parsed.title.strip():
+            slots["title"] = parsed.title.strip()
+        if parsed.description and parsed.description.strip():
+            slots["description"] = parsed.description.strip()
         slot_state["slots"] = slots
         context["slot_state"] = slot_state
     
@@ -684,6 +689,11 @@ async def _handle_cancel(
                     start_date=_to_rfc3339(start_dt),
                     end_date=_to_rfc3339(end_dt),
                 )
+                # meeting_room만 필터링 (hybrid_scheduler.get_events가 이미 schedule_type을 포함)
+                gcal_events = [
+                    event for event in gcal_events 
+                    if event.get('schedule_type') == 'meeting_room'
+                ]
             except Exception as exc:  # pylint: disable=broad-except
                 print(f"[Meeting Room] Google Calendar 조회 실패: {exc}")
                 gcal_events = []
@@ -733,8 +743,19 @@ async def _handle_cancel(
         if not selected_candidate:
             selected_candidate = resolve_candidate_by_event(event_id)
 
+        # Google Calendar에 이벤트가 존재하는지 확인
+        gcal_exists = selected_candidate.get("gcal_exists", True) if selected_candidate else True
+        
         try:
-            success = await scheduler.delete_event(user_id=parsed.user_id, event_id=str(event_id))
+            if gcal_exists:
+                # Google Calendar에 존재하는 경우 삭제 시도
+                success = await scheduler.delete_event(user_id=parsed.user_id, event_id=str(event_id))
+            else:
+                # Google Calendar에 없는 경우 (이미 삭제됨) DB에서만 삭제
+                print(f"[회의실 취소] Google Calendar에 이벤트가 없음 (이미 삭제됨), DB에서만 삭제: {event_id}")
+                # DB에서 예약 삭제
+                await scheduler.db.delete_room_reservation_by_event(gcal_event_id=event_id)
+                success = True
         except GoogleAuthRequired as exc:
             return {
                 "ok": False,
@@ -844,13 +865,14 @@ async def _parse_meeting_intent(
     awaiting_list = awaiting_slots or []
     awaiting_set = set(awaiting_list)
 
-    parse_cache: Dict[str, Tuple[Optional[datetime], Optional[datetime]]] = {}
+    parse_cache: Dict[str, Tuple[Optional[datetime], Optional[datetime], bool]] = {}
 
-    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime], bool]:
         if not text:
-            return None, None
+            return None, None, False
         if text not in parse_cache:
-            parse_cache[text] = await parse_korean_date_with_llm(text)
+            start, end, _ = await parse_korean_date_with_llm(text)
+            parse_cache[text] = (start, end)
         return parse_cache[text]
 
     entities = await extract_meeting_room_entities(query)
@@ -877,16 +899,14 @@ async def _parse_meeting_intent(
         entities.pop("start_time_str", None)
         entities.pop("end_time_str", None)
 
-    # description은 제거했으므로, description을 요청받았으면 제목으로 처리
+    # 회의 안건(description) 요청 처리
     if "description" in awaiting_set and len(awaiting_set) == 1:
-        # description을 요청받았지만 실제로는 제목을 물어보는 것이므로 제목으로 처리
-        if not entities.get("title"):
-            cleaned_title = query.strip()
-            if cleaned_title:
-                entities["title"] = cleaned_title
-                entities.pop("start_time_str", None)
-                entities.pop("end_time_str", None)
-                print(f"[제목 파싱] description 요청을 title로 처리: {cleaned_title}")
+        cleaned_description = query.strip()
+        if cleaned_description:
+            entities["description"] = cleaned_description
+            entities.pop("start_time_str", None)
+            entities.pop("end_time_str", None)
+            print(f"[안건 파싱] description: {cleaned_description}")
 
     if "cancel_selection" in awaiting_set and len(awaiting_set) == 1:
         selection = _extract_selection_index(query)
@@ -919,7 +939,7 @@ async def _parse_meeting_intent(
     base_end: Optional[datetime] = None
     need_full_time_parse = True
     if need_full_time_parse:
-        base_start, base_end = await cached_parse(query)
+        base_start, base_end, _ = await cached_parse(query)
 
     now_local = datetime.now(DEFAULT_TIMEZONE)
     
@@ -932,6 +952,8 @@ async def _parse_meeting_intent(
         # merged_entities에도 추가 (parsed에 반영되도록)
         if not merged_entities.get("title") and context_slots.get("title"):
             merged_entities["title"] = context_slots["title"]
+        if not merged_entities.get("description") and context_slots.get("description"):
+            merged_entities["description"] = context_slots["description"]
         if not merged_entities.get("start_time") and context_slots.get("start_time"):
             merged_entities["start_time"] = context_slots["start_time"]
         if not merged_entities.get("end_time") and context_slots.get("end_time"):
@@ -988,7 +1010,7 @@ async def _parse_meeting_intent(
             end_time = fallback_end
 
     if start_time is None and start_time_str:
-        parsed_start, parsed_end = await cached_parse(start_time_str)
+        parsed_start, parsed_end, _ = await cached_parse(start_time_str)
         if parsed_start:
             start_time = _ensure_aware(parsed_start)
         if parsed_end and end_time is None:
@@ -1003,7 +1025,7 @@ async def _parse_meeting_intent(
             end_time = None
 
     if end_time is None and end_time_str:
-        parsed_start_hint, parsed_end = await cached_parse(end_time_str)
+        parsed_start_hint, parsed_end, _ = await cached_parse(end_time_str)
         heuristic_end = parsed_end
         if (
             parsed_start_hint
@@ -1377,6 +1399,13 @@ def _collect_reservation_missing(parsed: ParsedMeetingIntent, context: Dict[str,
     if not title_candidate:
         missing.append("title")
 
+    # 회의 안건(description) 체크 추가
+    description_candidate = (parsed.description or "").strip()
+    if not description_candidate:
+        description_candidate = (slots.get("description") or "").strip()
+    if not description_candidate:
+        missing.append("description")
+
     start_candidate = parsed.start_time or _parse_iso_datetime(slots.get("start_time"))
     if start_candidate is None:
         missing.append("start_time")
@@ -1543,16 +1572,17 @@ async def _resolve_end_time_from_response(
     end_time_str: Optional[str],
     fallback_start: Optional[datetime] = None,
     original_query: Optional[str] = None,
-    parse_cache: Optional[Dict[str, Tuple[Optional[datetime], Optional[datetime]]]] = None,
+    parse_cache: Optional[Dict[str, Tuple[Optional[datetime], Optional[datetime], bool]]] = None,
 ) -> Optional[datetime]:
     """종료 시간을 추론한다."""
     parse_cache = parse_cache or {}
 
-    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    async def cached_parse(text: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime], bool]:
         if not text:
-            return None, None
+            return None, None, False
         if text not in parse_cache:
-            parse_cache[text] = await parse_korean_date_with_llm(text)
+            start, end, _ = await parse_korean_date_with_llm(text)
+            parse_cache[text] = (start, end)
         return parse_cache[text]
 
     start_time = _ensure_aware(start_time) if start_time else None
@@ -1573,7 +1603,7 @@ async def _resolve_end_time_from_response(
         if text in seen_texts:
             continue
         seen_texts.add(text)
-        parsed_start, parsed_end = await cached_parse(text)
+        parsed_start, parsed_end, _ = await cached_parse(text)
         candidate: Optional[datetime] = None
         if parsed_end and parsed_start:
             diff = parsed_end - parsed_start
@@ -1763,8 +1793,15 @@ def _collect_cancel_candidates(
     db_reservations: List[Dict[str, Any]],
     last_reservation: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """취소 후보 목록을 정규화한다."""
+    """취소 후보 목록을 정규화한다 (회의실 예약만)."""
     candidates: Dict[str, Dict[str, Any]] = {}
+    
+    # Google Calendar 이벤트 ID 집합 생성 (실제 존재하는 이벤트만)
+    gcal_event_ids = set()
+    for event in gcal_events:
+        event_id = event.get('gcal_event_id') or event.get('id')
+        if event_id:
+            gcal_event_ids.add(str(event_id))
 
     def add_candidate(candidate: Optional[Dict[str, Any]]) -> None:
         if not candidate:
@@ -1772,17 +1809,36 @@ def _collect_cancel_candidates(
         event_id = candidate.get("event_id")
         if not event_id:
             return
-        existing = candidates.get(event_id)
+        event_id_str = str(event_id)
+        # Google Calendar에 실제로 존재하는 이벤트만 추가
+        if event_id_str not in gcal_event_ids:
+            # Google Calendar에 없는 경우, DB에서만 삭제 가능하도록 표시
+            candidate["gcal_exists"] = False
+        else:
+            candidate["gcal_exists"] = True
+        existing = candidates.get(event_id_str)
         if existing is None or candidate.get("source") == "gcal":
-            candidates[event_id] = candidate
+            candidates[event_id_str] = candidate
 
-    add_candidate(_candidate_from_last_reservation(last_reservation))
+    # last_reservation은 meeting_room인 경우만 추가
+    last_res = _candidate_from_last_reservation(last_reservation)
+    if last_res:
+        add_candidate(last_res)
 
+    # Google Calendar 이벤트 추가 (이미 meeting_room만 필터링됨)
     for event in gcal_events:
-        add_candidate(_candidate_from_gcal_event(event))
+        candidate = _candidate_from_gcal_event(event)
+        if candidate:
+            add_candidate(candidate)
 
+    # DB 예약 추가 (Google Calendar에 없는 것도 포함, gcal_exists=False로 표시됨)
     for record in db_reservations:
-        add_candidate(_candidate_from_db_reservation(record))
+        candidate = _candidate_from_db_reservation(record)
+        if candidate:
+            event_id = candidate.get("event_id")
+            if event_id:
+                # add_candidate가 자동으로 gcal_exists 플래그를 설정함
+                add_candidate(candidate)
 
     return sorted(
         candidates.values(),
@@ -1975,9 +2031,6 @@ def _apply_slot_decision(
     # 슬롯이 채워진 경우 missing_slots 재계산
     recalculated_missing = []
     for slot_name in (slot_decision.missing_slots or []):
-        # description은 제거했으므로 필터링
-        if slot_name == "description":
-            continue
         # 추천 후 회의실 선택 시 시간/인원 정보는 이미 있으므로 제거
         if meeting_context.get("recommended_rooms") and parsed.action == "예약":
             if slot_name in ["start_time", "end_time", "participants"]:
@@ -1987,6 +2040,8 @@ def _apply_slot_decision(
         if slot_name not in merged_slots or merged_slots[slot_name] is None:
             recalculated_missing.append(slot_name)
         elif slot_name == "title" and not str(merged_slots[slot_name]).strip():
+            recalculated_missing.append(slot_name)
+        elif slot_name == "description" and not str(merged_slots.get("description") or "").strip():
             recalculated_missing.append(slot_name)
     
     # 제목이 채워졌는지 최종 확인 (awaiting_slots에 title이 있었고, parsed.title이 있으면 제목이 채워진 것)
@@ -2050,14 +2105,8 @@ def _apply_slot_decision(
             print(f"[복합 질문 생성] missing={recalculated_missing}, question={combined_question}")
             return combined_question
         elif slot_decision.followup_question:
-            # followup_question에 "목적"이나 "description"이 포함되어 있으면 "회의 제목"으로 변경
+            # followup_question 처리 (description은 회의 안건으로 그대로 유지)
             followup = slot_decision.followup_question
-            if "목적" in followup or "description" in followup.lower() or "purpose" in followup.lower():
-                followup = "회의 제목을 알려주세요."
-                # description 대신 title을 요청
-                if "description" in recalculated_missing:
-                    recalculated_missing = ["title" if slot == "description" else slot for slot in recalculated_missing]
-            
             meeting_context["awaiting_slots"] = recalculated_missing
             meeting_context["last_question"] = followup
             return followup

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 import re
+import json
 
 from agents.state import OrchestratorState
 from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
@@ -61,7 +62,52 @@ async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
     query = state.get("query", "")
     user_id = state.get("user_id") or state.get("employee_id")
     
+    # 면접 일정 조정인지 확인 (기존 기능과 분리)
+    # 1. 쿼리에 면접 키워드가 있는지 확인
+    interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
+    if any(keyword in query for keyword in interview_keywords):
+        print(f"[Schedule Node] 면접 일정 조정 감지: query='{query}'")
+        result = await process_interview_scheduling(state)
+        print(f"[Schedule Node] 면접 일정 처리 결과: {list(result.keys()) if result else 'None'}")
+        return result
+    
+    # 2. 면접 컨텍스트가 있는지 확인 (이전 대화에서 면접 일정 조정이 시작된 경우)
     # Redis 기반 컨텍스트 초기화
+    if state.get("schedule_context") is None:
+        state["schedule_context"] = {}
+    schedule_context = state.get("schedule_context") or {}
+    interview_context = schedule_context.get("interview") or {}
+    
+    # 면접 컨텍스트 확인 (더 강화된 체크)
+    has_interview_context = bool(interview_context)
+    if has_interview_context:
+        # 면접 컨텍스트가 있으면 면접 처리로 이어가기
+        print(f"[Schedule Node] 면접 컨텍스트 감지: 기간 입력 또는 면접관 선택 단계, query='{query}'")
+        print(f"[Schedule Node] 면접 컨텍스트 내용: {interview_context}")
+        result = await process_interview_scheduling(state)
+        print(f"[Schedule Node] 면접 일정 처리 결과: {list(result.keys()) if result else 'None'}")
+        return result
+    
+    # 3. 면접 관련 키워드가 없지만, 이전 대화에서 면접 일정 조정이 시작되었을 수 있음
+    # conversation_history에서 확인
+    conversation_history = state.get("conversation_history", [])
+    if conversation_history:
+        # 최근 대화에서 면접 관련 키워드 확인
+        recent_messages = conversation_history[-5:]  # 최근 5개 메시지 확인
+        for msg in recent_messages:
+            msg_content = (msg.get("content") or msg.get("message") or "").lower()
+            if any(keyword in msg_content for keyword in interview_keywords):
+                print(f"[Schedule Node] 최근 대화에서 면접 키워드 발견: {msg_content[:50]}")
+                # 면접 컨텍스트 초기화 후 면접 처리
+                if state["schedule_context"].get("interview") is None:
+                    state["schedule_context"]["interview"] = {}
+                result = await process_interview_scheduling(state)
+                print(f"[Schedule Node] 면접 일정 처리 결과: {list(result.keys()) if result else 'None'}")
+                return result
+    
+    # 일반 일정 처리
+    if state["schedule_context"].get("schedule") is None:
+        state["schedule_context"]["schedule"] = {}
     if state.get("schedule_context") is None:
         state["schedule_context"] = {}
     if state["schedule_context"].get("schedule") is None:
@@ -542,7 +588,7 @@ async def _parse_schedule_intent(
     if not awaiting_slots or action in ["생성", "삭제", "조회"]:
         # 기간 입력 대기 중이거나 아직 기간이 없으면 파싱 시도
         if action == "삭제" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
             if start_date_obj:
                 start_time = start_date_obj
                 # 삭제는 기간이 필요하므로 end_time 기본값 설정
@@ -551,7 +597,7 @@ async def _parse_schedule_intent(
                 elif not end_time:
                     end_time = start_date_obj + timedelta(days=7)  # 기본 7일
         elif action == "조회" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
             if start_date_obj:
                 start_time = start_date_obj
                 # 조회도 기간이 필요하므로 end_time 기본값 설정
@@ -560,7 +606,7 @@ async def _parse_schedule_intent(
                 elif not end_time:
                     end_time = start_date_obj + timedelta(days=7)  # 기본 7일
         elif action == "생성" or not awaiting_slots:
-            start_date_obj, end_date_obj = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
             if start_date_obj:
                 start_time = start_date_obj
                 end_time = end_date_obj or (start_date_obj + timedelta(hours=1))
@@ -868,7 +914,7 @@ async def _handle_update(
         event_id = selected.get('gcal_event_id')
         
         entities = await extract_schedule_entities(context.get("last_update_query", ""))
-        start_date, end_date = await parse_korean_date_with_llm(context.get("last_update_query", ""))
+        start_date, end_date, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""))
         
         update_data = {}
         
@@ -963,3 +1009,532 @@ def _determine_action(query: str) -> str:
         return "수정"
     else:
         return "조회"
+
+
+async def find_available_interview_slots(
+    interviewer_ids: List[int],
+    start_date: datetime,
+    end_date: datetime,
+    duration_minutes: int = 60,
+    working_hours: tuple = (9, 18)  # 오전 9시 ~ 오후 6시
+) -> List[Dict[str, Any]]:
+    """면접관들이 모두 가능한 시간대를 찾습니다.
+    
+    Args:
+        interviewer_ids: 면접관 employee_id 리스트
+        start_date: 조회 시작일
+        end_date: 조회 종료일
+        duration_minutes: 면접 소요 시간 (분)
+        working_hours: 근무 시간 (시작 시간, 종료 시간)
+        
+    Returns:
+        가능한 시간대 리스트 [{"start": datetime, "end": datetime, "date": str, "time": str}, ...]
+    """
+    from agents.master_graphs.schedule.services.database_service import DatabaseService
+    
+    db = DatabaseService()
+    
+    # ✅ 1. 면접관들의 일정 조회 (DB만 사용, 구글 캘린더 제외)
+    schedules_by_interviewer = await db.get_interviewer_schedules(
+        interviewer_ids=interviewer_ids,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    # ✅ 2. 구글 캘린더 조회 부분 제거 (면접 일정은 DB만 사용)
+    
+    # 3. 각 면접관의 일정을 시간대 리스트로 변환
+    busy_slots_by_interviewer: Dict[int, List[tuple]] = {}
+    for emp_id, schedules in schedules_by_interviewer.items():
+        busy_slots = []
+        for schedule in schedules:
+            start = schedule.get("start_time")
+            end = schedule.get("end_time")
+            if start and end:
+                if isinstance(start, str):
+                    try:
+                        start = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    except:
+                        continue
+                if isinstance(end, str):
+                    try:
+                        end = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    except:
+                        continue
+                # timezone 제거
+                if start.tzinfo:
+                    start = start.replace(tzinfo=None)
+                if end.tzinfo:
+                    end = end.replace(tzinfo=None)
+                busy_slots.append((start, end))
+        busy_slots_by_interviewer[emp_id] = sorted(busy_slots)
+    
+    # 4. 가능한 시간대 찾기
+    available_slots = []
+    current_date = start_date.date() if isinstance(start_date, datetime) else start_date
+    end_date_only = end_date.date() if isinstance(end_date, datetime) else end_date
+    
+    # start_date와 end_date가 datetime이면 date로 변환
+    if isinstance(start_date, datetime):
+        current_date = start_date.date()
+    if isinstance(end_date, datetime):
+        end_date_only = end_date.date()
+    
+    while current_date <= end_date_only:
+        # 근무 시간 내에서 30분 단위로 체크
+        start_hour, end_hour = working_hours
+        current_time = datetime.combine(current_date, datetime.min.time().replace(hour=start_hour))
+        day_end = datetime.combine(current_date, datetime.min.time().replace(hour=end_hour))
+        
+        while current_time + timedelta(minutes=duration_minutes) <= day_end:
+            slot_start = current_time
+            slot_end = current_time + timedelta(minutes=duration_minutes)
+            
+            # 모든 면접관이 이 시간대에 가능한지 확인
+            all_available = True
+            for emp_id in interviewer_ids:
+                busy_slots = busy_slots_by_interviewer.get(emp_id, [])
+                for busy_start, busy_end in busy_slots:
+                    # 시간대가 겹치는지 확인
+                    if slot_start < busy_end and slot_end > busy_start:
+                        all_available = False
+                        break
+                if not all_available:
+                    break
+            
+            if all_available:
+                available_slots.append({
+                    "start": slot_start.isoformat(),
+                    "end": slot_end.isoformat(),
+                    "date": current_date.isoformat(),
+                    "time": slot_start.strftime("%H:%M")
+                })
+            
+            # 30분씩 증가
+            current_time += timedelta(minutes=30)
+        
+        current_date += timedelta(days=1)
+    
+    return available_slots
+
+
+async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, Any]:
+    """면접 일정 조정 처리.
+    
+    순서:
+    1. 면접일정잡아줘 입력
+    2. 기간 입력 요청
+    3. 면접관 선택 UI 표시
+    4. 면접관 선택 후 "확인" 버튼
+    5. DB 조회 → 가능한 시간 후보군 반환
+    6. 사용자가 후보군에서 선택
+    """
+    try:
+        query = state.get("query", "").strip()
+        user_id = state.get("user_id") or state.get("employee_id")
+        employee_id = state.get("employee_id")
+        
+        # 면접 컨텍스트 초기화 (반드시 생성)
+        if state.get("schedule_context") is None:
+            state["schedule_context"] = {}
+        if state["schedule_context"].get("interview") is None:
+            state["schedule_context"]["interview"] = {}
+        
+        interview_context = state["schedule_context"]["interview"]
+        print(f"[면접 일정] process_interview_scheduling 호출: query='{query}', interview_context={interview_context}")
+        
+        # 🔥 새로운 면접 일정 요청인지 확인 (면접 키워드가 있고 기간이 없으면 초기화)
+        interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
+        is_new_request = any(keyword in query.lower() for keyword in interview_keywords)
+        date_range = interview_context.get("date_range", {})
+        has_date_range = bool(date_range.get("start") and date_range.get("end"))
+        
+        # 새로운 요청이고 기간이 없으면 컨텍스트 초기화
+        if is_new_request and not has_date_range:
+            print(f"[면접 일정] 새로운 면접 일정 요청 감지 - 컨텍스트 초기화")
+            interview_context = {}  # 기간과 면접관 정보 초기화
+            state["schedule_context"]["interview"] = interview_context
+        
+        # 1단계: 기간 확인
+        date_range = interview_context.get("date_range", {})
+        start_date_str = date_range.get("start")
+        end_date_str = date_range.get("end")
+        
+        print(f"[면접 일정] 초기 기간 확인: start_date_str={start_date_str}, end_date_str={end_date_str}")
+        
+        # 쿼리에서 기간 파싱 시도
+        if not start_date_str or not end_date_str:
+            print(f"[면접 일정] 기간 파싱 시도: query='{query}'")
+            from agents.master_graphs.schedule.utils.date_parser import parse_korean_date_with_llm
+            current_datetime = state.get("current_datetime")
+            if current_datetime:
+                try:
+                    current_dt = datetime.fromisoformat(current_datetime.replace('Z', '+00:00'))
+                except:
+                    current_dt = None
+            else:
+                current_dt = None
+            
+            parsed_start, parsed_end, _ = await parse_korean_date_with_llm(query, current_datetime=current_dt)
+            if parsed_start and parsed_end:
+                start_date_str = parsed_start.isoformat()
+                end_date_str = parsed_end.isoformat()
+                interview_context["date_range"] = {
+                    "start": start_date_str,
+                    "end": end_date_str
+                }
+                # 컨텍스트 저장
+                state["schedule_context"]["interview"] = interview_context
+                print(f"[면접 일정] 기간 파싱 성공: {start_date_str} ~ {end_date_str}")
+            else:
+                print(f"[면접 일정] 기간 파싱 실패: parsed_start={parsed_start}, parsed_end={parsed_end}")
+        
+        # 2단계: 기간이 없으면 기간 입력 요청 (최우선)
+        print(f"[면접 일정] 기간 확인: start_date_str={start_date_str}, end_date_str={end_date_str}")
+        if not start_date_str or not end_date_str:
+            message = "면접 가능한 기간을 알려주세요. (예: 다음 주, 12월 20일부터 25일까지)"
+            # 면접 컨텍스트에 플래그 저장
+            interview_context["requires_date_range"] = True
+            state["schedule_context"]["interview"] = interview_context
+            print(f"[면접 일정] 기간 입력 요청, 면접 컨텍스트 저장: {interview_context}")
+            # 🔥 여기 수정! - 최상위에 UI 플래그 추가
+            return {
+                "final_response": message,
+                "messages": [message],
+                "schedule_context": state["schedule_context"],
+                "requires_date_range_input": True,  # ✅ 추가
+                "requires_interviewer_selection": False,  # ✅ 기간 입력 단계에서는 면접관 선택 X
+                "requires_slot_selection": False,  # ✅ 추가
+            }
+        
+        # 3단계: 면접관 선택 확인
+        selected_interviewers = interview_context.get("selected_interviewers", [])
+        print(f"[면접 일정] 면접관 확인: selected_interviewers={selected_interviewers}, query='{query}'")
+        
+        # 쿼리에서 면접관 정보가 있는지 확인 (프론트엔드에서 전달된 경우)
+        if not selected_interviewers and query:
+            # JSON 형식으로 전달된 경우 파싱 시도
+            try:
+                import json
+                if query.startswith("[") or query.startswith("{"):
+                    parsed_data = json.loads(query)
+                    if isinstance(parsed_data, list):
+                        selected_interviewers = [item.get("employee_id") if isinstance(item, dict) else item for item in parsed_data]
+                    elif isinstance(parsed_data, dict) and "employee_id" in parsed_data:
+                        selected_interviewers = [parsed_data["employee_id"]]
+                    # 선택된 면접관 정보를 컨텍스트에 저장
+                    if selected_interviewers:
+                        interview_context["selected_interviewers"] = selected_interviewers
+                        state["schedule_context"]["interview"] = interview_context
+                        print(f"[면접 일정] 면접관 파싱 성공: {selected_interviewers}")
+            except:
+                pass
+        
+        # 면접관이 없으면 선택 UI 요청
+        if not selected_interviewers:
+            message = "면접관을 선택해주세요."
+            # 면접 컨텍스트에 플래그 저장
+            interview_context["requires_interviewer_selection"] = True
+            interview_context["interviewer_selection_config"] = {
+                "api_endpoint": "/api/employees",
+                "filter_fields": ["dept", "position"],
+                "multiple": True
+            }
+            state["schedule_context"]["interview"] = interview_context
+            print(f"[면접 일정] 면접관 선택 UI 요청, 면접 컨텍스트 저장: {interview_context}")
+            # 🔥 여기 수정! - 최상위에 UI 플래그 추가
+            return {
+                "final_response": message,
+                "messages": [message],
+                "schedule_context": state["schedule_context"],
+                "requires_date_range_input": True,  # ✅ 추가 (기간은 이미 입력됨)
+                "requires_interviewer_selection": True,  # ✅ 추가 - 이게 핵심!
+                "requires_duration_selection": False,  # ✅ 추가
+                "requires_slot_selection": False,  # ✅ 추가
+                "interviewer_selection_config": interview_context["interviewer_selection_config"]  # ✅ 추가
+            }
+        
+        # 4단계: 지속 시간 확인
+        duration_minutes = interview_context.get("duration_minutes")
+        print(f"[면접 일정] 지속 시간 확인: duration_minutes={duration_minutes}, query='{query}'")
+        
+        # 쿼리에서 지속 시간 파싱 시도 (1시간, 2시간, 60분, 120분 등)
+        if not duration_minutes and query:
+            import re
+            # "1시간", "2시간", "1.5시간", "60분", "120분" 등 파싱
+            hour_match = re.search(r'(\d+(?:\.\d+)?)\s*시간', query)
+            minute_match = re.search(r'(\d+)\s*분', query)
+            
+            if hour_match:
+                hours = float(hour_match.group(1))
+                duration_minutes = int(hours * 60)
+                print(f"[면접 일정] 지속 시간 파싱 성공 (시간): {hours}시간 = {duration_minutes}분")
+            elif minute_match:
+                duration_minutes = int(minute_match.group(1))
+                print(f"[면접 일정] 지속 시간 파싱 성공 (분): {duration_minutes}분")
+            else:
+                # JSON 형식으로 전달된 경우 (프론트엔드에서 선택한 지속 시간)
+                try:
+                    import json
+                    if query.startswith("{") and "duration" in query.lower():
+                        parsed_data = json.loads(query)
+                        if isinstance(parsed_data, dict) and "duration_minutes" in parsed_data:
+                            duration_minutes = int(parsed_data["duration_minutes"])
+                            print(f"[면접 일정] 지속 시간 파싱 성공 (JSON): {duration_minutes}분")
+                except:
+                    pass
+            
+            # 파싱 성공 시 컨텍스트에 저장
+            if duration_minutes:
+                interview_context["duration_minutes"] = duration_minutes
+                interview_context.pop("requires_duration_selection", None)  # ✅ 지속 시간 선택 플래그 제거
+                state["schedule_context"]["interview"] = interview_context
+                print(f"[면접 일정] 지속 시간 저장: {duration_minutes}분")
+        
+        # 지속 시간이 없으면 선택 UI 요청
+        if not duration_minutes:
+            message = "면접 소요 시간을 선택해주세요."
+            interview_context["requires_duration_selection"] = True
+            # ✅ 면접관 선택 플래그 명시적으로 제거 (이미 선택됨)
+            interview_context.pop("requires_interviewer_selection", None)
+            state["schedule_context"]["interview"] = interview_context
+            print(f"[면접 일정] 지속 시간 선택 UI 요청, 면접 컨텍스트 저장: {interview_context}")
+            return {
+                "final_response": message,
+                "messages": [message],
+                "schedule_context": state["schedule_context"],
+                "requires_date_range_input": True,  # ✅ 추가 (기간은 이미 입력됨)
+                "requires_interviewer_selection": False,  # ✅ 추가 (면접관은 이미 선택됨)
+                "requires_duration_selection": True,  # ✅ 추가 - 지속 시간 선택!
+                "requires_slot_selection": False,  # ✅ 추가
+            }
+        
+        # 5단계: 면접관들의 일정 조회 및 가능한 시간대 찾기
+        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00')) if isinstance(start_date_str, str) else start_date_str
+        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00')) if isinstance(end_date_str, str) else end_date_str
+        
+        # timezone 정보 제거 (DB 조회용)
+        if start_date.tzinfo:
+            start_date = start_date.replace(tzinfo=None)
+        if end_date.tzinfo:
+            end_date = end_date.replace(tzinfo=None)
+        
+        try:
+            available_slots = await find_available_interview_slots(
+                interviewer_ids=selected_interviewers,
+                start_date=start_date,
+                end_date=end_date,
+                duration_minutes=duration_minutes  # ✅ 사용자가 선택한 지속 시간 사용
+            )
+        # ✅ GoogleAuthRequired 예외 처리 제거 (면접은 구글 캘린더 사용 안 함)
+        except Exception as e:
+            # 기타 오류도 진행 불가
+            message = f"면접 일정 조회 중 오류가 발생했습니다: {str(e)}"
+            return {
+                "final_response": message,
+                "messages": [message],
+                "schedule_context": state["schedule_context"],
+                "requires_date_range_input": True,
+                "requires_interviewer_selection": False,
+                "requires_duration_selection": False,
+                "requires_slot_selection": False,
+            }
+        
+        if not available_slots:
+            message = "선택하신 면접관들의 일정이 모두 겹쳐서 가능한 시간대를 찾을 수 없습니다. 다른 기간을 선택해주세요."
+            # 🔥 여기도 수정! - UI 플래그 추가
+            return {
+                "final_response": message,
+                "messages": [message],
+                "schedule_context": state["schedule_context"],
+                "requires_date_range_input": True,  # ✅ 추가
+                "requires_interviewer_selection": False,  # ✅ 추가 (면접관은 이미 선택됨)
+                "requires_slot_selection": False,  # ✅ 추가
+            }
+        
+        # 6단계: 선택된 시간대 확인
+        selected_slot = interview_context.get("selected_slot")
+        print(f"[면접 일정] 선택된 시간대 확인: selected_slot={selected_slot}, query='{query}'")
+        
+        # 쿼리에서 시간대 선택 정보 파싱 (프론트엔드에서 전달된 경우)
+        if not selected_slot and query:
+            try:
+                import json
+                if query.startswith("{") and ("slot" in query.lower() or "start" in query.lower()):
+                    parsed_data = json.loads(query)
+                    if isinstance(parsed_data, dict):
+                        # slot_index가 있는 경우 available_slots에서 찾기
+                        if "slot_index" in parsed_data:
+                            slot_index = int(parsed_data["slot_index"])
+                            # available_slots는 컨텍스트에 저장되어 있음
+                            context_slots = interview_context.get("available_slots", available_slots)
+                            if 0 <= slot_index < len(context_slots):
+                                selected_slot = context_slots[slot_index]
+                                print(f"[면접 일정] 시간대 선택 파싱 성공 (인덱스): {slot_index}, slot={selected_slot}")
+                        elif "start" in parsed_data and "end" in parsed_data:
+                            selected_slot = {
+                                "start": parsed_data["start"],
+                                "end": parsed_data["end"]
+                            }
+                            print(f"[면접 일정] 시간대 선택 파싱 성공 (직접): {selected_slot}")
+            except Exception as e:
+                print(f"[면접 일정] 시간대 파싱 오류: {str(e)}")
+                pass
+        
+        # 시간대가 선택되었으면 일정 생성
+        if selected_slot:
+            print(f"[면접 일정] 시간대 선택됨, 일정 생성 시작: {selected_slot}")
+            try:
+                from agents.master_graphs.schedule.services.database_service import DatabaseService
+                
+                db = DatabaseService()
+                
+                # 선택된 시간대 정보
+                slot_start = datetime.fromisoformat(selected_slot["start"].replace('Z', '+00:00'))
+                slot_end = datetime.fromisoformat(selected_slot["end"].replace('Z', '+00:00'))
+                
+                # timezone 제거
+                if slot_start.tzinfo:
+                    slot_start = slot_start.replace(tzinfo=None)
+                if slot_end.tzinfo:
+                    slot_end = slot_end.replace(tzinfo=None)
+                
+                # ✅ 면접 일정 생성 (DB만 사용, 구글 캘린더 제외)
+                # 다른 기능(회의실, 출장 등)은 hybrid_scheduler.create_event 사용
+                created_events = []
+                from sqlalchemy import text
+                async with db._session() as session:
+                    try:
+                        # ✅ 하나의 행만 생성 (면접관 리스트를 interviewer_ids에 저장)
+                        # 면접관 ID 리스트를 JSON 배열로 변환
+                        interviewer_ids_json = json.dumps(selected_interviewers)  # [4000, 4001]
+                        
+                        # DB에 직접 저장 (구글 캘린더 제외)
+                        insert_sql = text("""
+                            INSERT INTO schedule (
+                                employee_id, title, description, 
+                                start_time, end_time, schedule_type,
+                                interviewer_ids, status,
+                                created_at, updated_at
+                            ) VALUES (
+                                :employee_id, :title, :description,
+                                :start_time, :end_time, :schedule_type,
+                                :interviewer_ids, :status,
+                                NOW(), NOW()
+                            )
+                        """)
+                        await session.execute(insert_sql, {
+                            "employee_id": selected_interviewers[0] if selected_interviewers else None,  # 첫 번째 면접관 ID
+                            "title": "면접",
+                            "description": f"면접 일정 (소요 시간: {duration_minutes}분)",
+                            "start_time": slot_start,
+                            "end_time": slot_end,
+                            "schedule_type": "interview",  # ✅ 면접 일정으로 명시
+                            "interviewer_ids": interviewer_ids_json,  # ✅ 면접관 리스트 (JSON)
+                            "status": "active"
+                        })
+                        await session.commit()
+                        
+                        created_events.append({
+                            "employee_id": selected_interviewers[0] if selected_interviewers else None,
+                            "start_time": slot_start,
+                            "end_time": slot_end,
+                            "interviewer_ids": selected_interviewers
+                        })
+                        print(f"[면접 일정] 일정 생성 성공 (면접관 {len(selected_interviewers)}명): DB에 저장됨")
+                    except Exception as e:
+                        print(f"[면접 일정] 일정 생성 실패: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        await session.rollback()
+                
+                if created_events:
+                    slot_date = slot_start.strftime("%Y년 %m월 %d일")
+                    slot_time = slot_start.strftime("%H:%M")
+                    message = f"면접 일정이 생성되었습니다.\n\n📅 일시: {slot_date} {slot_time}\n⏱️ 소요 시간: {duration_minutes}분\n👥 면접관: {len(selected_interviewers)}명"
+                    
+                    # 컨텍스트 초기화 (완료)
+                    state["schedule_context"]["interview"] = {}
+                    
+                    return {
+                        "final_response": message,
+                        "messages": [message],
+                        "schedule_context": state["schedule_context"],
+                        "requires_date_range_input": False,
+                        "requires_interviewer_selection": False,
+                        "requires_duration_selection": False,
+                        "requires_slot_selection": False,
+                    }
+                else:
+                    message = "면접 일정 생성에 실패했습니다. 다시 시도해주세요."
+                    return {
+                        "final_response": message,
+                        "messages": [message],
+                        "schedule_context": state["schedule_context"],
+                        "requires_date_range_input": True,
+                        "requires_interviewer_selection": False,
+                        "requires_duration_selection": False,
+                        "requires_slot_selection": True,  # 다시 시간대 선택
+                        "available_slots": available_slots[:20],
+                    }
+            except Exception as e:
+                print(f"[면접 일정] 일정 생성 중 오류: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                message = f"면접 일정 생성 중 오류가 발생했습니다: {str(e)}"
+                return {
+                    "final_response": message,
+                    "messages": [message],
+                    "schedule_context": state["schedule_context"],
+                    "requires_date_range_input": True,
+                    "requires_interviewer_selection": False,
+                    "requires_duration_selection": False,
+                    "requires_slot_selection": True,
+                    "available_slots": available_slots[:20],
+                }
+        
+        # 7단계: 가능한 시간 후보군 반환
+        interview_context["available_slots"] = available_slots
+        interview_context["requires_slot_selection"] = True
+        interview_context.pop("requires_duration_selection", None)  # ✅ 지속 시간 선택 플래그 제거 (이미 선택됨)
+        interview_context["interviewers"] = selected_interviewers
+        interview_context["duration_minutes"] = duration_minutes
+        state["schedule_context"]["interview"] = interview_context
+        
+        # 후보군을 사용자 친화적인 형식으로 포맷팅
+        slots_display = []
+        for i, slot in enumerate(available_slots[:20], 1):  # 최대 20개만 표시
+            slot_start = datetime.fromisoformat(slot["start"].replace('Z', '+00:00'))
+            slot_date = slot_start.strftime("%Y년 %m월 %d일")
+            slot_time = slot_start.strftime("%H:%M")
+            slots_display.append(f"{i}. {slot_date} {slot_time}")
+        
+        message = f"면접 가능한 시간대 {len(available_slots)}개를 찾았습니다 (소요 시간: {duration_minutes}분):\n\n" + "\n".join(slots_display)
+        if len(available_slots) > 20:
+            message += f"\n\n(총 {len(available_slots)}개 중 20개만 표시됩니다)"
+        
+        # 🔥 여기도 수정! - UI 플래그 추가
+        return {
+            "final_response": message,
+            "messages": [message],
+            "schedule_context": state["schedule_context"],
+            "requires_date_range_input": True,  # ✅ 추가
+            "requires_interviewer_selection": False,  # ✅ 추가 (면접관은 이미 선택됨)
+            "requires_duration_selection": False,  # ✅ 추가 (지속 시간은 이미 선택됨)
+            "requires_slot_selection": True,  # ✅ 추가 - 이제 시간대 선택!
+            "available_slots": available_slots[:20]  # ✅ 추가 - 프론트엔드에서 사용할 슬롯 데이터
+        }
+    except Exception as e:
+        print(f"[면접 일정] 오류 발생: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # 🔥 에러 시에도 UI 플래그 추가
+        return {
+            "final_response": f"면접 일정 조정 중 오류가 발생했습니다: {str(e)}",
+            "messages": [f"면접 일정 조정 중 오류가 발생했습니다: {str(e)}"],
+            "ok": False,
+            "schedule_context": state.get("schedule_context", {}),
+            "requires_date_range_input": False,  # ✅ 추가
+            "requires_interviewer_selection": False,  # ✅ 추가
+            "requires_slot_selection": False,  # ✅ 추가
+        }

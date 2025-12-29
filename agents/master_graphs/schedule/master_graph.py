@@ -88,6 +88,39 @@ class ScheduleMasterGraph(BaseMasterGraph):
 
         schedule_context = state.get("schedule_context") or {}
         
+        # 면접 일정 조정인지 확인 (최우선 처리)
+        interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
+        if any(keyword in query for keyword in interview_keywords):
+            step_elapsed = (time.time() - step_start) * 1000
+            print(f"✅ 면접 일정 조정 감지 - schedule으로 라우팅 ({step_elapsed/1000:.2f}초)")
+            return {"intent": "schedule"}  # schedule intent로 라우팅하되, process_schedule_request에서 면접 처리
+        
+        # ✅ 면접 컨텍스트가 있으면 schedule로 강제 라우팅 (JSON 데이터 처리용)
+        interview_context = schedule_context.get("interview") or {}
+        if interview_context:
+            # 면접 관련 JSON 데이터 체크 (면접관 선택, 지속 시간 선택, 시간대 선택)
+            try:
+                import json
+                if query.strip().startswith('{'):
+                    query_json = json.loads(query)
+                    if isinstance(query_json, dict):
+                        # 면접 관련 JSON 타입 체크
+                        if any(key in query_json for key in ["selectedInterviewers", "duration_minutes", "slot_index", "start", "end"]):
+                            step_elapsed = (time.time() - step_start) * 1000
+                            print(f"✅ 면접 일정 진행 중 감지 (JSON) - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                            return {"intent": "schedule"}
+            except (json.JSONDecodeError, AttributeError):
+                pass  # JSON 파싱 실패 시 계속 진행
+            
+            # 면접 컨텍스트에 선택된 면접관이나 지속 시간, 시간대 선택 플래그가 있으면 schedule로 라우팅
+            if (interview_context.get("selected_interviewers") or 
+                interview_context.get("duration_minutes") or 
+                interview_context.get("requires_slot_selection") or
+                interview_context.get("available_slots")):
+                step_elapsed = (time.time() - step_start) * 1000
+                print(f"✅ 면접 일정 진행 중 감지 (컨텍스트) - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
+                return {"intent": "schedule"}
+        
         # schedule의 awaiting_slots 체크 (일정 삭제 선택 대기 중)
         schedule_ctx = schedule_context.get("schedule") or {}
         schedule_awaiting_slots = schedule_ctx.get("awaiting_slots") or []
