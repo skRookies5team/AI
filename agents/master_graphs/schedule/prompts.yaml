@@ -372,7 +372,7 @@ utils:
       4. "이번주"는 반드시 위의 "이번주 요일별 날짜"를 참조하여 계산하세요
       5. "이번주 화요일부터 목요일까지"는 반드시 {this_week_tuesday}부터 {this_week_thursday}까지입니다 ⚠️ 매우 중요!
       6. "이번주 수요일부터 금요일까지"는 반드시 {this_week_wednesday}부터 {this_week_friday}까지입니다
-      7. "다음주"는 반드시 {next_monday_str}부터 시작하는 날짜입니다
+      7. "다음주"는 반드시 {next_monday_str}부터 다음주 일요일까지입니다 (전체 주, 월요일~일요일) ⚠️ 매우 중요!
       8. "다음 주 3일간"은 반드시 {next_monday_str}부터 {next_wednesday_str}까지입니다
 
       사용자 질문: "{query}"
@@ -394,6 +394,7 @@ utils:
       - "내일 오후 5시부터 7시까지" → 내일 17:00 ~ 19:00
       - "내일 오후 5시부터 오후 9시까지" → 내일 17:00 ~ 21:00
       - "다음주 월요일" → {next_monday_str} 00:00 ~ 23:59
+      - "다음주" → {next_monday_str} 00:00 ~ {next_sunday_str} 23:59 (다음주 월요일부터 일요일까지 전체 주) ⚠️ 매우 중요!
       - "다음 주 3일간" → {next_monday_str} 00:00 ~ {next_wednesday_str} 23:59 (월, 화, 수 3일) ⚠️ 중요!
       - "다음 주 3일" → {next_monday_str} 00:00 ~ {next_wednesday_str} 23:59 (월, 화, 수 3일) ⚠️ 중요!
       - "다음 주 5일간" → {next_monday_str} 00:00 ~ 다음주 금요일 23:59 (월~금 5일)

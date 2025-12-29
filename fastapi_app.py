@@ -694,11 +694,34 @@ async def chat_stream_endpoint(
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
                 
+                # 면접 일정 조정 관련 플래그 확인
+                # 1순위: final_state 최상위 레벨 (schedule_nodes.py에서 직접 반환)
+                # 2순위: schedule_context.interview (하위 호환성)
+                schedule_context = final_state.get("schedule_context") or {}  # ✅ None 체크 추가
+                interview_context = schedule_context.get("interview", {}) if schedule_context else {}  # ✅ 안전하게 처리
+                
+                # 최상위 레벨 우선, 없으면 interview_context에서 읽기
+                requires_interviewer_selection = final_state.get("requires_interviewer_selection", 
+                                                                 interview_context.get("requires_interviewer_selection", False))
+                requires_date_range = final_state.get("requires_date_range_input",
+                                                     interview_context.get("requires_date_range", False))
+                requires_duration_selection = final_state.get("requires_duration_selection",
+                                                               interview_context.get("requires_duration_selection", False))  # ✅ 추가
+                requires_slot_selection = final_state.get("requires_slot_selection",
+                                                         interview_context.get("requires_slot_selection", False))
+                interviewer_selection_config = final_state.get("interviewer_selection_config",
+                                                              interview_context.get("interviewer_selection_config"))
+                available_slots = final_state.get("available_slots",
+                                                 interview_context.get("available_slots")) or []  # ✅ None일 경우 빈 배열로 처리 or []  # ✅ None일 경우 빈 배열로 처리
+                
                 # 디버깅: 문서 업데이트 UI 플래그 확인
                 print(f"🔍 [FastAPI] 문서 업데이트 UI 플래그: {show_document_update_ui}")
+                print(f"🔍 [FastAPI] 면접관 선택 플래그: {requires_interviewer_selection}")
+                print(f"🔍 [FastAPI] 기간 입력 플래그: {requires_date_range}")
+                print(f"🔍 [FastAPI] 지속 시간 선택 플래그: {requires_duration_selection}")  # ✅ 추가
+                print(f"🔍 [FastAPI] 시간대 선택 플래그: {requires_slot_selection}")
+                print(f"🔍 [FastAPI] interview_context: {interview_context}")
                 print(f"🔍 [FastAPI] final_state keys: {list(final_state.keys())}")
-                if "show_document_update_ui" in final_state:
-                    print(f"🔍 [FastAPI] show_document_update_ui 값: {final_state['show_document_update_ui']}")
                 
                 result = {
                     "type": "complete",
@@ -710,9 +733,17 @@ async def chat_stream_endpoint(
                     "requires_input": requires_input,
                     "last_domain": last_domain,  # LLM 라우팅 시 결정된 도메인
                     "show_document_update_ui": show_document_update_ui,  # 문서 업데이트 UI 표시 플래그
+                # 면접 일정 조정 관련 플래그
+                "requires_interviewer_selection": requires_interviewer_selection,
+                "requires_date_range": requires_date_range,
+                "requires_duration_selection": requires_duration_selection,  # ✅ 수정: 계산된 변수 사용
+                "requires_slot_selection": requires_slot_selection,
+                "interviewer_selection_config": interviewer_selection_config,
+                "available_slots": available_slots,
                 }
                 
                 print(f"🔍 [FastAPI] 응답에 포함된 show_document_update_ui: {result.get('show_document_update_ui')}")
+                print(f"🔍 [FastAPI] 응답에 포함된 requires_interviewer_selection: {result.get('requires_interviewer_selection')}")
                 yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
                 
                 # 노드 실행 후 세션 데이터 저장 (conversation_history + 컨텍스트들)
@@ -2205,3 +2236,83 @@ async def get_meeting_rooms(
             "count": 0,
             "message": f"회의실 목록 조회 실패: {str(e)}"
         }
+
+
+@app.get("/api/employees", response_model=List[Dict[str, Any]])
+async def get_employees(
+    dept: Optional[str] = Query(None, description="부서 필터"),
+    position: Optional[str] = Query(None, description="직급 필터"),
+    status: Optional[str] = Query(None, description="직원 상태 (Active, 재직 중, etc.)"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> List[Dict[str, Any]]:
+    """사원 목록 조회 (부서, 직급 필터링 지원).
+    
+    면접관 선택 등에 사용됩니다.
+    
+    Args:
+        dept: 부서 필터 (예: "개발팀")
+        position: 직급 필터 (예: "과장")
+        status: 직원 상태 (기본값: "Active")
+        
+    Returns:
+        사원 목록 [{"employee_id": int, "name": str, "dept": str, ...}, ...]
+    """
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        from sqlalchemy import text
+        
+        db = DatabaseService()
+        
+        clauses = []
+        params: Dict[str, Any] = {}
+        
+        if dept:
+            clauses.append("dept = :dept")
+            params["dept"] = dept
+        
+        if position:
+            clauses.append("(position = :position OR job_title = :position)")
+            params["position"] = position
+        
+        # ✅ status 필터 수정: 'Active' 또는 '재직 중' 둘 다 매칭
+        if status and status.strip():
+            if status.lower() == 'active':
+                # 'Active' 또는 '재직 중' 둘 다 포함
+                clauses.append("(employment_status = 'Active' OR employment_status = '재직 중')")
+            else:
+                clauses.append("employment_status = :status")
+                params["status"] = status
+        # status가 None이면 필터 적용 안 함 (전체 조회)
+        
+        where_sql = " AND ".join(clauses) if clauses else "1=1"
+        
+        sql = f"""
+        SELECT 
+            employee_id,
+            name,
+            dept,
+            position,
+            job_title,
+            email,
+            employment_status
+        FROM employee
+        WHERE {where_sql}
+        ORDER BY dept, position, name
+        """
+        
+        async with db._session() as session:
+            result = await session.execute(text(sql), params)
+            employees = [dict(row) for row in result.mappings().all()]
+        
+        # ✅ 로그 추가
+        print(f"✅ [API] /api/employees 조회 결과: {len(employees)}명")
+        if employees:
+            print(f"✅ [API] 첫 번째 사원 예시: {employees[0]}")
+        else:
+            print(f"⚠️ [API] 사원 데이터가 없습니다. SQL: {sql}, params: {params}")
+        
+        return employees
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return []

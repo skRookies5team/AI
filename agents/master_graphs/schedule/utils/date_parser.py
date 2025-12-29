@@ -77,6 +77,10 @@ async def parse_korean_date_with_llm(
         next_monday = now + timedelta(days=days_until_next_monday)
         next_monday_str = next_monday.strftime("%Y-%m-%d")
         
+        # 다음주 일요일 계산 (전체 주용)
+        next_sunday = next_monday + timedelta(days=6)  # 월요일 + 6일 = 일요일
+        next_sunday_str = next_sunday.strftime("%Y-%m-%d")
+        
         # 다음주 수요일 계산 (3일간 예시용)
         next_wednesday = next_monday + timedelta(days=2)  # 월요일 + 2일 = 수요일
         next_wednesday_str = next_wednesday.strftime("%Y-%m-%d")
@@ -96,6 +100,7 @@ async def parse_korean_date_with_llm(
                 now_year=now.year,
                 now_month=now.month,
                 next_monday_str=next_monday_str,
+                next_sunday_str=next_sunday_str,  # ✅ 다음주 일요일 추가
                 next_wednesday_str=next_wednesday_str,
                 this_week_monday_str=this_week_monday_str,
                 this_week_monday=this_week_dates['월요일'],
@@ -115,7 +120,7 @@ async def parse_korean_date_with_llm(
             import re
             missing_vars = re.findall(r'\{(\w+)\}', prompt_template)
             provided_vars = set(['today_str', 'today_weekday', 'now_year', 'now_month', 
-                                'next_monday_str', 'next_wednesday_str', 'this_week_monday_str',
+                                'next_monday_str', 'next_sunday_str', 'next_wednesday_str', 'this_week_monday_str',
                                 'this_week_monday', 'this_week_tuesday', 'this_week_wednesday',
                                 'this_week_thursday', 'this_week_friday', 'this_week_saturday',
                                 'this_week_sunday', 'query', 'today_date'])
@@ -181,18 +186,27 @@ async def parse_korean_date_with_llm(
                     if end_date < start_date:
                         end_date = start_date
                     
-                    # 파싱된 날짜가 과거인지 검증 (더 엄격하게)
+                    # 파싱된 날짜가 과거인지 검증 (연도 변경 허용)
                     # now는 이미 위에서 정의됨 (orchestrator의 현재 시간 또는 datetime.now())
                     days_diff = (start_date.date() - now.date()).days
                     
                     # 디버깅: LLM 반환값 확인
                     print(f"🔍 [date_parser] LLM 반환 날짜: {start_date.date()}, 오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year}, 정밀도: {is_precise}")
                     
-                    # 과거 날짜이거나 현재 연도가 아니면 즉시 None 반환 (재요청)
-                    if days_diff < 0 or start_date.year != now.year:
-                        print(f"⚠️ LLM이 잘못된 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일, 반환 연도: {start_date.year}, 현재 연도: {now.year})")
+                    # 과거 날짜만 거부 (연도 변경은 허용 - 예: 12월 말에 "다음주"는 다음 해 1월)
+                    # 연도가 바뀌는 경우는 정상 (예: 2025-12-29에 "다음주" → 2026-01-05)
+                    if days_diff < 0:
+                        print(f"⚠️ LLM이 과거 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일)")
                         print(f"⚠️ 날짜 정보가 불확실하므로 None 반환하여 재요청")
                         return None, None, False  # 재요청을 위해 None 반환
+                    
+                    # 연도가 바뀌는 경우는 허용하되, 너무 먼 미래는 경고만 출력
+                    if start_date.year != now.year:
+                        year_diff = start_date.year - now.year
+                        if year_diff > 1:  # 1년 이상 차이나는 경우만 경고
+                            print(f"⚠️ 연도 차이가 큼: {start_date.year}년 (현재: {now.year}년, 차이: {year_diff}년)")
+                        else:
+                            print(f"ℹ️ 연도 변경 감지: {start_date.year}년 (현재: {now.year}년) - 정상적인 경우입니다 (예: 12월 말에 '다음주')")
                     
                     print(f"✅ LLM 날짜 파싱: {start_date} ~ {end_date} (정밀도: {is_precise})")
                     return start_date, end_date, is_precise
