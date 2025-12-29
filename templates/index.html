@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI  작성 시스템</title>
+    <!-- DOMPurify: 이메일 HTML 본문을 안전하게 렌더링하기 위한 sanitize 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -716,6 +718,149 @@
             padding: 25px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
             max-width: 800px;
+        }
+
+        /* ===== Email 카드/상세 스타일 ===== */
+        .email-cards-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+            margin-top: 15px;
+            padding: 10px 0;
+        }
+
+        .email-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+
+        .email-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+            border-color: #667eea;
+        }
+
+        .email-card-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #111827;
+            margin: 10px 0 8px 0;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .email-card-meta {
+            font-size: 12px;
+            color: #6b7280;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .email-card-summary {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #374151;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            background: #f9fafb;
+            border: 1px solid #eef2f7;
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .email-detail {
+            margin-top: 20px;
+        }
+
+        .email-detail-container {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            max-width: 980px;
+        }
+
+        .email-detail-meta {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .email-body {
+            margin-top: 16px;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 16px;
+        }
+
+        .email-body-html {
+            font-size: 14px;
+            color: #111827;
+            line-height: 1.6;
+            word-break: break-word;
+        }
+
+        .email-body-text {
+            font-size: 14px;
+            color: #111827;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* ===== Email Reply UI ===== */
+        .email-reply-box {
+            margin-top: 16px;
+            border-top: 1px dashed #e5e7eb;
+            padding-top: 16px;
+        }
+
+        .email-reply-textarea {
+            width: 100%;
+            min-height: 110px;
+            resize: vertical;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 14px;
+            line-height: 1.5;
+            outline: none;
+        }
+
+        .email-reply-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .email-reply-btn {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid #667eea;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .email-reply-btn.secondary {
+            background: white;
+            color: #667eea;
+        }
+
+        .email-reply-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         .detail-header {
@@ -2106,7 +2251,11 @@
         updateSessionDisplay();
 
         // ===== 알림(SSE) =====
-        let notificationSource = null;
+        // employee 단위 알림 스트림은 Authorization 헤더가 필요하므로 EventSource 대신 fetch 스트림을 사용합니다.
+        let notificationReader = null;
+        let notificationAbortController = null;
+        const notificationSeenIds = new Set(); // 중복 방지(새로고침 전)
+        let notificationUnreadCount = 0;
 
         function escapeHTML(str) {
             return String(str)
@@ -2117,41 +2266,258 @@
                 .replace(/'/g, '&#039;');
         }
 
-        function startNotificationStream() {
+        function setNotificationStatus(text, color = '#6b7280') {
+            const el = document.getElementById('notifStatusText');
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = color;
+        }
+
+        function updateNotificationBell() {
+            const bell = document.getElementById('notifBellBtn');
+            if (!bell) return;
+            bell.textContent = notificationUnreadCount > 0 ? `🔔 알림 (${notificationUnreadCount})` : '🔔 알림';
+        }
+
+        function bumpUnreadCount() {
+            notificationUnreadCount = Math.min(999, (notificationUnreadCount || 0) + 1);
+            updateNotificationBell();
+        }
+
+        function resetUnreadCount() {
+            notificationUnreadCount = 0;
+            updateNotificationBell();
+        }
+
+        function ensureNotificationUI() {
+            // 이미 있으면 스킵
+            if (document.getElementById('notificationPanel')) return;
+
+            const container = document.querySelector('.content-area') || document.body;
+
+            const panel = document.createElement('div');
+            panel.id = 'notificationPanel';
+            panel.style.position = 'fixed';
+            panel.style.right = '12px';
+            panel.style.top = '12px';
+            panel.style.width = '320px';
+            panel.style.maxHeight = '70vh';
+            panel.style.overflowY = 'auto';
+            panel.style.background = 'rgba(255,255,255,0.98)';
+            panel.style.border = '1px solid #e5e7eb';
+            panel.style.borderRadius = '12px';
+            panel.style.boxShadow = '0 8px 20px rgba(0,0,0,0.12)';
+            panel.style.zIndex = '9999';
+            panel.style.display = 'none';
+
+            panel.innerHTML = `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #eef2f7;">
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <div style="font-weight:700; color:#111827;">🔔 알림</div>
+                        <div style="font-size:11px; color:#6b7280;">상태: <span id="notifStatusText">준비됨</span></div>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button id="notifTestBtn" style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 8px; cursor:pointer;">테스트</button>
+                        <button id="notifClearBtn" style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 8px; cursor:pointer;">비우기</button>
+                        <button id="notifCloseBtn" style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 8px; cursor:pointer;">닫기</button>
+                    </div>
+                </div>
+                <div id="notificationList" style="padding:10px 12px;"></div>
+            `;
+
+            container.appendChild(panel);
+
+            // bell button
+            const headerRight = document.querySelector('.header-right');
+            if (headerRight && !document.getElementById('notifBellBtn')) {
+                const bell = document.createElement('button');
+                bell.id = 'notifBellBtn';
+                bell.className = 'session-button';
+                bell.textContent = '🔔 알림';
+                bell.onclick = () => {
+                    const panel = document.getElementById('notificationPanel');
+                    const willShow = panel ? (panel.style.display === 'none') : false;
+                    if (willShow) resetUnreadCount();
+                    toggleNotificationPanel();
+                };
+                headerRight.insertBefore(bell, headerRight.firstChild);
+                updateNotificationBell();
+            }
+
+            document.getElementById('notifCloseBtn')?.addEventListener('click', () => toggleNotificationPanel(false));
+            document.getElementById('notifClearBtn')?.addEventListener('click', async () => {
+                try {
+                    await authenticatedFetch('/api/notifications/clear', { method: 'POST' });
+                    const list = document.getElementById('notificationList');
+                    if (list) list.innerHTML = '';
+                    resetUnreadCount();
+                } catch (e) {
+                    console.error('알림 비우기 실패:', e);
+                }
+            });
+
+            document.getElementById('notifTestBtn')?.addEventListener('click', async () => {
+                try {
+                    setNotificationStatus('테스트 발행 중...', '#2563eb');
+                    const res = await authenticatedFetch('/api/notifications/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ kind: 'email_new' }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) {
+                        setNotificationStatus('테스트 실패(서버)', '#dc2626');
+                        console.warn('테스트 알림 실패:', res.status, data);
+                        return;
+                    }
+                    setNotificationStatus('테스트 성공', '#16a34a');
+                } catch (e) {
+                    setNotificationStatus('테스트 실패(네트워크)', '#dc2626');
+                    console.warn('테스트 알림 요청 실패:', e);
+                }
+            });
+        }
+
+        function toggleNotificationPanel(forceState) {
+            const panel = document.getElementById('notificationPanel');
+            if (!panel) return;
+            const willShow = (forceState !== undefined) ? forceState : (panel.style.display === 'none');
+            panel.style.display = willShow ? 'block' : 'none';
+        }
+
+        function renderNotificationItem(item) {
+            const list = document.getElementById('notificationList');
+            if (!list) return;
+
+            const id = item.id || '';
+            if (id && notificationSeenIds.has(id)) return;
+            if (id) notificationSeenIds.add(id);
+
+            const isRead = !!item.read;
+            const type = item.type || '';
+            const ts = item.timestamp_ms ? new Date(item.timestamp_ms).toLocaleString('ko-KR') : '';
+
+            let html = '';
+            if (type === 'email_new') {
+                const count = item.count || 0;
+                const items = Array.isArray(item.items) ? item.items : [];
+                const top = items.slice(0, 3).map(it => {
+                    const subj = escapeHTML(it.subject || '(제목 없음)');
+                    const from = escapeHTML(it.from || '');
+                    return `<div style="font-size:12px; color:#374151; margin-top:4px;">- <b>${subj}</b> <span style="color:#6b7280">(${from})</span></div>`;
+                }).join('');
+                html = `
+                    <div style="font-weight:700; color:#111827;">📧 새 메일 ${count}개</div>
+                    ${top}
+                `;
+            } else {
+                html = `<div style="font-weight:700; color:#111827;">${escapeHTML(type || '알림')}</div>`;
+            }
+
+            const row = document.createElement('div');
+            row.style.border = '1px solid #eef2f7';
+            row.style.borderRadius = '10px';
+            row.style.padding = '10px';
+            row.style.marginBottom = '10px';
+            row.style.background = isRead ? '#fafafa' : '#ffffff';
+            row.style.cursor = 'pointer';
+            row.innerHTML = `
+                ${html}
+                <div style="margin-top:6px; font-size:11px; color:#9ca3af;">${escapeHTML(ts)}</div>
+            `;
+
+            row.addEventListener('click', async () => {
+                if (!id) return;
+                try {
+                    await authenticatedFetch('/api/notifications/read', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: [id] }),
+                    });
+                    row.style.background = '#fafafa';
+                } catch (e) {
+                    console.error('읽음 처리 실패:', e);
+                }
+            });
+
+            list.prepend(row);
+
+            // 패널이 닫혀 있으면 뱃지로 새 알림 표시
+            const panel = document.getElementById('notificationPanel');
+            if (panel && panel.style.display === 'none' && !isRead) {
+                bumpUnreadCount();
+            }
+        }
+
+        async function loadNotificationHistory() {
             try {
-                if (notificationSource) {
-                    notificationSource.close();
-                    notificationSource = null;
+                const res = await authenticatedFetch('/api/notifications?limit=50');
+                const data = await res.json();
+                if (!res.ok || !data.ok) return;
+                ensureNotificationUI();
+                const list = document.getElementById('notificationList');
+                if (list) list.innerHTML = '';
+                for (const item of (data.items || [])) {
+                    renderNotificationItem(item);
+                }
+            } catch (e) {
+                console.error('알림 히스토리 로드 실패:', e);
+            }
+        }
+
+        async function startNotificationStream() {
+            try {
+                ensureNotificationUI();
+                await loadNotificationHistory();
+
+                // 기존 스트림 종료
+                if (notificationAbortController) {
+                    notificationAbortController.abort();
+                    notificationAbortController = null;
                 }
 
-                const url = `/api/notifications/stream?session_id=${encodeURIComponent(currentSessionId)}`;
-                notificationSource = new EventSource(url);
-
-                notificationSource.onmessage = (event) => {
-                    try {
-                        const payload = JSON.parse(event.data);
-                        if (payload.type === 'email_new' && payload.data) {
-                            const pretty = JSON.stringify(payload.data, null, 2);
-                            addBotMessage(
-                                `<div><b>📬 새 메일 도착</b> <span style="color:#666;font-size:12px;">(${payload.session_id})</span></div>` +
-                                `<pre style="white-space:pre-wrap; margin-top:8px; font-size:12px; line-height:1.4;">${escapeHTML(pretty)}</pre>`
-                            );
-                        }
-                    } catch (e) {
-                        console.error('알림 파싱 실패:', e, event.data);
-                    }
-                };
-
-                notificationSource.addEventListener('ping', () => {
-                    // keep-alive
+                notificationAbortController = new AbortController();
+                setNotificationStatus('연결 중...', '#2563eb');
+                const response = await authenticatedFetch('/api/notifications/stream', {
+                    method: 'GET',
+                    signal: notificationAbortController.signal,
                 });
+                if (!response.ok || !response.body) {
+                    console.warn('알림 스트림 연결 실패:', response.status);
+                    setNotificationStatus(`연결 실패(${response.status})`, '#dc2626');
+                    return;
+                }
 
-                notificationSource.onerror = (err) => {
-                    // 네트워크 환경에 따라 재연결이 자동으로 시도됨
-                    console.warn('알림 스트림 오류:', err);
-                };
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                setNotificationStatus('연결됨', '#16a34a');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const raw = line.slice(6).trim();
+                            if (!raw || raw === '{}') continue;
+                            try {
+                                const payload = JSON.parse(raw);
+                                // chat에 찍지 않고, 사이드 알림 패널로만 렌더
+                                renderNotificationItem(payload);
+                            } catch (e) {
+                                console.warn('알림 JSON 파싱 실패:', e, raw);
+                            }
+                        }
+                    }
+                }
             } catch (e) {
-                console.error('알림 스트림 시작 실패:', e);
+                console.warn('알림 스트림 시작 실패:', e);
+                setNotificationStatus('연결 실패', '#dc2626');
             }
         }
         
@@ -3239,6 +3605,7 @@
                                     const requiresInput = data.requires_input || false;
                                     const lastDomain = data.last_domain;
                                     const rows = data.rows || [];
+                                    const emailDraft = data.email_draft || null;
                                     const shouldShowDocumentUpdateUI = data.show_document_update_ui || false;
                                     
                                     // ✅ 면접관 선택 관련 플래그 추가
@@ -3303,6 +3670,16 @@
                                     else if (lastDomain === 'recruitment' && rows && rows.length > 0) {
                                         console.log('✅ Recruitment 검색 결과 카드 형식으로 표시');
                                         addRecruitmentCards(botMessage, rows);
+                                    }
+                                    // Email 도메인이고 email_draft가 있는 경우 초안 카드 표시
+                                    else if (lastDomain === 'email' && emailDraft && emailDraft.subject && emailDraft.body) {
+                                        console.log('✅ Email 초안 카드 표시');
+                                        addEmailDraftCard(botMessage, emailDraft);
+                                    }
+                                    // Email 도메인이고 rows가 있는 경우 카드 형식으로 표시
+                                    else if (lastDomain === 'email' && rows && rows.length > 0) {
+                                        console.log('✅ Email 검색 결과 카드 형식으로 표시');
+                                        addEmailCards(botMessage, rows);
                                     }
                                     // 사용자 입력이 필요한 경우 (예시문 표시) - 최우선 처리
                                     else if (requiresInput || (botMessage && (botMessage.includes('📋') || botMessage.includes('예시') || botMessage.includes('입력 형식')))) {
@@ -3379,6 +3756,355 @@
             
             messagesContainer.appendChild(messageDiv);
             scrollToBottom();
+        }
+
+        // ===== Email 검색 결과 카드 =====
+        let lastEmailRows = [];
+
+        function stripSignatureText(text) {
+            if (!text) return '';
+            // 서명/안내 문구가 포함되면 그 이전까지만 보여주기
+            const markers = [
+                'AI 자동 답변 안내',
+                '깐부전자 /',
+                '주소:',
+                '전화:',
+            ];
+            let cut = text;
+            for (const m of markers) {
+                const idx = cut.indexOf(m);
+                if (idx > 0) {
+                    cut = cut.slice(0, idx).trim();
+                }
+            }
+            return cut.trim();
+        }
+
+        function htmlToText(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html || '';
+            return (tmp.textContent || '').trim();
+        }
+
+        function addEmailDraftCard(message, draft) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+            const to = draft.to || '';
+            const subject = draft.subject || '';
+            const bodyHtml = draft.body || '';
+
+            const safeBody = (window.DOMPurify && window.DOMPurify.sanitize)
+                ? window.DOMPurify.sanitize(bodyHtml, { USE_PROFILES: { html: true } })
+                : bodyHtml;
+
+            const bodyText = stripSignatureText(htmlToText(safeBody));
+
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble">${message}</div>
+                    <div class="email-detail-container" style="margin-top:12px;">
+                        <div class="detail-header">
+                            <h2>이메일 초안</h2>
+                        </div>
+                        <div class="email-detail-meta">
+                            ${to ? `<span><b>To</b>: ${escapeHtml(to)}</span>` : ''}
+                        </div>
+
+                        <div style="margin-top:12px;">
+                            <label style="font-weight:700;">제목</label>
+                            <input id="compose-draft-subject" style="width:100%; padding:10px; border:1px solid #e5e7eb; border-radius:10px; margin-top:6px;"
+                                   value="${escapeHtml(subject)}" />
+                        </div>
+
+                        <div style="margin-top:12px;">
+                            <label style="font-weight:700;">본문 (직접 수정)</label>
+                            <textarea id="compose-draft-body" class="email-reply-textarea" style="margin-top:6px;">${escapeHtml(bodyText)}</textarea>
+                        </div>
+
+                        <div style="margin-top:12px;">
+                            <label style="font-weight:700;">초안 미리보기</label>
+                            <div id="compose-draft-preview" class="email-body" style="margin-top:6px;">
+                                <div class="email-body-html">${safeBody}</div>
+                            </div>
+                        </div>
+
+                        <div class="email-reply-actions">
+                            <button class="email-reply-btn" onclick="sendComposeDraft()">보내기</button>
+                            <button class="email-reply-btn secondary" onclick="toggleComposeEditOptions()">수정</button>
+                            <button class="email-reply-btn secondary" onclick="cancelComposeDraft()">취소</button>
+                        </div>
+
+                        <div id="compose-edit-options" style="display:none; margin-top:10px;">
+                            <div class="email-reply-actions">
+                                <button class="email-reply-btn secondary" onclick="modifyComposeDraft()">직접 수정 저장</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        async function modifyComposeDraft() {
+            const subject = document.getElementById('compose-draft-subject')?.value || '';
+            const bodyText = document.getElementById('compose-draft-body')?.value || '';
+
+            try {
+                const res = await authenticatedFetch('/api/email/compose/modify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId, subject, body_text: bodyText }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    addBotMessage(`❌ ${escapeHtml(data.detail || data.message || '수정 실패')}`);
+                    return;
+                }
+                // 반환된 draft로 미리보기 갱신
+                const d = data.draft || {};
+                if (d.body) {
+                    const safe = (window.DOMPurify && window.DOMPurify.sanitize)
+                        ? window.DOMPurify.sanitize(d.body, { USE_PROFILES: { html: true } })
+                        : d.body;
+                    const preview = document.getElementById('compose-draft-preview');
+                    if (preview) preview.innerHTML = `<div class="email-body-html">${safe}</div>`;
+                }
+                addBotMessage('✅ 초안을 저장했습니다.');
+            } catch (e) {
+                addBotMessage(`❌ 수정 요청 중 오류: ${escapeHtml(String(e))}`);
+            }
+        }
+
+        async function sendComposeDraft() {
+            const subject = document.getElementById('compose-draft-subject')?.value || '';
+            const bodyText = document.getElementById('compose-draft-body')?.value || '';
+
+            try {
+                const res = await authenticatedFetch('/api/email/compose/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId, subject, body_text: bodyText }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    addBotMessage(`❌ ${escapeHtml(data.detail || data.message || '전송 실패')}`);
+                    return;
+                }
+                addBotMessage(`✅ 전송 완료\n- to: ${escapeHtml(data.to || '')}`);
+            } catch (e) {
+                addBotMessage(`❌ 전송 요청 중 오류: ${escapeHtml(String(e))}`);
+            }
+        }
+
+        function toggleComposeEditOptions() {
+            const el = document.getElementById('compose-edit-options');
+            if (!el) return;
+            el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+        }
+
+        async function cancelComposeDraft() {
+            try {
+                const res = await authenticatedFetch('/api/email/compose/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    addBotMessage(`❌ ${escapeHtml(data.detail || data.message || '취소 실패')}`);
+                    return;
+                }
+                addBotMessage('✅ 이메일 작성이 취소되었습니다.');
+            } catch (e) {
+                addBotMessage(`❌ 취소 요청 중 오류: ${escapeHtml(String(e))}`);
+            }
+        }
+
+        function addEmailCards(message, emails) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+
+            const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+            lastEmailRows = Array.isArray(emails) ? emails : [];
+
+            let cardsHTML = '<div class="email-cards-container">';
+            lastEmailRows.forEach((mail, i) => {
+                const idx = mail.index || (i + 1);
+                const title = mail.title || '(제목 없음)';
+                const from = mail.from || '(발신자 없음)';
+                const date = mail.date || '';
+                const uid = mail.email_id || '';
+
+                const s1 = (mail.summary_line1 || '').trim();
+                const s2 = (mail.summary_line2 || '').trim();
+                const summary = (mail.summary || '').trim() || [s1, s2].filter(Boolean).join('\n');
+                const summaryBlock = summary ? `<div class="email-card-summary">${escapeHtml(summary)}</div>` : '';
+
+                cardsHTML += `
+                    <div class="email-card" onclick="showEmailDetail(${i})">
+                        <div class="card-header">
+                            <span class="card-number">${idx}</span>
+                            <span class="card-match">UID: ${escapeHtml(uid)}</span>
+                        </div>
+                        <div class="email-card-title">${escapeHtml(title)}</div>
+                        <div class="email-card-meta">
+                            <span><b>From</b>: ${escapeHtml(from)}</span>
+                            ${date ? `<span><b>Date</b>: ${escapeHtml(date)}</span>` : ''}
+                        </div>
+                        ${summaryBlock}
+                        <div class="card-footer">
+                            <span class="card-click-hint">클릭하여 메일 전문 보기 →</span>
+                        </div>
+                    </div>
+                `;
+            });
+            cardsHTML += '</div>';
+
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-bubble">${message}</div>
+                    ${cardsHTML}
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        function showEmailDetail(index) {
+            const mail = lastEmailRows[index];
+            if (!mail) return;
+
+            const messagesContainer = document.getElementById('chatMessages');
+            const detailDiv = document.createElement('div');
+            detailDiv.className = 'message bot email-detail';
+            detailDiv.id = `email-detail-${index}`;
+
+            const title = mail.title || '(제목 없음)';
+            const from = mail.from || '(발신자 없음)';
+            const date = mail.date || '';
+            const uid = mail.email_id || '';
+
+            detailDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="email-detail-container">
+                        <div class="detail-header">
+                            <h2>${escapeHtml(title)}</h2>
+                            <button class="close-detail-btn" onclick="closeEmailDetail(${index})">✕</button>
+                        </div>
+                        <div class="email-detail-meta">
+                            <span><b>From</b>: ${escapeHtml(from)}</span>
+                            ${date ? `<span><b>Date</b>: ${escapeHtml(date)}</span>` : ''}
+                            ${uid ? `<span><b>UID</b>: ${escapeHtml(uid)}</span>` : ''}
+                        </div>
+                        <div class="email-body">
+                            <h3 style="margin-bottom:10px;">메일 본문</h3>
+                            <div class="email-body-html" id="email-body-${index}"></div>
+                        </div>
+                        <div class="email-reply-box">
+                            <h3 style="margin-bottom:10px;">답장</h3>
+                            <textarea
+                                class="email-reply-textarea"
+                                id="email-reply-input-${index}"
+                                placeholder="수동: 그대로 전송될 답장 내용을 입력하세요. / 자동: '내일 가능하다고 답장해줘' 같은 지시문을 입력하세요."
+                            ></textarea>
+                            <div class="email-reply-actions">
+                                <button class="email-reply-btn" onclick="sendEmailReply(${index}, 'auto')">자동 답장 보내기</button>
+                                <button class="email-reply-btn secondary" onclick="sendEmailReply(${index}, 'manual')">수동 답장 보내기</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const existingDetail = document.getElementById(`email-detail-${index}`);
+            if (existingDetail) existingDetail.remove();
+
+            messagesContainer.appendChild(detailDiv);
+
+            const bodyEl = document.getElementById(`email-body-${index}`);
+            if (!bodyEl) return;
+
+            const content = (mail.content || '');
+            const contentType = (mail.content_type || '').toLowerCase();
+
+            if (contentType === 'html') {
+                const safe = (window.DOMPurify && window.DOMPurify.sanitize)
+                    ? window.DOMPurify.sanitize(content, { USE_PROFILES: { html: true } })
+                    : content;
+                bodyEl.className = 'email-body-html';
+                bodyEl.innerHTML = safe;
+            } else {
+                bodyEl.className = 'email-body-text';
+                bodyEl.textContent = content;
+            }
+
+            scrollToBottom();
+        }
+
+        function closeEmailDetail(index) {
+            const detailDiv = document.getElementById(`email-detail-${index}`);
+            if (detailDiv) detailDiv.remove();
+        }
+
+        async function sendEmailReply(index, mode) {
+            const mail = lastEmailRows[index];
+            if (!mail) return;
+
+            const textarea = document.getElementById(`email-reply-input-${index}`);
+            if (!textarea) return;
+
+            const text = (textarea.value || '').trim();
+            if (!text) {
+                alert('답장 내용을 입력해주세요.');
+                return;
+            }
+
+            const uid = mail.email_id;
+            if (!uid) {
+                alert('UID가 없습니다.');
+                return;
+            }
+
+            try {
+                const res = await authenticatedFetch('/api/email/reply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        uid: uid,
+                        mode: mode, // auto | manual
+                        message: text,
+                        session_id: currentSessionId || null,
+                    }),
+                });
+
+                let data = null;
+                try { data = await res.json(); } catch (_) {}
+
+                if (!res.ok || !data || !data.ok) {
+                    const msg = (data && (data.detail || data.message)) || `답장 실패 (HTTP ${res.status})`;
+                    addBotMessage(`❌ ${escapeHtml(msg)}`);
+                    return;
+                }
+
+                addBotMessage(`✅ 답장 전송 완료\n- to: ${escapeHtml(data.to || '')}\n- uid: ${escapeHtml(data.uid || '')}`);
+                textarea.value = '';
+            } catch (e) {
+                addBotMessage(`❌ 답장 요청 중 오류: ${escapeHtml(String(e))}`);
+            }
         }
 
         // Recruitment 검색 결과를 카드 형식으로 표시

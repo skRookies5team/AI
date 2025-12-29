@@ -268,11 +268,58 @@ class ChatResponse(BaseModel):
     ok: bool = Field(..., description="요청 처리 성공 여부")
     message: str = Field(..., description="에이전트 응답 메시지")
     rows: list[dict[str, Any]] = Field(default_factory=list, description="조회된 데이터 (있는 경우)")
+    email_ids: list[str] = Field(default_factory=list, description="이메일 검색 결과 UID 리스트 (있는 경우)")
+    email_draft: Optional[dict[str, Any]] = Field(default=None, description="이메일 초안 (있는 경우)")
     error: Optional[str] = Field(default=None, description="오류 메시지")
     session_id: Optional[str] = Field(default=None, description="세션 ID")
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
     requires_input: Optional[bool] = Field(default=False, description="사용자 입력 필요 여부 (예시문 표시 시)")
     last_domain: Optional[str] = Field(default=None, description="LLM 라우팅 시 결정된 도메인 (schedule, document, qa, email, tech)")
+
+
+class EmailReplyRequest(BaseModel):
+    """이메일 UID 기반 답장 요청 모델."""
+
+    uid: str = Field(..., description="답장 대상 메일 UID")
+    mode: str = Field(..., description="auto(자동) 또는 manual(수동)")
+    message: str = Field(..., description="auto: 지시문/요청, manual: 답장 본문(그대로 전송)")
+    session_id: Optional[str] = Field(default=None, description="세션 ID (선택)")
+
+
+class EmailComposeModifyRequest(BaseModel):
+    """작성중인 이메일 초안 직접 수정(저장) 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
+    subject: str = Field(..., description="수정된 제목")
+    body_text: str = Field(..., description="수정된 본문(텍스트)")
+
+class EmailComposeSendRequest(BaseModel):
+    """작성중인 이메일 초안 전송 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
+    subject: str = Field(..., description="최종 제목")
+    body_text: str = Field(..., description="최종 본문(텍스트)")
+
+
+class EmailComposeCancelRequest(BaseModel):
+    """작성중인 이메일 초안 취소(컨텍스트 초기화) 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
+
+
+class NotificationReadRequest(BaseModel):
+    """알림 읽음 처리 요청."""
+
+    ids: list[str] = Field(default_factory=list, description="읽음 처리할 알림 id 리스트")
+
+
+class NotificationTestRequest(BaseModel):
+    """프론트/스트림 테스트용 알림 발행 요청(개발용).
+
+    주의: 기본적으로 비활성화되어 있고, ENABLE_NOTIFICATION_TEST_ENDPOINT=true 일 때만 동작합니다.
+    """
+
+    kind: str = Field(default="email_new", description="알림 종류 (email_new 등)")
 
 
 class SessionRequest(BaseModel):
@@ -496,9 +543,12 @@ async def serve_document(filename: str):
     )
 
 
-@app.get("/api/notifications/stream")
-async def notifications_stream(session_id: str):
-    """세션별 알림 스트림(SSE). 새 메일 수신 등 백그라운드 이벤트를 프론트로 푸시합니다."""
+@app.get("/api/notifications/stream/session")
+async def notifications_stream_session(session_id: str):
+    """세션별 알림 스트림(SSE) - 레거시.
+
+    기존 구현은 session_id 기반 큐를 사용합니다.
+    """
 
     async def event_generator():
         q = get_notification_queue(session_id)
@@ -525,6 +575,123 @@ async def notifications_stream(session_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/api/notifications/stream")
+async def notifications_stream_employee(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """employee_id 단위 알림 스트림(SSE).
+
+    - Authorization(Bearer) 기반으로 employee_id를 식별합니다.
+    - employee_id 큐 + Redis 영속 저장과 함께 사용됩니다.
+    """
+    from agents.notifications import get_employee_notification_queue
+
+    employee_id = current_user["employee_id"]
+
+    async def event_generator():
+        q = get_employee_notification_queue(employee_id)
+        while True:
+            try:
+                payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except asyncio.TimeoutError:
+                yield "event: ping\ndata: {}\n\n"
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                err = {"type": "error", "message": str(e)}
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/notifications")
+async def list_notifications(
+    limit: int = 50,
+    unread_only: bool = False,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """employee_id 알림 목록 조회 (Redis 영속 저장분)."""
+    from agents.notifications import list_employee_notifications
+
+    employee_id = current_user["employee_id"]
+    items = await list_employee_notifications(employee_id, limit=limit, unread_only=unread_only)
+    return {"ok": True, "items": items}
+
+
+@app.post("/api/notifications/read")
+async def read_notifications(
+    payload: NotificationReadRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """employee_id 알림 읽음 처리."""
+    from agents.notifications import mark_employee_notifications_read
+
+    employee_id = current_user["employee_id"]
+    updated = await mark_employee_notifications_read(employee_id, payload.ids or [])
+    return {"ok": True, "updated": updated}
+
+
+@app.post("/api/notifications/clear")
+async def clear_notifications(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """employee_id 알림 전체 삭제."""
+    from agents.notifications import clear_employee_notifications
+
+    employee_id = current_user["employee_id"]
+    await clear_employee_notifications(employee_id)
+    return {"ok": True}
+
+
+@app.post("/api/notifications/test")
+async def notifications_test_publish(
+    payload: NotificationTestRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """개발/디버그용: 현재 로그인한 employee에게 테스트 알림을 1건 발행합니다.
+
+    - 기본적으로는 404로 막습니다.
+    - ENABLE_NOTIFICATION_TEST_ENDPOINT=true 일 때만 활성화됩니다.
+    """
+
+    if os.environ.get("ENABLE_NOTIFICATION_TEST_ENDPOINT", "").lower() not in ("1", "true", "yes", "y"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    from agents.notifications import publish_employee_notification
+
+    employee_id = current_user["employee_id"]
+
+    if payload.kind == "email_new":
+        body = {
+            "type": "email_new",
+            "count": 1,
+            "items": [
+                {
+                    "index": "1",
+                    "uid": "TEST-UID",
+                    "subject": "테스트 메일 알림",
+                    "from": "test@example.com",
+                    "date": datetime.now().isoformat(),
+                }
+            ],
+        }
+    else:
+        body = {"type": payload.kind, "message": "test"}
+
+    item = await publish_employee_notification(int(employee_id), body)
+    return {"ok": True, "item": item}
 
 
 @app.post("/api/chat/stream")
@@ -679,8 +846,10 @@ async def chat_stream_endpoint(
                 # domain이 없으면 last_domain을 fallback으로 사용
                 last_domain = final_state.get("domain") or final_state.get("last_domain")
                 
-                # Recruitment 도메인인 경우 검색 결과를 rows에 포함
+                # 도메인별 rows/email_ids 추출
                 rows = []
+                email_ids: list[str] = []
+                email_draft = None
                 if last_domain == "recruitment":
                     search_results = final_state.get("search_results", [])
                     if search_results:
@@ -690,7 +859,22 @@ async def chat_stream_endpoint(
                     search_results = final_state.get("search_results", [])
                     if search_results:
                         rows = search_results
-                
+                    rows = final_state.get("search_results", []) or []
+                elif last_domain == "email":
+                    rows = final_state.get("search_results", []) or []
+                    email_ids = final_state.get("email_ids", []) or []
+                    email_draft = final_state.get("email_draft")
+                    if isinstance(email_draft, dict):
+                        ctx = final_state.get("email_compose_context") or {}
+                        if isinstance(ctx, dict):
+                            to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+                            if to_email:
+                                email_draft.setdefault("to", to_email)
+                            if ctx.get("cc"):
+                                email_draft.setdefault("cc", ctx.get("cc"))
+                            if ctx.get("bcc"):
+                                email_draft.setdefault("bcc", ctx.get("bcc"))
+
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
                 
@@ -699,9 +883,9 @@ async def chat_stream_endpoint(
                 # 2순위: schedule_context.interview (하위 호환성)
                 schedule_context = final_state.get("schedule_context") or {}  # ✅ None 체크 추가
                 interview_context = schedule_context.get("interview", {}) if schedule_context else {}  # ✅ 안전하게 처리
-                
+
                 # 최상위 레벨 우선, 없으면 interview_context에서 읽기
-                requires_interviewer_selection = final_state.get("requires_interviewer_selection", 
+                requires_interviewer_selection = final_state.get("requires_interviewer_selection",
                                                                  interview_context.get("requires_interviewer_selection", False))
                 requires_date_range = final_state.get("requires_date_range_input",
                                                      interview_context.get("requires_date_range", False))
@@ -713,7 +897,7 @@ async def chat_stream_endpoint(
                                                               interview_context.get("interviewer_selection_config"))
                 available_slots = final_state.get("available_slots",
                                                  interview_context.get("available_slots")) or []  # ✅ None일 경우 빈 배열로 처리 or []  # ✅ None일 경우 빈 배열로 처리
-                
+
                 # 디버깅: 문서 업데이트 UI 플래그 확인
                 print(f"🔍 [FastAPI] 문서 업데이트 UI 플래그: {show_document_update_ui}")
                 print(f"🔍 [FastAPI] 면접관 선택 플래그: {requires_interviewer_selection}")
@@ -728,6 +912,8 @@ async def chat_stream_endpoint(
                     "ok": True,
                     "message": final_msg,
                     "rows": rows,  # Recruitment 검색 결과 또는 빈 배열
+                    "email_ids": email_ids,  # ✅ 이메일 검색 UID 리스트
+                    "email_draft": email_draft,  # ✅ 이메일 초안 (작성 흐름)
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
@@ -1119,13 +1305,39 @@ async def chat_endpoint(
         # domain이 없으면 last_domain을 fallback으로 사용
         last_domain = final_state.get("domain") or final_state.get("last_domain")
         
-        # Recruitment 도메인인 경우 검색 결과를 rows에 포함
-        rows = []
+        # 도메인별 rows/email_ids 추출
+        rows: list[dict[str, Any]] = []
+        email_ids: list[str] = []
+        email_draft = None
         if last_domain == "recruitment":
             search_results = final_state.get("search_results", [])
             if search_results:
                 # 카드 형식으로 변환
                 rows = search_results
+                print(f"✅ search_results에서 {len(rows)}개 인재 결과 추출")
+            else:
+                # search_results가 없으면 recruitment_context의 last_results에서 가져오기
+                recruitment_context = final_state.get("recruitment_context", {})
+                if recruitment_context and isinstance(recruitment_context, dict):
+                    resume_search = recruitment_context.get("resume_search", {})
+                    last_results = resume_search.get("last_results", [])
+                    if last_results:
+                        rows = last_results
+                        print(f"✅ recruitment_context에서 {len(rows)}개 인재 결과 추출")
+        elif last_domain == "email":
+            rows = final_state.get("search_results", []) or []
+            email_ids = final_state.get("email_ids", []) or []
+            email_draft = final_state.get("email_draft")
+            if isinstance(email_draft, dict):
+                ctx = final_state.get("email_compose_context") or {}
+                if isinstance(ctx, dict):
+                    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+                    if to_email:
+                        email_draft.setdefault("to", to_email)
+                    if ctx.get("cc"):
+                        email_draft.setdefault("cc", ctx.get("cc"))
+                    if ctx.get("bcc"):
+                        email_draft.setdefault("bcc", ctx.get("bcc"))
         elif last_domain == "tech":
             # Tech 도메인(논문/특허)인 경우 검색 결과를 rows에 포함
             search_results = final_state.get("search_results", [])
@@ -1136,6 +1348,8 @@ async def chat_endpoint(
             ok=True,
             message=final_msg,
             rows=rows,  # Recruitment 검색 결과 또는 빈 배열
+            email_ids=email_ids,  # ✅ 이메일 검색 UID 리스트
+            email_draft=email_draft,  # ✅ 이메일 초안 (작성 흐름)
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
@@ -1146,6 +1360,261 @@ async def chat_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"챗봇 처리 실패: {exc}") from exc
+
+
+@app.post("/api/email/reply")
+async def email_reply_endpoint(
+    payload: EmailReplyRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """메일 UID 기반 답장 전송 API.
+
+    - manual: 사용자가 입력한 message를 그대로 답장 본문으로 전송
+    - auto: 사용자 message(지시문)를 기반으로 AI가 답장 초안을 생성하여 전송
+    """
+    import re
+    import html as html_module
+    import email as email_pkg
+
+    employee_id = current_user["employee_id"]
+    uid = (payload.uid or "").strip()
+    mode = (payload.mode or "").strip().lower()
+    user_text = (payload.message or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="uid가 필요합니다.")
+    if mode not in {"auto", "manual"}:
+        raise HTTPException(status_code=400, detail="mode는 auto 또는 manual 이어야 합니다.")
+    if not user_text:
+        raise HTTPException(status_code=400, detail="message가 비어있습니다.")
+
+    # IMAP에서 원문을 가져온 뒤, Reply-To/From으로 답장 대상 추출
+    from agents.master_graphs.email.email_search_agent import (
+        _imap_connect,
+        _decode_mime_header,
+        _decode_header_value,
+        _get_email_body_and_attachments,
+    )
+    from agents.master_graphs.email.email_compose_agent import (
+        generate_email_draft,
+        send_email_via_smtp,
+        add_company_signature,
+    )
+
+    EMAIL_ADDR_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+    mail = None
+    try:
+        mail = _imap_connect()
+        st2, msg_data = mail.uid("fetch", uid, "(RFC822)")
+        if st2 != "OK" or not msg_data or not msg_data[0]:
+            raise HTTPException(status_code=404, detail=f"메일을 가져오지 못했습니다. (uid={uid})")
+
+        msg = email_pkg.message_from_bytes(msg_data[0][1])
+        original_subject = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
+        original_from = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
+        original_date = _decode_header_value(msg.get("Date", "")) or ""
+        reply_to_header = _decode_mime_header(msg.get("Reply-To", "")) or ""
+
+        # 답장 대상(to): Reply-To 우선, 없으면 From
+        to_source = reply_to_header or original_from
+        m = EMAIL_ADDR_RE.search(to_source)
+        if not m:
+            raise HTTPException(status_code=400, detail=f"답장 대상 이메일 주소를 추출할 수 없습니다: {to_source}")
+        to_email = m.group(0)
+
+        # 원문 본문
+        text_body, html_body, _atts = _get_email_body_and_attachments(msg)
+        original_body = html_body or text_body or ""
+
+        # 스레딩 헤더 (가능하면 유지)
+        original_message_id = (msg.get("Message-ID") or "").strip()
+        original_references = (msg.get("References") or "").strip()
+        extra_headers: dict[str, str] = {}
+        if original_message_id:
+            extra_headers["In-Reply-To"] = original_message_id
+            if original_references:
+                extra_headers["References"] = f"{original_references} {original_message_id}".strip()
+            else:
+                extra_headers["References"] = original_message_id
+
+        # auto: LLM로 답장 생성
+        if mode == "auto":
+            subject, body = await generate_email_draft(
+                to_email=to_email,
+                user_message=user_text,
+                original_subject=original_subject,
+                original_sender=original_from,
+                original_body=original_body,
+                employee_id=employee_id,
+            )
+        # manual: 사용자 입력 그대로 전송(LLM 없이)
+        else:
+            subject = original_subject
+            if not re.match(r"(?i)^\s*re\s*:", subject or ""):
+                subject = f"Re: {subject}"
+
+            safe = html_module.escape(user_text).replace("\n", "<br>")
+            body = (
+                "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+                "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+                f"{safe}"
+                "</div>"
+            )
+            body = await add_company_signature(body, employee_id=employee_id)
+
+        ok, err = send_email_via_smtp(
+            to=to_email,
+            subject=subject,
+            body=body,
+            is_html=True,
+            extra_headers=extra_headers or None,
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail=f"답장 전송 실패: {err or 'unknown error'}")
+
+        return {
+            "ok": True,
+            "message": "✅ 답장을 전송했습니다.",
+            "uid": uid,
+            "to": to_email,
+            "original_subject": original_subject,
+            "original_from": original_from,
+            "original_date": original_date,
+            "mode": mode,
+        }
+    finally:
+        try:
+            if mail:
+                mail.logout()
+        except Exception:
+            pass
+
+
+@app.post("/api/email/compose/modify")
+async def email_compose_modify_endpoint(
+    payload: EmailComposeModifyRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """이메일 작성 초안을 사용자가 직접 수정한 내용으로 저장."""
+    import html as html_module
+
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    ctx = session_data.get("email_compose_context") or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+
+    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+    if not to_email:
+        raise HTTPException(status_code=400, detail="수신자(to_email)가 없습니다. 먼저 이메일 초안을 생성해주세요.")
+
+    subject = (payload.subject or "").strip() or "(제목 없음)"
+    body_text = payload.body_text or ""
+
+    from agents.master_graphs.email.email_compose_agent import add_company_signature
+
+    safe = html_module.escape(body_text).replace("\n", "<br>")
+    body_html = (
+        "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+        "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+        f"{safe}"
+        "</div>"
+    )
+    body_html = await add_company_signature(body_html, employee_id=employee_id)
+
+    ctx["email_draft_subject"] = subject
+    ctx["email_draft_body"] = body_html
+    ctx["to_email"] = to_email
+
+    # 저장
+    session_data["email_compose_context"] = ctx
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+
+    return {"ok": True, "message": "✅ 초안을 저장했습니다.", "draft": {"to": to_email, "subject": subject, "body": body_html}}
+
+
+@app.post("/api/email/compose/send")
+async def email_compose_send_endpoint(
+    payload: EmailComposeSendRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """작성중인 이메일 초안을 전송하고 컨텍스트를 초기화."""
+    import html as html_module
+
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    ctx = session_data.get("email_compose_context") or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+
+    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+    if not to_email:
+        raise HTTPException(status_code=400, detail="수신자(to_email)가 없습니다. 먼저 이메일 초안을 생성해주세요.")
+
+    subject = (payload.subject or "").strip() or "(제목 없음)"
+    body_text = payload.body_text or ""
+
+    from agents.master_graphs.email.email_compose_agent import send_email_via_smtp, add_company_signature
+
+    safe = html_module.escape(body_text).replace("\n", "<br>")
+    body_html = (
+        "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+        "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+        f"{safe}"
+        "</div>"
+    )
+    body_html = await add_company_signature(body_html, employee_id=employee_id)
+
+    ok, err = send_email_via_smtp(
+        to=to_email,
+        subject=subject,
+        body=body_html,
+        cc=ctx.get("cc"),
+        bcc=ctx.get("bcc"),
+        is_html=True,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"이메일 전송 실패: {err or 'unknown error'}")
+
+    # 전송 성공 → 컨텍스트 초기화
+    session_data["email_compose_context"] = {}
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+
+    return {"ok": True, "message": "✅ 이메일을 전송했습니다.", "to": to_email}
+
+
+@app.post("/api/email/compose/cancel")
+async def email_compose_cancel_endpoint(
+    payload: EmailComposeCancelRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """작성중인 이메일 초안 취소: email_compose_context를 비웁니다."""
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    session_data["email_compose_context"] = {}
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+    return {"ok": True, "message": "✅ 이메일 작성이 취소되었습니다."}
 
 
 @app.post("/api/upload-document", response_model=DocumentUploadResponse)
@@ -1629,15 +2098,15 @@ async def add_messages_to_session(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """프론트엔드 UI 상호작용 메시지를 conversation_history에 추가.
-    
+
     AI 그래프 실행 없이 메시지만 저장합니다.
     카테고리 선택, FAQ 클릭 등 프론트엔드에서 처리되는 상호작용에 사용.
-    
+
     Args:
         session_id: 세션 ID
         payload: 추가할 메시지 리스트
         current_user: 인증된 사용자
-        
+
     Returns:
         저장 결과
     """
@@ -1646,7 +2115,7 @@ async def add_messages_to_session(
         session_manager = await get_session_manager()
         if not session_manager:
             raise HTTPException(status_code=500, detail="세션 관리자를 사용할 수 없습니다.")
-        
+
         # 기존 세션 데이터 로드 (없으면 새로 생성)
         try:
             session_data = await session_manager.load_session_data(session_id, employee_id)
@@ -1658,9 +2127,9 @@ async def add_messages_to_session(
                 title="새 대화"
             )
             session_data = await session_manager.load_session_data(session_id, employee_id)
-        
+
         conversation_history = session_data.get("conversation_history", [])
-        
+
         # 새 메시지 추가
         for msg in payload.messages:
             conversation_history.append({
@@ -1668,16 +2137,16 @@ async def add_messages_to_session(
                 "content": msg.content,
                 "timestamp": msg.timestamp or datetime.now().isoformat()
             })
-        
+
         # conversation_history만 업데이트하여 저장
         session_data["conversation_history"] = conversation_history
-        
+
         # ✅ employee_id 추가 (save_session_state에서 필수로 요구)
         if "employee_id" not in session_data:
             session_data["employee_id"] = employee_id
-        
+
         await session_manager.save_session_state(session_id, session_data)
-        
+
         return {
             "ok": True,
             "message": f"{len(payload.messages)}개 메시지가 저장되었습니다.",
@@ -2246,34 +2715,34 @@ async def get_employees(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """사원 목록 조회 (부서, 직급 필터링 지원).
-    
+
     면접관 선택 등에 사용됩니다.
-    
+
     Args:
         dept: 부서 필터 (예: "개발팀")
         position: 직급 필터 (예: "과장")
         status: 직원 상태 (기본값: "Active")
-        
+
     Returns:
         사원 목록 [{"employee_id": int, "name": str, "dept": str, ...}, ...]
     """
     try:
         from agents.master_graphs.schedule.services.database_service import DatabaseService
         from sqlalchemy import text
-        
+
         db = DatabaseService()
-        
+
         clauses = []
         params: Dict[str, Any] = {}
-        
+
         if dept:
             clauses.append("dept = :dept")
             params["dept"] = dept
-        
+
         if position:
             clauses.append("(position = :position OR job_title = :position)")
             params["position"] = position
-        
+
         # ✅ status 필터 수정: 'Active' 또는 '재직 중' 둘 다 매칭
         if status and status.strip():
             if status.lower() == 'active':
@@ -2283,11 +2752,11 @@ async def get_employees(
                 clauses.append("employment_status = :status")
                 params["status"] = status
         # status가 None이면 필터 적용 안 함 (전체 조회)
-        
+
         where_sql = " AND ".join(clauses) if clauses else "1=1"
-        
+
         sql = f"""
-        SELECT 
+        SELECT
             employee_id,
             name,
             dept,
@@ -2299,18 +2768,18 @@ async def get_employees(
         WHERE {where_sql}
         ORDER BY dept, position, name
         """
-        
+
         async with db._session() as session:
             result = await session.execute(text(sql), params)
             employees = [dict(row) for row in result.mappings().all()]
-        
+
         # ✅ 로그 추가
         print(f"✅ [API] /api/employees 조회 결과: {len(employees)}명")
         if employees:
             print(f"✅ [API] 첫 번째 사원 예시: {employees[0]}")
         else:
             print(f"⚠️ [API] 사원 데이터가 없습니다. SQL: {sql}, params: {params}")
-        
+
         return employees
     except Exception as e:
         import traceback

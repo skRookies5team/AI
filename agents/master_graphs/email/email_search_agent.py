@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from agents.notifications import publish_notification
+from agents.notifications import publish_notification, publish_employee_notification
 from agents.structured_output import extract_structured_output, TeamRecipientParams
 from sqlalchemy import text
 
@@ -1605,17 +1605,44 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 			email_data[str(idx)] = email_info
 
 		if email_data:
-			summary_message = f"📧 새 메일 도착: {len(email_data)}개"
-			json_result = {summary_message: email_data}
-			publish_notification(
-				session_id,
-				{
-					"type": "email_new",
-					"session_id": session_id,
-					"data": json_result,
-					"timestamp": datetime.now().isoformat(),
-				},
-			)
+			# employee 단위 알림(영속+실시간): session_id -> employee_id 매핑 사용
+			emp_id = _EMAIL_CHECKER_ACTIVE_SESSIONS.get(session_id)
+			if emp_id:
+				# UI 친화 payload: uid 리스트 + 요약 아이템
+				uids = list(imap_recent[: len(email_data)]) if isinstance(imap_recent, list) else []
+				items = []
+				for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
+					it = email_data.get(k) or {}
+					items.append(
+						{
+							"index": str(k),
+							"uid": uids[int(k) - 1] if (uids and str(k).isdigit() and 0 <= int(k) - 1 < len(uids)) else None,
+							"subject": it.get("subject", ""),
+							"from": it.get("from", ""),
+							"date": it.get("date", ""),
+						}
+					)
+				await publish_employee_notification(
+					int(emp_id),
+					{
+						"type": "email_new",
+						"count": len(email_data),
+						"items": items,
+					},
+				)
+			else:
+				# fallback: 세션 단위(레거시)
+				summary_message = f"📧 새 메일 도착: {len(email_data)}개"
+				json_result = {summary_message: email_data}
+				publish_notification(
+					session_id,
+					{
+						"type": "email_new",
+						"session_id": session_id,
+						"data": json_result,
+						"timestamp": datetime.now().isoformat(),
+					},
+				)
 
 		# 6) Redis 최근 100개 UID 목록을 최신으로 갱신(요구사항)
 		if redis_client:
@@ -1827,18 +1854,44 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 					except Exception:
 						pass
 
-			summary_message = f"📧 새 메일 도착: {len(new_uids)}개"
-			json_result = {summary_message: email_data}
-			# 프론트로 알림 발행 (세션별 저장 없음)
-			publish_notification(
-				session_id,
-				{
-					"type": "email_new",
-					"session_id": session_id,
-					"data": json_result,
-					"timestamp": datetime.now().isoformat(),
-				},
-			)
+			# employee 단위 알림(영속+실시간): session_id -> employee_id 매핑 사용
+			emp_id = _EMAIL_CHECKER_ACTIVE_SESSIONS.get(session_id)
+			if emp_id:
+				items = []
+				for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
+					it = email_data.get(k) or {}
+					idx = int(k) if str(k).isdigit() else None
+					uid = new_uids[idx - 1] if (idx and 0 <= idx - 1 < len(new_uids)) else None
+					items.append(
+						{
+							"index": str(k),
+							"uid": uid,
+							"subject": it.get("subject", ""),
+							"from": it.get("from", ""),
+							"date": it.get("date", ""),
+						}
+					)
+				await publish_employee_notification(
+					int(emp_id),
+					{
+						"type": "email_new",
+						"count": len(new_uids),
+						"items": items,
+					},
+				)
+			else:
+				summary_message = f"📧 새 메일 도착: {len(new_uids)}개"
+				json_result = {summary_message: email_data}
+				# 프론트로 알림 발행 (세션별 저장 없음)
+				publish_notification(
+					session_id,
+					{
+						"type": "email_new",
+						"session_id": session_id,
+						"data": json_result,
+						"timestamp": datetime.now().isoformat(),
+					},
+				)
 		except asyncio.CancelledError:
 			# 종료 시에는 1줄만 남기고 깔끔하게 종료
 			print(f"[EMAIL CHECK][{session_id}] 체커 종료(cancelled)")
@@ -2145,6 +2198,12 @@ async def email_search(
 					"index": str(idx),
 					"email_id": uid_str,  # UID
 					"actual_index": idx - 1,
+					# ✅ 이메일 전문(HTML 또는 텍스트)
+					"content": info.get("content", ""),
+					# ✅ 렌더링 힌트(선택): 프론트에서 HTML/text 분기용
+					"content_type": (
+						"html" if (info.get("content", "").lstrip().startswith("<")) else "text"
+					),
 				}
 			)
 
