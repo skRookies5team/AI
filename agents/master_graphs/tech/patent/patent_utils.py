@@ -6,18 +6,60 @@ from typing import Optional, List
 from .patent_keyword import generate_patent_keyword
 
 
+def _remove_search_mode_keywords(user_text: str) -> str:
+    """검색 모드 키워드를 제거하여 실제 검색어만 추출.
+    
+    Args:
+        user_text: 사용자 입력 텍스트
+        
+    Returns:
+        검색 모드 키워드가 제거된 텍스트
+    """
+    text = user_text
+    
+    # 웹 검색 모드 키워드 제거
+    web_keywords = [
+        "웹에서", "인터넷에서", "온라인에서", "kipris", 
+        "웹 검색", "인터넷 검색", "웹으로", "인터넷으로",
+        "웹", "인터넷", "온라인"
+    ]
+    
+    # 서버 검색 모드 키워드 제거
+    server_keywords = [
+        "서버에서", "내부에서", "벡터db", "벡터 db", "벡터DB", "벡터 DB",
+        "내부 데이터", "사내", "서버로", "내부로", "서버", "내부"
+    ]
+    
+    # 모든 검색 모드 키워드 제거
+    all_keywords = web_keywords + server_keywords
+    
+    # 키워드 제거 (대소문자 구분 없이)
+    for keyword in all_keywords:
+        # 정규식으로 단어 경계를 고려하여 제거
+        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+        text = pattern.sub("", text)
+    
+    # 연속된 공백 제거 및 앞뒤 공백 제거
+    text = re.sub(r"\s+", " ", text).strip()
+    
+    return text
+
+
 def _extract_keyword(user_text: str) -> str:
     """사용자 질문에서 키워드 추출 (LLM 기반).
     
     특허 전용 키워드 생성 모듈을 사용하여 동적으로 키워드를 생성합니다.
     키워드는 자동으로 정규화되어 일관된 컬렉션 이름 생성을 보장합니다.
     """
+    # 검색 모드 키워드 제거
+    cleaned_text = _remove_search_mode_keywords(user_text)
+    
     try:
-        keyword = generate_patent_keyword(user_text)
-        return keyword if keyword else user_text
+        keyword = generate_patent_keyword(cleaned_text)
+        return keyword if keyword else cleaned_text
     except Exception as e:
         # LLM 실패 시 기본 파싱 로직 사용
-        t = user_text.strip()
+        t = cleaned_text.strip()
         
         # "관련" 앞 단어 추출
         if "관련" in t:
