@@ -385,8 +385,8 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         if filter_keyword:
             keyword = filter_keyword.strip()
             LOGGER.info("check_vector_db: filter_keyword에서 키워드 사용: '%s' (정규화된 키워드, 저장 시와 동일)", keyword)
-            # 이미 키워드가 있으면 원본 query를 임베딩용으로 사용
-            embedding_query = query
+            from .patent_utils import _remove_search_mode_keywords
+            embedding_query = _remove_search_mode_keywords(query)
         else:
             # filter_keyword가 없으면 query에서 추출
             from .patent_keyword import generate_patent_search_phrase
@@ -429,7 +429,7 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         
         # 구문 기반 매칭용 search_phrase 생성
         from .patent_keyword import generate_patent_search_phrase
-        search_phrase = generate_patent_search_phrase(query)
+        search_phrase = generate_patent_search_phrase(embedding_query)
         phrase_lower = search_phrase.lower()
         phrase_words = re.findall(r'[\w가-힣]+', phrase_lower)
         

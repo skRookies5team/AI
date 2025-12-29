@@ -128,7 +128,9 @@ def check_db_node(state: PatentSearchState) -> PatentSearchState:
     # 결과가 있고 유효한 경우에만 처리
     if results and len(results) > 0:
         # 구문 기반 필터링: 검색 구문 추출
-        search_phrase = generate_patent_search_phrase(query)
+        from .patent_utils import _remove_search_mode_keywords
+        cleaned_query = _remove_search_mode_keywords(query)
+        search_phrase = generate_patent_search_phrase(cleaned_query)
         phrase_lower = search_phrase.lower()
         phrase_words = re.findall(r'[\w가-힣]+', phrase_lower)
         
@@ -714,7 +716,7 @@ def get_workflow():
                 "rag_answer": "rag_answer",
                 "search_kipris": "search_kipris",
                 "ask_search_mode": "ask_search_mode",
-                "ask_web_search": "ask_web_search",  # 서버 검색 결과 없을 때 웹 검색 질문
+                "ask_web_search": "ask_web_search",
             }
         )
         

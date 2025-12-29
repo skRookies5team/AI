@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
+from agents.master_graphs.tech.article_agent_module.prompts import get_article_prompt
+
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -53,6 +55,18 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = KEYWORD_L
     Returns:
         str: 쉼표로 구분된 정제된 키워드 문자열.
     """
+    empty_indicators = ["빈 문자열", "빈문자열", "없음", "none", "n/a", "없습니다", "없어요", "없다", 
+                        "(빈 문자열)", "(빈문자열)", "()", "빈", "empty", 
+                        "None", "NONE", "null", "NULL", "Null"]
+    raw_output_stripped = raw_output.strip()
+    raw_output_lower = raw_output_stripped.lower()
+    raw_output_no_brackets = re.sub(r'[()\[\]]', '', raw_output_stripped).strip()
+    
+    if (not raw_output_stripped or 
+        raw_output_lower in [ind.lower() for ind in empty_indicators] or 
+        raw_output_no_brackets.lower() in [ind.lower() for ind in empty_indicators]):
+        return ""
+    
     candidates = re.split(r"[,/\n]+", raw_output)
     cleaned: List[str] = []
     for candidate in candidates:
@@ -86,7 +100,7 @@ def _clean_keyword_output(raw_output: str, fallback: str, limit: int = KEYWORD_L
     return fallback
 
 
-async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
+async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> Optional[str]:
     """사용자 질의를 학술 검색 키워드로 변환한다.
 
     Args:
@@ -94,11 +108,9 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
         max_tokens (int): 생성할 키워드의 최대 토큰 수.
 
     Returns:
-        str: 검색에 활용할 간결한 키워드. OpenAI API를 사용할 수 없으면 원본 질의를 반환.
+        str: 검색에 활용할 간결한 키워드. 실제 검색어가 없으면 빈 문자열 반환.
     """
     # 검색 소스 키워드 제거 (전처리)
-    # 웹/사내 서버 관련 키워드는 검색 키워드가 아니므로 제거
-    # 한글 조사를 고려한 패턴 사용
     search_source_keywords = ["웹", "인터넷", "온라인", "web", "internet", 
                               "사내", "내부", "서버", "internal", "server"]
     cleaned_input = user_input
@@ -115,31 +127,25 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
         ]
         for pattern in patterns:
             cleaned_input = re.sub(pattern, ' ', cleaned_input, flags=re.IGNORECASE)
+    
+    # 도메인 키워드 제거 (논문, paper, 학술 등)
+    domain_keywords = ["논문", "paper", "학술", "ScienceON", "검색", "찾아", "알려", "줘", "주세요", "해줘", "해주세요", "찾아줄래", "찾아줄래?"]
+    for dk in domain_keywords:
+        pattern = rf'\b{re.escape(dk)}\b'
+        cleaned_input = re.sub(pattern, '', cleaned_input, flags=re.IGNORECASE)
+    
     cleaned_input = " ".join(cleaned_input.split())  # 연속된 공백 제거
+    
+    # 도메인 키워드 제거 후 실제 검색어가 없으면 빈 문자열 반환
+    if not cleaned_input or len(cleaned_input.strip()) == 0:
+        return None
     
     if CLIENT is None:
         return _clean_keyword_output(cleaned_input, cleaned_input, limit=KEYWORD_LIMIT)
 
-    prompt = (
-        "다음 사용자 질의를 학술 논문 검색용 핵심 키워드로 요약해줘.\n"
-        "- 입력에 오타나 맞춤법 오류가 있으면 자동으로 올바른 단어로 수정한 후 키워드를 추출해줘.\n"
-        "- 예: '베터리' -> '배터리', '인공지능' -> '인공지능' (이미 올바름)\n"
-        "- 출력 형식: 사용자가 명시한 각 핵심 키워드를 쉼표로 구분해서 반환해.\n"
-        "  * 사용자가 조사(예시: '랑', '와', '과', '하고', ',')로 여러 키워드를 명시했으면 → 각각을 쉼표로 구분해서 반환\n"
-        "    예: '배터리랑 디스플레이' -> '배터리, 디스플레이'\n"
-        "    예: '배터리, 디스플레이' -> '배터리, 디스플레이'\n"
-        "  * 사용자가 단순히 띄어쓰기만 있는 경우(예: '전기차 배터리') → 하나의 키워드로 합쳐서 반환\n"
-        "    예: '전기차 배터리' -> '전기차배터리'\n"
-        "- 오타가 수정된 키워드를 반환해도 됩니다 (사용자 입력에 정확히 존재하지 않아도 수정된 올바른 단어 사용).\n"
-        "- 각 키워드는 1~2개의 핵심 단어로 구성하고, 질문에 등장한 핵심 개념에서만 선택해.\n"
-        "- '논문', '연구', '관련', '자료', '웹', '사내', '서버' 같은 일반 단어와 조사는 모두 제거해.\n"
-        "- 번호, 설명, 불릿, 접두어 같은 추가 문장은 절대 포함하지 마.\n"
-        "- 예시 입력: '배터리 관련 논문 필요해' -> 예시 출력: 배터리\n"
-        "- 예시 입력: '배터리랑 디스플레이 관련 논문 필요해' -> 예시 출력: 배터리, 디스플레이\n"
-        "- 예시 입력: '전기차 배터리 관련 논문' -> 예시 출력: 전기차배터리\n"
-        "- 예시 입력: '전기차배터리 관련 논문' -> 예시 출력: 전기차배터리\n"
-        f"입력: {cleaned_input}\n출력:"
-    )
+    # YAML에서 프롬프트 로드
+    prompt_template = get_article_prompt('keyword_generation', 'prompt')
+    prompt = prompt_template.format(cleaned_input=cleaned_input)
 
     try:
         response = await CLIENT.chat.completions.create(
@@ -149,10 +155,12 @@ async def generate_search_keyword(user_input: str, max_tokens: int = 32) -> str:
             temperature=0,
         )
         raw_output = response.choices[0].message.content.strip()
-        return _clean_keyword_output(raw_output, cleaned_input, limit=KEYWORD_LIMIT)
+        result = _clean_keyword_output(raw_output, cleaned_input, limit=KEYWORD_LIMIT)
+        return result if result and result.strip() else None
     except Exception:
         logging.exception("OpenAI keyword generation failed.")
-        return _clean_keyword_output(cleaned_input, cleaned_input, limit=KEYWORD_LIMIT)
+        result = _clean_keyword_output(cleaned_input, cleaned_input, limit=KEYWORD_LIMIT)
+        return result if result and result.strip() else None
 
 
 async def generate_summary(
@@ -193,17 +201,14 @@ async def generate_summary(
     # 검색 소스에 따른 명확한 프롬프트
     source_description = "웹에서 검색한" if search_source == "웹" else "사내 서버에서 검색한"
     
-    prompt = (
-        f"다음은 사용자의 질문과 {source_description} ScienceON 검색 결과 목록입니다.\n"
-        "사용자가 빠르게 이해할 수 있도록 한국어로 친절하게 요약 답변을 작성해 주세요.\n"
-        "각 항목의 논문 제목을 번호(1, 2, 3...)와 함께 순서대로 알려주고 원문 바로가기 링크는 답변에 포함하지 마세요.\n"
-        "답변 시작 부분에 '다음은 [검색 소스]에서 찾은 논문 제목입니다:' 같은 문구를 사용하여 명확히 표시하세요.\n"
-        "만약 결과가 없다면, 재검색 팁과 가능한 이유를 안내해 주세요.\n\n"
-        "답변 마지막에 '추가적인 정보가 필요하시면 논문 번호(예: 1번)나 제목과 함께 질문해 주세요.'라는 안내 문구를 포함해 주세요.\n\n"
-        f"[사용자 질문]\n{user_query}\n\n"
-        f"[검색 키워드]\n{keyword}\n\n"
-        f"[검색 소스]\n{search_source}\n\n"
-        f"[검색 결과]\n{bullet_list}\n"
+    # YAML에서 프롬프트 로드
+    prompt_template = get_article_prompt('summary_generation', 'prompt')
+    prompt = prompt_template.format(
+        source_description=source_description,
+        user_query=user_query,
+        keyword=keyword,
+        search_source=search_source,
+        results_count=len(results)
     )
 
     try:
