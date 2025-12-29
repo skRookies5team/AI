@@ -441,211 +441,6 @@ async def extract_workflow_data(query: str, workflow_type: str, current_datetime
     return {}
 
 
-def check_tech_ask_source_state(query: str, state: OrchestratorState, user_message: Message) -> Optional[Dict[str, Any]]:
-    """Tech 도메인의 ask_source 상태를 확인하고 tech 도메인으로 유지할지 결정."""
-    
-    # 먼저 recruitment 컨텍스트 확인 (우선순위)
-    # 번호 선택 패턴이고 recruitment 결과가 있으면 tech로 라우팅하지 않음
-    recruitment_context = state.get("recruitment_context", {})
-    if recruitment_context:
-        resume_search = recruitment_context.get("resume_search", {})
-        last_results = resume_search.get("last_results", [])
-        if last_results:
-            number_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기|요약)?', re.IGNORECASE)
-            if number_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2):
-                # recruitment 결과가 있으면 tech로 라우팅하지 않음
-                return None
-    
-    tech_search_context = state.get("tech_search_context", {})
-    
-    # YAML에서 키워드 로드 (함수 시작 부분에서 한 번만 로드 - 특허 검색 관련)
-    config = load_orchestrator_config()
-    keywords_config = config.get("keywords", {})
-    tech_continuation_keywords = keywords_config.get("tech_continuation_keywords", [])
-    server_data_keywords = keywords_config.get("server_data_keywords", [])  # YAML에서 로드
-
-    # tech_search_context가 있는 경우 기존 로직 수행
-    if tech_search_context:
-        # article 또는 patent의 상태 확인
-        for agent_type in ["article", "patent"]:
-            if agent_type in tech_search_context:
-                agent_ctx = tech_search_context[agent_type]
-                # agent_ctx가 None이 아니고 딕셔너리인지 확인
-                if agent_ctx and isinstance(agent_ctx, dict):
-                    intent = agent_ctx.get("intent")
-
-                    # ask_source 또는 ask_search_mode 상태 확인
-                    if intent == "ask_source" or intent == "ask_search_mode":
-                        # "웹에서 검색", "사내 서버에서 검색", "1", "2" 같은 응답은 tech 도메인으로 유지
-                        # YAML에서 이미 로드된 키워드 사용
-                        if any(k in query for k in tech_continuation_keywords) or query.isdigit():
-                            print(f"✅ Tech 도메인 ask_source 상태 유지: '{query}' → tech 도메인")
-                            return {
-                                "domain": "tech",
-                                "conversation_history": [user_message]
-                            }
-                        # ask_search_mode 상태에서도 서버 데이터 질문 처리
-                        # YAML에서 이미 로드된 키워드 사용
-                        if any(k in query for k in server_data_keywords):
-                            print(f"✅ Tech 도메인 ask_search_mode 상태에서 서버 질문 감지: '{query}' → tech 도메인")
-                            return {
-                                "domain": "tech",
-                                "conversation_history": [user_message]
-                            }
-
-                    # 일반 특허 검색 컨텍스트 확인 (추가)
-                    elif intent == "search":
-                        # "서버에 데이터가 있나", "서버에 있나" 같은 질문 처리
-                        # YAML에서 이미 로드된 키워드 사용
-                        if any(k in query for k in server_data_keywords):
-                            print(f"✅ Tech 도메인 검색 컨텍스트 유지: '{query}' → tech 도메인")
-                            return {
-                                "domain": "tech",
-                                "conversation_history": [user_message]
-                            }
-
-    # tech_search_context가 비어있을 때도 대화 히스토리에서 특허 검색 관련 질문 확인
-    # (Redis 저장이 지연되거나 누락된 경우 대비 - LLM 기반)
-    conversation_history = state.get("conversation_history", [])
-    
-    # "1번", "2번" 같은 번호 선택이 특허 검색 결과 선택일 수 있음을 확인
-    if conversation_history and len(conversation_history) >= 2:
-        # 최근 대화에서 특허 검색 결과가 있었는지 확인
-        recent_messages = conversation_history[-5:]  # 최근 5개 메시지 확인 (더 넓은 범위)
-        has_patent_search_results = False
-        has_number_selection_pattern = False
-        
-        # 번호 선택 패턴 확인 (예: "1번", "1번 자세히", "1번 알려줘", "1", "1번 보여줘" 등)
-        number_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기)?', re.IGNORECASE)
-        if number_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2):
-            has_number_selection_pattern = True
-        
-        # 최근 대화에서 특허 검색 결과 메시지 확인
-        for msg in recent_messages:
-            content = msg.get("content", "")
-            role = msg.get("role", "")
-            
-            # assistant 메시지에서 특허 검색 결과 패턴 확인
-            if role == "assistant":
-                # 특허 검색 결과 패턴: "특허 X개를 찾았습니다", "다음 특허 중에서", "번호를 입력하세요" 등
-                patent_result_patterns = [
-                    r'특허\s*\d+개',
-                    r'다음\s*특허\s*중에서',
-                    r'번호를\s*입력하세요',
-                    r'자세히\s*보려면\s*번호를',
-                    r'선택해주세요',
-                    r'특허\s*중에서\s*자세히',
-                    r'관련\s*특허\s*\d+개',
-                    r'찾았습니다',
-                ]
-                for pattern in patent_result_patterns:
-                    if re.search(pattern, content, re.IGNORECASE):
-                        has_patent_search_results = True
-                        break
-            
-            # user 메시지에서 특허 검색 요청 확인
-            if role == "user":
-                patent_keywords = ["특허", "patent", "특허를", "특허 찾아", "특허 검색", "바이러스 특허"]
-                if any(kw in content for kw in patent_keywords):
-                    has_patent_search_results = True
-        
-        # 번호 선택 패턴이 있고 특허 검색 결과가 있었으면 tech 도메인으로 유지
-        if has_number_selection_pattern and has_patent_search_results:
-            print(f"✅ Tech 도메인 대화 히스토리 기반 감지: '{query}' → tech 도메인 (특허 검색 결과 선택)")
-            return {
-                "domain": "tech",
-                "conversation_history": [user_message]
-            }
-    
-    if conversation_history and len(conversation_history) >= 2:
-        try:
-            # 대화 히스토리 컨텍스트 구성
-            recent_messages = conversation_history[-2:]
-            history_context = "\n\n최근 대화 내용:\n"
-            for msg in recent_messages:
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                history_context += f"{role}: {content}\n"
-
-            # YAML에서 프롬프트 로드 (전체 YAML 로드 필요 - tech 섹션 접근)
-            prompts = load_all_prompts()
-            tech_config = prompts.get("tech", {})
-            patent_config = tech_config.get("sub_agents", {}).get("patent", {})
-            prompt_template = patent_config.get("search_mode_response_detection_prompt", "")
-
-            if prompt_template:
-                # 프롬프트 치환
-                system_prompt = prompt_template.replace("{history_context}", history_context).replace("{user_query}", query)
-
-                # LLM 직접 호출 (기존 parse_search_mode_with_llm() 방식과 동일)
-                import json
-                from langchain_openai import ChatOpenAI
-
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if api_key:
-                    # OPENAI_MODEL 환경 변수에서 가져오기 (기본값: gpt-4o-mini)
-                    model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-
-                    llm = ChatOpenAI(
-                        model=model_name,
-                        temperature=0,
-                        api_key=api_key
-                    )
-
-                    response = llm.invoke(system_prompt)
-                    content = response.content.strip()
-
-                    # JSON 파싱 (parse_search_mode_with_llm()과 동일한 방식)
-                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
-                    if json_match:
-                        try:
-                            result = json.loads(json_match.group())
-                            is_search_mode_response = result.get("is_search_mode_response", False)
-                            confidence = result.get("confidence", 0.0)
-
-                            if is_search_mode_response and confidence >= 0.7:
-                                search_mode = result.get("search_mode")
-                                print(f"✅ Tech 도메인 LLM 기반 감지: '{query}' → tech 도메인 (검색 모드: {search_mode}, 신뢰도: {confidence:.2f})")
-                                return {
-                                    "domain": "tech",
-                                    "conversation_history": [user_message]
-                                }
-                        except json.JSONDecodeError:
-                            print(f"⚠️ 특허 검색 모드 응답 JSON 파싱 실패: {content}")
-            else:
-                print("⚠️ 특허 검색 모드 응답 감지 프롬프트가 YAML에 없습니다.")
-        except Exception as e:
-            print(f"⚠️ 특허 검색 모드 LLM 판단 실패: {e}")
-            # Fallback: 키워드 기반 (기존 로직 유지)
-            recent_messages = conversation_history[-2:]
-            has_patent_query = False
-            has_search_mode_question = False
-
-            for msg in recent_messages:
-                content = msg.get("content", "").lower()
-
-                # 특허 관련 키워드 확인
-                patent_keywords = ["특허", "patent", "특허를", "특허 찾아", "특허 검색"]
-                if any(kw in content for kw in patent_keywords):
-                    has_patent_query = True
-
-                # 검색 방식 선택 질문 확인
-                if "검색 방식을 선택" in content or "서버 기반 검색" in content or "웹 검색" in content:
-                    has_search_mode_question = True
-
-            # 특허 검색 질문이 있고 검색 방식 선택 질문이 있었으면, 현재 입력이 검색 모드 선택 응답일 가능성
-            if has_patent_query and has_search_mode_question:
-                # 검색 모드 선택 관련 키워드 확인
-                if any(k in query for k in tech_continuation_keywords) or query.isdigit() or any(k in query for k in server_data_keywords):
-                    print(f"✅ Tech 도메인 대화 히스토리 기반 감지 (Fallback): '{query}' → tech 도메인 (특허 검색 모드 선택 응답)")
-                    return {
-                        "domain": "tech",
-                        "conversation_history": [user_message]
-                    }
-
-    return None
-
-
 def get_domain_classification_prompt(context: str = "", last_domain: Optional[str] = None) -> str:
     """도메인 분류를 위한 프롬프트를 반환합니다.
     
@@ -1129,8 +924,14 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     pending_selection = email_compose_context.get("pending_recipient_selection", {})
 
     # 숫자 선택 패턴 체크 (동명이인 선택 중이 아닐 때만 last_domain 기반 라우팅 수행)
+    trimmed_query = query.strip()
     number_selection_pattern = re.compile(r'^\d+번?\s*(자세히|알려줘|보여줘|설명|상세|보기)?', re.IGNORECASE)
-    is_number_selection = number_selection_pattern.match(query.strip()) or (query.strip().isdigit() and len(query.strip()) <= 2)
+    is_number_selection = number_selection_pattern.match(trimmed_query) or (trimmed_query.isdigit() and len(trimmed_query) <= 2)
+
+    # 너무 긴 자연어 문장은 번호 선택으로 취급하지 않음 (예: "12월 27일 식단 좀 알려줄래?")
+    is_long_query = len(trimmed_query) > 12
+    if is_long_query:
+        is_number_selection = False
     
     if not pending_selection and is_number_selection and session_id:  # 동명이인 선택 중이 아닐 때만
         # Redis에서 last_domain 가져오기
@@ -1145,14 +946,22 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     if session_data and session_data.get("last_domain"):
                         redis_last_domain = session_data.get("last_domain")
                         if redis_last_domain and redis_last_domain in MASTER_GRAPHS:
-                            print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
-                            _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
-                            # 이미 함수 시작 부분에서 정의된 user_message 사용 (중복 정의 제거)
-                            return {
-                                "domain": redis_last_domain,
-                                "conversation_history": [user_message],
-                                **current_date_info
-                            }
+                            # 이전 도메인 컨텍스트에 실제 결과가 있는지 확인하여 번호 선택을 안전하게 처리
+                            domain_context = state.get(f"{redis_last_domain}_context", {}) or {}
+                            search_results = state.get("search_results")
+                            has_results = bool(search_results) or bool(domain_context.get("results")) or bool(domain_context.get("last_results")) or bool(domain_context.get("vector_db_results"))
+
+                            if has_results:
+                                print(f"✅ Redis에서 last_domain 확인: '{redis_last_domain}' → '{query}' 요청을 {redis_last_domain} 도메인으로 라우팅")
+                                _routing_logger.info(f"[라우팅 완료] Redis last_domain 기반: {redis_last_domain} (요청: {query})")
+                                # 이미 함수 시작 부분에서 정의된 user_message 사용 (중복 정의 제거)
+                                return {
+                                    "domain": redis_last_domain,
+                                    "conversation_history": [user_message],
+                                    **current_date_info
+                                }
+                            else:
+                                print(f"⚠️ last_domain({redis_last_domain})에 선택할 결과가 없어 숫자 선택 로직 건너뜀")
                 else:
                     print(f"⚠️ employee_id가 없어서 last_domain 조회 불가")
         except Exception as e:
@@ -1239,18 +1048,6 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     # 2-2. 일반 요청인 경우 (common_prompts.yaml 사용)
     print(f"--- [Orchestrator] 2단계: 일반 요청 도메인 분류 ---")
     
-    # Tech 도메인 ask_source 상태 확인 (최우선 처리)
-    step_start = time.time()
-    tech_result = check_tech_ask_source_state(query, state, user_message)
-    step_elapsed = (time.time() - step_start) * 1000
-    _routing_logger.info(f"[Tech 도메인 상태 확인] {step_elapsed:.2f}ms")
-    if tech_result:
-        total_elapsed = (time.time() - route_start_time) * 1000
-        _routing_logger.info(f"[라우팅 완료] {total_elapsed:.2f}ms (Tech 도메인 상태 확인으로 종료)")
-        # 날짜 정보 포함
-        tech_result.update(current_date_info)
-        return tech_result
-    
     # 이전 대화 확인 질문 감지 및 처리
     # 단, 워크플로우 진행 중이면 건너뛰기 (워크플로우 진행이 우선)
     if conversation_history and not workflow_in_progress:
@@ -1300,11 +1097,6 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         
     if is_simple_selection:
         print(f"--- [Orchestrator] 단순 선택지 답변 감지: {query} ---")
-        
-        # Tech 도메인 ask_source 상태 확인 (최우선 처리)
-        tech_result = check_tech_ask_source_state(query, state, user_message)
-        if tech_result:
-            return tech_result
         
         # 숫자만 입력한 경우, 이전 대화에서 상세한 답변이 있었는지 확인
         if query.isdigit() and conversation_history:
