@@ -63,7 +63,8 @@ class OrchestratorState(TypedDict):
     schedule_conflicts: List[Dict[str, Any]]
     document_content: Optional[str]
     document_path: Optional[str]
-    email_draft: Optional[str]
+    # email draft payload (subject/body/to/cc/bcc etc.)
+    email_draft: Optional[Dict[str, Any]]
     search_results: List[Dict[str, Any]] # For patents/papers, emails
     summary_text: Optional[str]
     

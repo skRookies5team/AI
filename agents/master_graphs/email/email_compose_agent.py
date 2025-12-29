@@ -423,7 +423,8 @@ def send_email_via_smtp(
 	body: str,
 	cc: Optional[str] = None,
 	bcc: Optional[str] = None,
-	is_html: bool = True
+	is_html: bool = True,
+	extra_headers: Optional[dict[str, str]] = None,
 ) -> tuple[bool, Optional[str]]:
 	"""
 	SMTP를 통해 이메일을 발송합니다.
@@ -448,6 +449,20 @@ def send_email_via_smtp(
 		msg['From'] = email_user
 		msg['To'] = ', '.join(to_emails)
 		msg['Subject'] = subject
+
+		# ✅ (답장 등) 추가 헤더 설정
+		if extra_headers:
+			for k, v in extra_headers.items():
+				if v is None:
+					continue
+				v_str = str(v).strip()
+				if not v_str:
+					continue
+				try:
+					msg[str(k)] = v_str
+				except Exception:
+					# 헤더 설정 실패는 발송을 막지 않음
+					pass
 		
 		if cc:
 			msg['Cc'] = cc

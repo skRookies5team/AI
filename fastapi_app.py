@@ -269,11 +269,52 @@ class ChatResponse(BaseModel):
     message: str = Field(..., description="에이전트 응답 메시지")
     rows: list[dict[str, Any]] = Field(default_factory=list, description="조회된 데이터 (있는 경우)")
     email_ids: list[str] = Field(default_factory=list, description="이메일 검색 결과 UID 리스트 (있는 경우)")
+    email_draft: Optional[dict[str, Any]] = Field(default=None, description="이메일 초안 (있는 경우)")
     error: Optional[str] = Field(default=None, description="오류 메시지")
     session_id: Optional[str] = Field(default=None, description="세션 ID")
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
     requires_input: Optional[bool] = Field(default=False, description="사용자 입력 필요 여부 (예시문 표시 시)")
     last_domain: Optional[str] = Field(default=None, description="LLM 라우팅 시 결정된 도메인 (schedule, document, qa, email, tech)")
+
+
+class EmailReplyRequest(BaseModel):
+    """이메일 UID 기반 답장 요청 모델."""
+
+    uid: str = Field(..., description="답장 대상 메일 UID")
+    mode: str = Field(..., description="auto(자동) 또는 manual(수동)")
+    message: str = Field(..., description="auto: 지시문/요청, manual: 답장 본문(그대로 전송)")
+    session_id: Optional[str] = Field(default=None, description="세션 ID (선택)")
+
+
+class EmailComposeModifyRequest(BaseModel):
+    """작성중인 이메일 초안 직접 수정(저장) 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
+    subject: str = Field(..., description="수정된 제목")
+    body_text: str = Field(..., description="수정된 본문(텍스트)")
+
+
+class EmailComposeAiReviseRequest(BaseModel):
+    """작성중인 이메일 초안을 AI에게 수정 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
+    subject: str = Field(..., description="현재 제목(사용자 편집본)")
+    body_text: str = Field(..., description="현재 본문(사용자 편집본, 텍스트)")
+    instruction: str = Field(..., description="AI 수정 지시문 (예: 더 정중하게, 3줄로 줄여줘)")
+
+
+class EmailComposeSendRequest(BaseModel):
+    """작성중인 이메일 초안 전송 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
+    subject: str = Field(..., description="최종 제목")
+    body_text: str = Field(..., description="최종 본문(텍스트)")
+
+
+class EmailComposeCancelRequest(BaseModel):
+    """작성중인 이메일 초안 취소(컨텍스트 초기화) 요청."""
+
+    session_id: str = Field(..., description="세션 ID")
 
 
 class SessionRequest(BaseModel):
@@ -671,11 +712,23 @@ async def chat_stream_endpoint(
                 # 도메인별 rows/email_ids 추출
                 rows = []
                 email_ids: list[str] = []
+                email_draft = None
                 if last_domain == "recruitment":
                     rows = final_state.get("search_results", []) or []
                 elif last_domain == "email":
                     rows = final_state.get("search_results", []) or []
                     email_ids = final_state.get("email_ids", []) or []
+                    email_draft = final_state.get("email_draft")
+                    if isinstance(email_draft, dict):
+                        ctx = final_state.get("email_compose_context") or {}
+                        if isinstance(ctx, dict):
+                            to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+                            if to_email:
+                                email_draft.setdefault("to", to_email)
+                            if ctx.get("cc"):
+                                email_draft.setdefault("cc", ctx.get("cc"))
+                            if ctx.get("bcc"):
+                                email_draft.setdefault("bcc", ctx.get("bcc"))
                 
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
@@ -692,6 +745,7 @@ async def chat_stream_endpoint(
                     "message": final_msg,
                     "rows": rows,  # Recruitment 검색 결과 또는 빈 배열
                     "email_ids": email_ids,  # ✅ 이메일 검색 UID 리스트
+                    "email_draft": email_draft,  # ✅ 이메일 초안 (작성 흐름)
                     "session_id": session_id,
                     "document_path": document_path,
                     "requires_input": requires_input,
@@ -1078,6 +1132,7 @@ async def chat_endpoint(
         # 도메인별 rows/email_ids 추출
         rows: list[dict[str, Any]] = []
         email_ids: list[str] = []
+        email_draft = None
         if last_domain == "recruitment":
             # search_results 또는 recruitment_context에서 결과 가져오기
             search_results = final_state.get("search_results", [])
@@ -1096,12 +1151,24 @@ async def chat_endpoint(
         elif last_domain == "email":
             rows = final_state.get("search_results", []) or []
             email_ids = final_state.get("email_ids", []) or []
+            email_draft = final_state.get("email_draft")
+            if isinstance(email_draft, dict):
+                ctx = final_state.get("email_compose_context") or {}
+                if isinstance(ctx, dict):
+                    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+                    if to_email:
+                        email_draft.setdefault("to", to_email)
+                    if ctx.get("cc"):
+                        email_draft.setdefault("cc", ctx.get("cc"))
+                    if ctx.get("bcc"):
+                        email_draft.setdefault("bcc", ctx.get("bcc"))
 
         return ChatResponse(
             ok=True,
             message=final_msg,
             rows=rows,  # Recruitment 검색 결과 또는 빈 배열
             email_ids=email_ids,  # ✅ 이메일 검색 UID 리스트
+            email_draft=email_draft,  # ✅ 이메일 초안 (작성 흐름)
             session_id=session_id,
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
@@ -1112,6 +1179,321 @@ async def chat_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"챗봇 처리 실패: {exc}") from exc
+
+
+@app.post("/api/email/reply")
+async def email_reply_endpoint(
+    payload: EmailReplyRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """메일 UID 기반 답장 전송 API.
+
+    - manual: 사용자가 입력한 message를 그대로 답장 본문으로 전송
+    - auto: 사용자 message(지시문)를 기반으로 AI가 답장 초안을 생성하여 전송
+    """
+    import re
+    import html as html_module
+    import email as email_pkg
+
+    uid = (payload.uid or "").strip()
+    mode = (payload.mode or "").strip().lower()
+    user_text = (payload.message or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="uid가 필요합니다.")
+    if mode not in {"auto", "manual"}:
+        raise HTTPException(status_code=400, detail="mode는 auto 또는 manual 이어야 합니다.")
+    if not user_text:
+        raise HTTPException(status_code=400, detail="message가 비어있습니다.")
+
+    # IMAP에서 원문을 가져온 뒤, Reply-To/From으로 답장 대상 추출
+    from agents.master_graphs.email.email_search_agent import (
+        _imap_connect,
+        _decode_mime_header,
+        _decode_header_value,
+        _get_email_body_and_attachments,
+    )
+    from agents.master_graphs.email.email_compose_agent import (
+        generate_email_draft,
+        send_email_via_smtp,
+        add_company_signature,
+    )
+
+    EMAIL_ADDR_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+    mail = None
+    try:
+        mail = _imap_connect()
+        st2, msg_data = mail.uid("fetch", uid, "(RFC822)")
+        if st2 != "OK" or not msg_data or not msg_data[0]:
+            raise HTTPException(status_code=404, detail=f"메일을 가져오지 못했습니다. (uid={uid})")
+
+        msg = email_pkg.message_from_bytes(msg_data[0][1])
+        original_subject = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
+        original_from = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
+        original_date = _decode_header_value(msg.get("Date", "")) or ""
+        reply_to_header = _decode_mime_header(msg.get("Reply-To", "")) or ""
+
+        # 답장 대상(to): Reply-To 우선, 없으면 From
+        to_source = reply_to_header or original_from
+        m = EMAIL_ADDR_RE.search(to_source)
+        if not m:
+            raise HTTPException(status_code=400, detail=f"답장 대상 이메일 주소를 추출할 수 없습니다: {to_source}")
+        to_email = m.group(0)
+
+        # 원문 본문
+        text_body, html_body, _atts = _get_email_body_and_attachments(msg)
+        original_body = html_body or text_body or ""
+
+        # 스레딩 헤더 (가능하면 유지)
+        original_message_id = (msg.get("Message-ID") or "").strip()
+        original_references = (msg.get("References") or "").strip()
+        extra_headers: dict[str, str] = {}
+        if original_message_id:
+            extra_headers["In-Reply-To"] = original_message_id
+            if original_references:
+                extra_headers["References"] = f"{original_references} {original_message_id}".strip()
+            else:
+                extra_headers["References"] = original_message_id
+
+        # auto: LLM로 답장 생성
+        if mode == "auto":
+            subject, body = await generate_email_draft(
+                to_email=to_email,
+                user_message=user_text,
+                original_subject=original_subject,
+                original_sender=original_from,
+                original_body=original_body,
+            )
+        # manual: 사용자 입력 그대로 전송(LLM 없이)
+        else:
+            subject = original_subject
+            if not re.match(r"(?i)^\s*re\s*:", subject or ""):
+                subject = f"Re: {subject}"
+
+            safe = html_module.escape(user_text).replace("\n", "<br>")
+            body = (
+                "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+                "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+                f"{safe}"
+                "</div>"
+            )
+            body = add_company_signature(body)
+
+        ok, err = send_email_via_smtp(
+            to=to_email,
+            subject=subject,
+            body=body,
+            is_html=True,
+            extra_headers=extra_headers or None,
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail=f"답장 전송 실패: {err or 'unknown error'}")
+
+        return {
+            "ok": True,
+            "message": "✅ 답장을 전송했습니다.",
+            "uid": uid,
+            "to": to_email,
+            "original_subject": original_subject,
+            "original_from": original_from,
+            "original_date": original_date,
+            "mode": mode,
+        }
+    finally:
+        try:
+            if mail:
+                mail.logout()
+        except Exception:
+            pass
+
+
+@app.post("/api/email/compose/modify")
+async def email_compose_modify_endpoint(
+    payload: EmailComposeModifyRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """이메일 작성 초안을 사용자가 직접 수정한 내용으로 저장."""
+    import html as html_module
+
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    ctx = session_data.get("email_compose_context") or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+
+    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+    if not to_email:
+        raise HTTPException(status_code=400, detail="수신자(to_email)가 없습니다. 먼저 이메일 초안을 생성해주세요.")
+
+    subject = (payload.subject or "").strip() or "(제목 없음)"
+    body_text = payload.body_text or ""
+
+    from agents.master_graphs.email.email_compose_agent import add_company_signature
+
+    safe = html_module.escape(body_text).replace("\n", "<br>")
+    body_html = (
+        "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+        "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+        f"{safe}"
+        "</div>"
+    )
+    body_html = add_company_signature(body_html)
+
+    ctx["email_draft_subject"] = subject
+    ctx["email_draft_body"] = body_html
+    ctx["to_email"] = to_email
+
+    # 저장
+    session_data["email_compose_context"] = ctx
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+
+    return {"ok": True, "message": "✅ 초안을 저장했습니다.", "draft": {"to": to_email, "subject": subject, "body": body_html}}
+
+
+@app.post("/api/email/compose/ai-revise")
+async def email_compose_ai_revise_endpoint(
+    payload: EmailComposeAiReviseRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """이메일 작성 초안을 AI가 지시문에 맞게 수정하고 저장."""
+    import html as html_module
+
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    ctx = session_data.get("email_compose_context") or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+
+    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+    if not to_email:
+        raise HTTPException(status_code=400, detail="수신자(to_email)가 없습니다. 먼저 이메일 초안을 생성해주세요.")
+
+    instruction = (payload.instruction or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="instruction이 비어있습니다.")
+
+    # 사용자 편집본(텍스트) → HTML로 래핑 (LLM에는 태그 제거된 텍스트만 들어가도록 generate_email_draft가 처리함)
+    safe = html_module.escape(payload.body_text or "").replace("\n", "<br>")
+    current_html = (
+        "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+        "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+        f"{safe}"
+        "</div>"
+    )
+
+    from agents.master_graphs.email.email_compose_agent import generate_email_draft
+
+    subject, body_html = await generate_email_draft(
+        to_email=to_email,
+        user_message="",  # 수정은 지시문 기반
+        original_subject=None,
+        original_sender=None,
+        original_body=None,
+        is_revision=True,
+        feedback=instruction,
+        current_draft_subject=(payload.subject or "").strip() or ctx.get("email_draft_subject"),
+        current_draft_body=current_html,
+    )
+
+    ctx["email_draft_subject"] = subject
+    ctx["email_draft_body"] = body_html
+    ctx["to_email"] = to_email
+
+    session_data["email_compose_context"] = ctx
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+
+    return {"ok": True, "message": "✅ AI가 초안을 수정했습니다.", "draft": {"to": to_email, "subject": subject, "body": body_html}}
+
+
+@app.post("/api/email/compose/send")
+async def email_compose_send_endpoint(
+    payload: EmailComposeSendRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """작성중인 이메일 초안을 전송하고 컨텍스트를 초기화."""
+    import html as html_module
+
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    ctx = session_data.get("email_compose_context") or {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+
+    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
+    if not to_email:
+        raise HTTPException(status_code=400, detail="수신자(to_email)가 없습니다. 먼저 이메일 초안을 생성해주세요.")
+
+    subject = (payload.subject or "").strip() or "(제목 없음)"
+    body_text = payload.body_text or ""
+
+    from agents.master_graphs.email.email_compose_agent import send_email_via_smtp, add_company_signature
+
+    safe = html_module.escape(body_text).replace("\n", "<br>")
+    body_html = (
+        "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
+        "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
+        f"{safe}"
+        "</div>"
+    )
+    body_html = add_company_signature(body_html)
+
+    ok, err = send_email_via_smtp(
+        to=to_email,
+        subject=subject,
+        body=body_html,
+        cc=ctx.get("cc"),
+        bcc=ctx.get("bcc"),
+        is_html=True,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"이메일 전송 실패: {err or 'unknown error'}")
+
+    # 전송 성공 → 컨텍스트 초기화
+    session_data["email_compose_context"] = {}
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+
+    return {"ok": True, "message": "✅ 이메일을 전송했습니다.", "to": to_email}
+
+
+@app.post("/api/email/compose/cancel")
+async def email_compose_cancel_endpoint(
+    payload: EmailComposeCancelRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """작성중인 이메일 초안 취소: email_compose_context를 비웁니다."""
+    employee_id = current_user["employee_id"]
+    session_id = payload.session_id
+
+    session_manager = await get_session_manager()
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
+
+    session_data = await session_manager.load_session_data(session_id, employee_id)
+    session_data["email_compose_context"] = {}
+    session_data["employee_id"] = employee_id
+    await session_manager.save_session_state(session_id, session_data)
+    return {"ok": True, "message": "✅ 이메일 작성이 취소되었습니다."}
 
 
 @app.post("/api/upload-document", response_model=DocumentUploadResponse)

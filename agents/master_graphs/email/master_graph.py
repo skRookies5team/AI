@@ -1269,6 +1269,7 @@ class EmailMasterGraph(BaseMasterGraph):
                         "final_response": result.get("message", result.get("error", "이메일 처리 중 오류가 발생했습니다.")),
                         "messages": [result.get("message", result.get("error", ""))],
                         "email_compose_context": compose_context,  # 컨텍스트 저장
+                        "email_draft": result.get("draft"),  # ✅ pending이어도 초안은 내려줘야 카드가 뜸
                     }
                 else:
                     # draft가 없으면 오류로 처리
