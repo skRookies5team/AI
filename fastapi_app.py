@@ -307,6 +307,21 @@ class EmailComposeCancelRequest(BaseModel):
     session_id: str = Field(..., description="세션 ID")
 
 
+class NotificationReadRequest(BaseModel):
+    """알림 읽음 처리 요청."""
+
+    ids: list[str] = Field(default_factory=list, description="읽음 처리할 알림 id 리스트")
+
+
+class NotificationTestRequest(BaseModel):
+    """프론트/스트림 테스트용 알림 발행 요청(개발용).
+
+    주의: 기본적으로 비활성화되어 있고, ENABLE_NOTIFICATION_TEST_ENDPOINT=true 일 때만 동작합니다.
+    """
+
+    kind: str = Field(default="email_new", description="알림 종류 (email_new 등)")
+
+
 class SessionRequest(BaseModel):
     """세션 변경 요청 모델."""
     session_id: Optional[str] = Field(default=None, description="세션 ID (None이면 새 세션 생성)")
@@ -516,9 +531,12 @@ async def serve_document(filename: str):
     )
 
 
-@app.get("/api/notifications/stream")
-async def notifications_stream(session_id: str):
-    """세션별 알림 스트림(SSE). 새 메일 수신 등 백그라운드 이벤트를 프론트로 푸시합니다."""
+@app.get("/api/notifications/stream/session")
+async def notifications_stream_session(session_id: str):
+    """세션별 알림 스트림(SSE) - 레거시.
+
+    기존 구현은 session_id 기반 큐를 사용합니다.
+    """
 
     async def event_generator():
         q = get_notification_queue(session_id)
@@ -545,6 +563,123 @@ async def notifications_stream(session_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/api/notifications/stream")
+async def notifications_stream_employee(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """employee_id 단위 알림 스트림(SSE).
+
+    - Authorization(Bearer) 기반으로 employee_id를 식별합니다.
+    - employee_id 큐 + Redis 영속 저장과 함께 사용됩니다.
+    """
+    from agents.notifications import get_employee_notification_queue
+
+    employee_id = current_user["employee_id"]
+
+    async def event_generator():
+        q = get_employee_notification_queue(employee_id)
+        while True:
+            try:
+                payload = await asyncio.wait_for(q.get(), timeout=15.0)
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except asyncio.TimeoutError:
+                yield "event: ping\ndata: {}\n\n"
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                err = {"type": "error", "message": str(e)}
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/notifications")
+async def list_notifications(
+    limit: int = 50,
+    unread_only: bool = False,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """employee_id 알림 목록 조회 (Redis 영속 저장분)."""
+    from agents.notifications import list_employee_notifications
+
+    employee_id = current_user["employee_id"]
+    items = await list_employee_notifications(employee_id, limit=limit, unread_only=unread_only)
+    return {"ok": True, "items": items}
+
+
+@app.post("/api/notifications/read")
+async def read_notifications(
+    payload: NotificationReadRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """employee_id 알림 읽음 처리."""
+    from agents.notifications import mark_employee_notifications_read
+
+    employee_id = current_user["employee_id"]
+    updated = await mark_employee_notifications_read(employee_id, payload.ids or [])
+    return {"ok": True, "updated": updated}
+
+
+@app.post("/api/notifications/clear")
+async def clear_notifications(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """employee_id 알림 전체 삭제."""
+    from agents.notifications import clear_employee_notifications
+
+    employee_id = current_user["employee_id"]
+    await clear_employee_notifications(employee_id)
+    return {"ok": True}
+
+
+@app.post("/api/notifications/test")
+async def notifications_test_publish(
+    payload: NotificationTestRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """개발/디버그용: 현재 로그인한 employee에게 테스트 알림을 1건 발행합니다.
+
+    - 기본적으로는 404로 막습니다.
+    - ENABLE_NOTIFICATION_TEST_ENDPOINT=true 일 때만 활성화됩니다.
+    """
+
+    if os.environ.get("ENABLE_NOTIFICATION_TEST_ENDPOINT", "").lower() not in ("1", "true", "yes", "y"):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    from agents.notifications import publish_employee_notification
+
+    employee_id = current_user["employee_id"]
+
+    if payload.kind == "email_new":
+        body = {
+            "type": "email_new",
+            "count": 1,
+            "items": [
+                {
+                    "index": "1",
+                    "uid": "TEST-UID",
+                    "subject": "테스트 메일 알림",
+                    "from": "test@example.com",
+                    "date": datetime.now().isoformat(),
+                }
+            ],
+        }
+    else:
+        body = {"type": payload.kind, "message": "test"}
+
+    item = await publish_employee_notification(int(employee_id), body)
+    return {"ok": True, "item": item}
 
 
 @app.post("/api/chat/stream")

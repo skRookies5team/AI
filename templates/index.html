@@ -1924,7 +1924,11 @@
         updateSessionDisplay();
 
         // ===== 알림(SSE) =====
-        let notificationSource = null;
+        // employee 단위 알림 스트림은 Authorization 헤더가 필요하므로 EventSource 대신 fetch 스트림을 사용합니다.
+        let notificationReader = null;
+        let notificationAbortController = null;
+        const notificationSeenIds = new Set(); // 중복 방지(새로고침 전)
+        let notificationUnreadCount = 0;
 
         function escapeHTML(str) {
             return String(str)
@@ -1935,41 +1939,258 @@
                 .replace(/'/g, '&#039;');
         }
 
-        function startNotificationStream() {
+        function setNotificationStatus(text, color = '#6b7280') {
+            const el = document.getElementById('notifStatusText');
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = color;
+        }
+
+        function updateNotificationBell() {
+            const bell = document.getElementById('notifBellBtn');
+            if (!bell) return;
+            bell.textContent = notificationUnreadCount > 0 ? `🔔 알림 (${notificationUnreadCount})` : '🔔 알림';
+        }
+
+        function bumpUnreadCount() {
+            notificationUnreadCount = Math.min(999, (notificationUnreadCount || 0) + 1);
+            updateNotificationBell();
+        }
+
+        function resetUnreadCount() {
+            notificationUnreadCount = 0;
+            updateNotificationBell();
+        }
+
+        function ensureNotificationUI() {
+            // 이미 있으면 스킵
+            if (document.getElementById('notificationPanel')) return;
+
+            const container = document.querySelector('.content-area') || document.body;
+
+            const panel = document.createElement('div');
+            panel.id = 'notificationPanel';
+            panel.style.position = 'fixed';
+            panel.style.right = '12px';
+            panel.style.top = '12px';
+            panel.style.width = '320px';
+            panel.style.maxHeight = '70vh';
+            panel.style.overflowY = 'auto';
+            panel.style.background = 'rgba(255,255,255,0.98)';
+            panel.style.border = '1px solid #e5e7eb';
+            panel.style.borderRadius = '12px';
+            panel.style.boxShadow = '0 8px 20px rgba(0,0,0,0.12)';
+            panel.style.zIndex = '9999';
+            panel.style.display = 'none';
+
+            panel.innerHTML = `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #eef2f7;">
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <div style="font-weight:700; color:#111827;">🔔 알림</div>
+                        <div style="font-size:11px; color:#6b7280;">상태: <span id="notifStatusText">준비됨</span></div>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button id="notifTestBtn" style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 8px; cursor:pointer;">테스트</button>
+                        <button id="notifClearBtn" style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 8px; cursor:pointer;">비우기</button>
+                        <button id="notifCloseBtn" style="border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:6px 8px; cursor:pointer;">닫기</button>
+                    </div>
+                </div>
+                <div id="notificationList" style="padding:10px 12px;"></div>
+            `;
+
+            container.appendChild(panel);
+
+            // bell button
+            const headerRight = document.querySelector('.header-right');
+            if (headerRight && !document.getElementById('notifBellBtn')) {
+                const bell = document.createElement('button');
+                bell.id = 'notifBellBtn';
+                bell.className = 'session-button';
+                bell.textContent = '🔔 알림';
+                bell.onclick = () => {
+                    const panel = document.getElementById('notificationPanel');
+                    const willShow = panel ? (panel.style.display === 'none') : false;
+                    if (willShow) resetUnreadCount();
+                    toggleNotificationPanel();
+                };
+                headerRight.insertBefore(bell, headerRight.firstChild);
+                updateNotificationBell();
+            }
+
+            document.getElementById('notifCloseBtn')?.addEventListener('click', () => toggleNotificationPanel(false));
+            document.getElementById('notifClearBtn')?.addEventListener('click', async () => {
+                try {
+                    await authenticatedFetch('/api/notifications/clear', { method: 'POST' });
+                    const list = document.getElementById('notificationList');
+                    if (list) list.innerHTML = '';
+                    resetUnreadCount();
+                } catch (e) {
+                    console.error('알림 비우기 실패:', e);
+                }
+            });
+
+            document.getElementById('notifTestBtn')?.addEventListener('click', async () => {
+                try {
+                    setNotificationStatus('테스트 발행 중...', '#2563eb');
+                    const res = await authenticatedFetch('/api/notifications/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ kind: 'email_new' }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) {
+                        setNotificationStatus('테스트 실패(서버)', '#dc2626');
+                        console.warn('테스트 알림 실패:', res.status, data);
+                        return;
+                    }
+                    setNotificationStatus('테스트 성공', '#16a34a');
+                } catch (e) {
+                    setNotificationStatus('테스트 실패(네트워크)', '#dc2626');
+                    console.warn('테스트 알림 요청 실패:', e);
+                }
+            });
+        }
+
+        function toggleNotificationPanel(forceState) {
+            const panel = document.getElementById('notificationPanel');
+            if (!panel) return;
+            const willShow = (forceState !== undefined) ? forceState : (panel.style.display === 'none');
+            panel.style.display = willShow ? 'block' : 'none';
+        }
+
+        function renderNotificationItem(item) {
+            const list = document.getElementById('notificationList');
+            if (!list) return;
+
+            const id = item.id || '';
+            if (id && notificationSeenIds.has(id)) return;
+            if (id) notificationSeenIds.add(id);
+
+            const isRead = !!item.read;
+            const type = item.type || '';
+            const ts = item.timestamp_ms ? new Date(item.timestamp_ms).toLocaleString('ko-KR') : '';
+
+            let html = '';
+            if (type === 'email_new') {
+                const count = item.count || 0;
+                const items = Array.isArray(item.items) ? item.items : [];
+                const top = items.slice(0, 3).map(it => {
+                    const subj = escapeHTML(it.subject || '(제목 없음)');
+                    const from = escapeHTML(it.from || '');
+                    return `<div style="font-size:12px; color:#374151; margin-top:4px;">- <b>${subj}</b> <span style="color:#6b7280">(${from})</span></div>`;
+                }).join('');
+                html = `
+                    <div style="font-weight:700; color:#111827;">📧 새 메일 ${count}개</div>
+                    ${top}
+                `;
+            } else {
+                html = `<div style="font-weight:700; color:#111827;">${escapeHTML(type || '알림')}</div>`;
+            }
+
+            const row = document.createElement('div');
+            row.style.border = '1px solid #eef2f7';
+            row.style.borderRadius = '10px';
+            row.style.padding = '10px';
+            row.style.marginBottom = '10px';
+            row.style.background = isRead ? '#fafafa' : '#ffffff';
+            row.style.cursor = 'pointer';
+            row.innerHTML = `
+                ${html}
+                <div style="margin-top:6px; font-size:11px; color:#9ca3af;">${escapeHTML(ts)}</div>
+            `;
+
+            row.addEventListener('click', async () => {
+                if (!id) return;
+                try {
+                    await authenticatedFetch('/api/notifications/read', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: [id] }),
+                    });
+                    row.style.background = '#fafafa';
+                } catch (e) {
+                    console.error('읽음 처리 실패:', e);
+                }
+            });
+
+            list.prepend(row);
+
+            // 패널이 닫혀 있으면 뱃지로 새 알림 표시
+            const panel = document.getElementById('notificationPanel');
+            if (panel && panel.style.display === 'none' && !isRead) {
+                bumpUnreadCount();
+            }
+        }
+
+        async function loadNotificationHistory() {
             try {
-                if (notificationSource) {
-                    notificationSource.close();
-                    notificationSource = null;
+                const res = await authenticatedFetch('/api/notifications?limit=50');
+                const data = await res.json();
+                if (!res.ok || !data.ok) return;
+                ensureNotificationUI();
+                const list = document.getElementById('notificationList');
+                if (list) list.innerHTML = '';
+                for (const item of (data.items || [])) {
+                    renderNotificationItem(item);
+                }
+            } catch (e) {
+                console.error('알림 히스토리 로드 실패:', e);
+            }
+        }
+
+        async function startNotificationStream() {
+            try {
+                ensureNotificationUI();
+                await loadNotificationHistory();
+
+                // 기존 스트림 종료
+                if (notificationAbortController) {
+                    notificationAbortController.abort();
+                    notificationAbortController = null;
                 }
 
-                const url = `/api/notifications/stream?session_id=${encodeURIComponent(currentSessionId)}`;
-                notificationSource = new EventSource(url);
-
-                notificationSource.onmessage = (event) => {
-                    try {
-                        const payload = JSON.parse(event.data);
-                        if (payload.type === 'email_new' && payload.data) {
-                            const pretty = JSON.stringify(payload.data, null, 2);
-                            addBotMessage(
-                                `<div><b>📬 새 메일 도착</b> <span style="color:#666;font-size:12px;">(${payload.session_id})</span></div>` +
-                                `<pre style="white-space:pre-wrap; margin-top:8px; font-size:12px; line-height:1.4;">${escapeHTML(pretty)}</pre>`
-                            );
-                        }
-                    } catch (e) {
-                        console.error('알림 파싱 실패:', e, event.data);
-                    }
-                };
-
-                notificationSource.addEventListener('ping', () => {
-                    // keep-alive
+                notificationAbortController = new AbortController();
+                setNotificationStatus('연결 중...', '#2563eb');
+                const response = await authenticatedFetch('/api/notifications/stream', {
+                    method: 'GET',
+                    signal: notificationAbortController.signal,
                 });
+                if (!response.ok || !response.body) {
+                    console.warn('알림 스트림 연결 실패:', response.status);
+                    setNotificationStatus(`연결 실패(${response.status})`, '#dc2626');
+                    return;
+                }
 
-                notificationSource.onerror = (err) => {
-                    // 네트워크 환경에 따라 재연결이 자동으로 시도됨
-                    console.warn('알림 스트림 오류:', err);
-                };
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                setNotificationStatus('연결됨', '#16a34a');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const raw = line.slice(6).trim();
+                            if (!raw || raw === '{}') continue;
+                            try {
+                                const payload = JSON.parse(raw);
+                                // chat에 찍지 않고, 사이드 알림 패널로만 렌더
+                                renderNotificationItem(payload);
+                            } catch (e) {
+                                console.warn('알림 JSON 파싱 실패:', e, raw);
+                            }
+                        }
+                    }
+                }
             } catch (e) {
-                console.error('알림 스트림 시작 실패:', e);
+                console.warn('알림 스트림 시작 실패:', e);
+                setNotificationStatus('연결 실패', '#dc2626');
             }
         }
         
