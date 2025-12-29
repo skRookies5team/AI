@@ -1194,6 +1194,7 @@ class EmailMasterGraph(BaseMasterGraph):
                 user_feedback=user_feedback if user_feedback is not None else email_compose_context.get("user_feedback"),
                 email_draft_subject=stored_draft_subject if (is_approval_command or is_revision_command) else None,  # 저장된 초안 전달 (발송/수정 명령 시)
                 email_draft_body=stored_draft_body if (is_approval_command or is_revision_command) else None,  # 저장된 초안 전달 (발송/수정 명령 시)
+                employee_id=employee_id,
             )
             
             # 디버그: compose_and_send_email 결과

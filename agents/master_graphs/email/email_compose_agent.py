@@ -114,12 +114,21 @@ def _get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 #
 # 회사 서명 생성 함수 (AI_test/emailai.py 참고)
 #
-def get_company_signature_html() -> str:
-	"""회사 로고, 정보를 포함한 HTML 서명을 생성합니다."""
-	department = _get_env("EMAIL_DEPARTMENT", "인사팀")
-	name = _get_env("EMAIL_NAME", "관리자")
-	address = _get_env("EMAIL_ADDRESS_FULL", "서울특별시 중구 필동로 1길 30")
-	phone = _get_env("EMAIL_PHONE", "02-2260-3114")
+def get_company_signature_html(
+	department: Optional[str] = None,
+	name: Optional[str] = None,
+	address: Optional[str] = None,
+	phone: Optional[str] = None,
+) -> str:
+	"""회사 로고, 정보를 포함한 HTML 서명을 생성합니다.
+
+	- name/department는 기본적으로 DB에서 조회된 값을 사용하도록 상위 레이어에서 주입합니다.
+	- address/phone은 employee 테이블에 없으므로 env 기본값을 사용합니다.
+	"""
+	department = (department or "").strip() or _get_env("EMAIL_DEPARTMENT", "인사팀")
+	name = (name or "").strip() or _get_env("EMAIL_NAME", "관리자")
+	address = (address or "").strip() or _get_env("EMAIL_ADDRESS_FULL", "서울특별시 중구 필동로 1길 30")
+	phone = (phone or "").strip() or _get_env("EMAIL_PHONE", "02-2260-3114")
 	
 	# 로고 이미지를 base64로 인코딩
 	logo_path = Path(__file__).parent.parent.parent.parent / "data" / "logo.png"
@@ -162,9 +171,47 @@ def get_company_signature_html() -> str:
 	return signature_html
 
 
-def add_company_signature(body: str) -> str:
-	"""이메일 본문에 회사 서명을 추가합니다."""
-	signature = get_company_signature_html()
+async def _fetch_employee_signature_fields(employee_id: Optional[int]) -> Dict[str, Optional[str]]:
+	"""employee_id로 DB에서 서명용 필드를 가져옵니다."""
+	out: Dict[str, Optional[str]] = {"name": None, "dept": None}
+	if not employee_id:
+		return out
+	try:
+		from agents.master_graphs.schedule.services.database_service import DatabaseService
+		from sqlalchemy import text
+		db = DatabaseService()
+		async with db._session() as session:
+			sql = "SELECT name, dept FROM ai_agent.employee WHERE employee_id = :employee_id"
+			res = await session.execute(text(sql), {"employee_id": employee_id})
+			row = res.fetchone()
+			if row:
+				out["name"] = getattr(row, "name", None)
+				out["dept"] = getattr(row, "dept", None)
+	except Exception:
+		# 서명 조회 실패는 치명적이지 않음 (env fallback)
+		return out
+	return out
+
+
+async def add_company_signature(
+	body: str,
+	employee_id: Optional[int] = None,
+	signature_name: Optional[str] = None,
+	signature_department: Optional[str] = None,
+) -> str:
+	"""이메일 본문에 회사 서명을 추가합니다.
+
+	- employee_id가 있으면 DB에서 name/dept를 조회해 서명에 반영합니다.
+	"""
+	if (not signature_name) or (not signature_department):
+		fields = await _fetch_employee_signature_fields(employee_id)
+		signature_name = signature_name or fields.get("name")
+		signature_department = signature_department or fields.get("dept")
+
+	signature = get_company_signature_html(
+		department=signature_department,
+		name=signature_name,
+	)
 	
 	if body.strip().endswith('</div>'):
 		body = body.rstrip()
@@ -174,6 +221,18 @@ def add_company_signature(body: str) -> str:
 		html_body = f"{body}\n{signature}"
 	
 	return html_body
+
+
+def _strip_placeholders(text: str) -> str:
+	"""LLM이 넣는 placeholder/서명 텍스트를 제거."""
+	if not text:
+		return text
+	# [당신의 이름] / [귀하의 이름] / 당신의 이름 등 제거
+	text = re.sub(r"\[\s*(당신|귀하)\s*의\s*이름\s*\]", "", text)
+	text = re.sub(r"(당신|귀하)\s*의\s*이름", "", text)
+	# 흔한 영어 placeholder도 제거
+	text = re.sub(r"\[\s*your\s*name\s*\]", "", text, flags=re.IGNORECASE)
+	return text.strip()
 
 
 #
@@ -189,6 +248,7 @@ async def generate_email_draft(
 	feedback: Optional[str] = None,
 	current_draft_subject: Optional[str] = None,
 	current_draft_body: Optional[str] = None,
+	employee_id: Optional[int] = None,
 ) -> tuple[str, str]:
 	"""
 	이메일 내용을 LLM을 사용하여 작성합니다.
@@ -218,7 +278,11 @@ async def generate_email_draft(
 3. 적절한 인사말과 마무리 인사 포함
 4. 원본 메시지를 참고용으로 포함 (선택사항)
 
-답장은 한국어로 작성하고, 비즈니스 이메일 톤을 유지하세요."""
+답장은 한국어로 작성하고, 비즈니스 이메일 톤을 유지하세요.
+
+중요 규칙:
+- 본문에 '[당신의 이름]' 같은 placeholder를 절대 넣지 마세요.
+- 본문에 부서/이름/연락처/서명 정보를 넣지 마세요. (서명은 시스템이 자동으로 추가합니다.)"""
 		
 		# 수정 요청이고 기존 초안이 있는 경우
 		if is_revision and feedback and current_draft_subject and current_draft_body:
@@ -311,7 +375,12 @@ async def generate_email_draft(
 2. 적절한 인사말과 마무리 인사 포함
 3. 비즈니스 이메일 톤 유지
 4. 간결하고 명확한 내용
-5. 여러 수신자가 있는 경우, 모두에게 적절한 인사말 사용
+5. 여러 수신자가 있는 경우, '안녕하세요, 여러분.' 같은 일반 인사말을 사용하고 특정인 이름/호칭을 쓰지 마세요.
+
+중요 규칙:
+- 본문에 '[당신의 이름]' 같은 placeholder를 절대 넣지 마세요.
+- 본문에 부서/이름/연락처/서명 정보를 넣지 마세요. (서명은 시스템이 자동으로 추가합니다.)
+- 여러 수신자일 때는 수신자 이름/이메일을 본문에 넣지 마세요.
 
 이메일은 한국어로 작성하세요."""
 		
@@ -401,6 +470,9 @@ async def generate_email_draft(
 	else:
 		subject = f"Re: {original_subject}" if is_reply else "이메일"
 		body = content
+
+	# placeholder 제거
+	body = _strip_placeholders(body)
 	
 	# 본문을 HTML로 변환
 	if not re.search(r'<[^>]+>', body):
@@ -408,8 +480,8 @@ async def generate_email_draft(
 		body = body_escaped.replace('\n', '<br>')
 		body = f'<div style="font-family: \'Malgun Gothic\', \'맑은 고딕\', Arial, sans-serif; font-size: 14px; color: #333333; line-height: 1.8; padding: 20px;">{body}</div>'
 	
-	# 회사 서명 추가
-	body = add_company_signature(body)
+	# 회사 서명 추가 (employee_id 기반)
+	body = await add_company_signature(body, employee_id=employee_id)
 	
 	return subject, body
 
@@ -521,6 +593,7 @@ async def _generate_draft(
 	user_feedback: Optional[str] = None,
 	email_draft_subject: Optional[str] = None,
 	email_draft_body: Optional[str] = None,
+	employee_id: Optional[int] = None,
 ) -> Dict[str, Any]:
 	"""이메일 초안을 생성합니다."""
 	print("--- [Email Compose Agent] Generating Draft ---")
@@ -550,7 +623,8 @@ async def _generate_draft(
 			original_sender=original_sender,
 			original_body=original_body,
 			is_revision=is_revision,
-			feedback=user_feedback
+			feedback=user_feedback,
+			employee_id=employee_id,
 		)
 		
 		# HTML 본문을 텍스트로 변환하여 미리보기 생성
@@ -597,6 +671,7 @@ async def _revise_draft(
 	user_feedback: Optional[str] = None,
 	current_draft_subject: Optional[str] = None,
 	current_draft_body: Optional[str] = None,
+	employee_id: Optional[int] = None,
 ) -> Dict[str, Any]:
 	"""사용자 피드백을 반영하여 초안을 수정합니다."""
 	print("--- [Email Compose Agent] Revising Draft ---")
@@ -616,6 +691,7 @@ async def _revise_draft(
 			feedback=user_feedback,
 			current_draft_subject=current_draft_subject,
 			current_draft_body=current_draft_body,
+			employee_id=employee_id,
 		)
 		
 		# HTML 본문을 텍스트로 변환하여 미리보기 생성
@@ -718,6 +794,7 @@ async def compose_and_send_email(
 	user_feedback: Optional[str] = None,  # 외부에서 제공된 피드백
 	email_draft_subject: Optional[str] = None,  # 저장된 초안 제목 (발송 명령 시 사용)
 	email_draft_body: Optional[str] = None,  # 저장된 초안 본문 (발송 명령 시 사용)
+	employee_id: Optional[int] = None,  # ✅ 서명용 사용자 정보 조회
 ) -> Dict[str, Any]:
 	"""
 	이메일 작성 및 발송을 위한 통합 함수.
@@ -778,6 +855,7 @@ async def compose_and_send_email(
 		user_feedback=user_feedback,
 		email_draft_subject=email_draft_subject,
 		email_draft_body=email_draft_body,
+		employee_id=employee_id,
 	)
 	
 	draft_subject = draft_result.get("email_draft_subject")
@@ -842,6 +920,7 @@ async def compose_and_send_email(
 				user_feedback=user_feedback,
 				current_draft_subject=draft_subject,  # 기존 초안 제목 전달
 				current_draft_body=draft_body,  # 기존 초안 본문 전달
+				employee_id=employee_id,
 			)
 			
 			revise_subject = revise_result.get("email_draft_subject")

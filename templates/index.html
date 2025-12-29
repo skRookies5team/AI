@@ -3245,12 +3245,6 @@
                             </div>
                         </div>
 
-                        <div style="margin-top:12px;">
-                            <label style="font-weight:700;">AI 수정 요청</label>
-                            <textarea id="compose-draft-instruction" class="email-reply-textarea" style="margin-top:6px; min-height:80px;"
-                                      placeholder="예: 더 정중하게, 핵심만 3줄로 줄여줘, 상대방에게 사과 톤으로 수정해줘"></textarea>
-                        </div>
-
                         <div class="email-reply-actions">
                             <button class="email-reply-btn" onclick="sendComposeDraft()">보내기</button>
                             <button class="email-reply-btn secondary" onclick="toggleComposeEditOptions()">수정</button>
@@ -3260,7 +3254,6 @@
                         <div id="compose-edit-options" style="display:none; margin-top:10px;">
                             <div class="email-reply-actions">
                                 <button class="email-reply-btn secondary" onclick="modifyComposeDraft()">직접 수정 저장</button>
-                                <button class="email-reply-btn secondary" onclick="aiReviseComposeDraft()">AI 수정 적용</button>
                             </div>
                         </div>
                     </div>
@@ -3299,46 +3292,6 @@
                 addBotMessage('✅ 초안을 저장했습니다.');
             } catch (e) {
                 addBotMessage(`❌ 수정 요청 중 오류: ${escapeHtml(String(e))}`);
-            }
-        }
-
-        async function aiReviseComposeDraft() {
-            const subject = document.getElementById('compose-draft-subject')?.value || '';
-            const bodyText = document.getElementById('compose-draft-body')?.value || '';
-            const instruction = document.getElementById('compose-draft-instruction')?.value || '';
-
-            if (!instruction.trim()) {
-                alert('AI 수정 요청을 입력해주세요.');
-                return;
-            }
-
-            try {
-                const res = await authenticatedFetch('/api/email/compose/ai-revise', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: currentSessionId, subject, body_text: bodyText, instruction }),
-                });
-                const data = await res.json();
-                if (!res.ok || !data.ok) {
-                    addBotMessage(`❌ ${escapeHtml(data.detail || data.message || 'AI 수정 실패')}`);
-                    return;
-                }
-
-                // 반환된 draft로 입력값 갱신
-                const d = data.draft || {};
-                if (d.subject) document.getElementById('compose-draft-subject').value = d.subject;
-                if (d.body) {
-                    const safe = (window.DOMPurify && window.DOMPurify.sanitize)
-                        ? window.DOMPurify.sanitize(d.body, { USE_PROFILES: { html: true } })
-                        : d.body;
-                    document.getElementById('compose-draft-body').value = stripSignatureText(htmlToText(safe));
-                    const preview = document.getElementById('compose-draft-preview');
-                    if (preview) preview.innerHTML = `<div class="email-body-html">${safe}</div>`;
-                }
-                document.getElementById('compose-draft-instruction').value = '';
-                addBotMessage('✅ AI 수정이 반영되었습니다. (아래 초안 미리보기에 반영됨)');
-            } catch (e) {
-                addBotMessage(`❌ AI 수정 요청 중 오류: ${escapeHtml(String(e))}`);
             }
         }
 

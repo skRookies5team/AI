@@ -293,16 +293,6 @@ class EmailComposeModifyRequest(BaseModel):
     subject: str = Field(..., description="수정된 제목")
     body_text: str = Field(..., description="수정된 본문(텍스트)")
 
-
-class EmailComposeAiReviseRequest(BaseModel):
-    """작성중인 이메일 초안을 AI에게 수정 요청."""
-
-    session_id: str = Field(..., description="세션 ID")
-    subject: str = Field(..., description="현재 제목(사용자 편집본)")
-    body_text: str = Field(..., description="현재 본문(사용자 편집본, 텍스트)")
-    instruction: str = Field(..., description="AI 수정 지시문 (예: 더 정중하게, 3줄로 줄여줘)")
-
-
 class EmailComposeSendRequest(BaseModel):
     """작성중인 이메일 초안 전송 요청."""
 
@@ -1195,6 +1185,7 @@ async def email_reply_endpoint(
     import html as html_module
     import email as email_pkg
 
+    employee_id = current_user["employee_id"]
     uid = (payload.uid or "").strip()
     mode = (payload.mode or "").strip().lower()
     user_text = (payload.message or "").strip()
@@ -1263,6 +1254,7 @@ async def email_reply_endpoint(
                 original_subject=original_subject,
                 original_sender=original_from,
                 original_body=original_body,
+                employee_id=employee_id,
             )
         # manual: 사용자 입력 그대로 전송(LLM 없이)
         else:
@@ -1277,7 +1269,7 @@ async def email_reply_endpoint(
                 f"{safe}"
                 "</div>"
             )
-            body = add_company_signature(body)
+            body = await add_company_signature(body, employee_id=employee_id)
 
         ok, err = send_email_via_smtp(
             to=to_email,
@@ -1343,7 +1335,7 @@ async def email_compose_modify_endpoint(
         f"{safe}"
         "</div>"
     )
-    body_html = add_company_signature(body_html)
+    body_html = await add_company_signature(body_html, employee_id=employee_id)
 
     ctx["email_draft_subject"] = subject
     ctx["email_draft_body"] = body_html
@@ -1355,68 +1347,6 @@ async def email_compose_modify_endpoint(
     await session_manager.save_session_state(session_id, session_data)
 
     return {"ok": True, "message": "✅ 초안을 저장했습니다.", "draft": {"to": to_email, "subject": subject, "body": body_html}}
-
-
-@app.post("/api/email/compose/ai-revise")
-async def email_compose_ai_revise_endpoint(
-    payload: EmailComposeAiReviseRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """이메일 작성 초안을 AI가 지시문에 맞게 수정하고 저장."""
-    import html as html_module
-
-    employee_id = current_user["employee_id"]
-    session_id = payload.session_id
-
-    session_manager = await get_session_manager()
-    if not session_manager:
-        raise HTTPException(status_code=500, detail="세션 매니저를 초기화할 수 없습니다.")
-
-    session_data = await session_manager.load_session_data(session_id, employee_id)
-    ctx = session_data.get("email_compose_context") or {}
-    if not isinstance(ctx, dict):
-        ctx = {}
-
-    to_email = ctx.get("to_email") or ", ".join(ctx.get("to_emails", []) or [])
-    if not to_email:
-        raise HTTPException(status_code=400, detail="수신자(to_email)가 없습니다. 먼저 이메일 초안을 생성해주세요.")
-
-    instruction = (payload.instruction or "").strip()
-    if not instruction:
-        raise HTTPException(status_code=400, detail="instruction이 비어있습니다.")
-
-    # 사용자 편집본(텍스트) → HTML로 래핑 (LLM에는 태그 제거된 텍스트만 들어가도록 generate_email_draft가 처리함)
-    safe = html_module.escape(payload.body_text or "").replace("\n", "<br>")
-    current_html = (
-        "<div style=\"font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;"
-        "font-size:14px;color:#333;line-height:1.8;padding:20px;\">"
-        f"{safe}"
-        "</div>"
-    )
-
-    from agents.master_graphs.email.email_compose_agent import generate_email_draft
-
-    subject, body_html = await generate_email_draft(
-        to_email=to_email,
-        user_message="",  # 수정은 지시문 기반
-        original_subject=None,
-        original_sender=None,
-        original_body=None,
-        is_revision=True,
-        feedback=instruction,
-        current_draft_subject=(payload.subject or "").strip() or ctx.get("email_draft_subject"),
-        current_draft_body=current_html,
-    )
-
-    ctx["email_draft_subject"] = subject
-    ctx["email_draft_body"] = body_html
-    ctx["to_email"] = to_email
-
-    session_data["email_compose_context"] = ctx
-    session_data["employee_id"] = employee_id
-    await session_manager.save_session_state(session_id, session_data)
-
-    return {"ok": True, "message": "✅ AI가 초안을 수정했습니다.", "draft": {"to": to_email, "subject": subject, "body": body_html}}
 
 
 @app.post("/api/email/compose/send")
@@ -1455,7 +1385,7 @@ async def email_compose_send_endpoint(
         f"{safe}"
         "</div>"
     )
-    body_html = add_company_signature(body_html)
+    body_html = await add_company_signature(body_html, employee_id=employee_id)
 
     ok, err = send_email_via_smtp(
         to=to_email,
