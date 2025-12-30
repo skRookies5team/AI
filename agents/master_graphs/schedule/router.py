@@ -36,13 +36,16 @@ async def determine_schedule_intent(state: OrchestratorState) -> str:
     current_step_index = state.get("current_workflow_step_index", 0)
     workflow_steps = state.get("workflow_steps", [])
 
-    if workflow_in_progress and workflow_type == "business_trip":
-        if current_step_index < len(workflow_steps) and workflow_steps[current_step_index] == "schedule":
+    if workflow_in_progress:
+        if workflow_type == "business_trip" and current_step_index < len(workflow_steps) and workflow_steps[current_step_index] == "schedule":
             print(
                 f"✅ 워크플로우 모드 감지: {workflow_type} (Step {current_step_index + 1})"
                 " → business_trip으로 의도 강제"
             )
             return "business_trip"
+        elif workflow_type == "recruitment" and current_step_index == 1:
+            print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step 2) → interview로 라우팅")
+            return "interview"
 
     schedule_context = state.get("schedule_context") or {}
 

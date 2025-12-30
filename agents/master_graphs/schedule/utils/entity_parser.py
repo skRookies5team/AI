@@ -105,6 +105,64 @@ async def extract_leave_entities(query: str) -> Dict[str, Any]:
         return _fallback_leave_extraction(query)
 
 
+async def extract_interviewer_entities(query: str) -> Dict[str, Any]:
+    """면접관 정보(이름, 부서, 직급) 추출.
+    
+    Args:
+        query: 사용자 쿼리 (예: "인사팀 김철수 과장, 개발팀 이영희 대리")
+        
+    Returns:
+        {
+            'interviewers': [
+                {'name': '김철수', 'dept': '인사팀', 'position': '과장'},
+                {'name': '이영희', 'dept': '개발팀', 'position': '대리'}
+            ]
+        }
+    """
+    if not LLM_AVAILABLE:
+        return {"interviewers": []}
+    
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"interviewers": []}
+    
+    try:
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_openai import ChatOpenAI
+        import json, re
+        
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
+        
+        system_prompt = """사용자 입력에서 면접관들의 정보를 추출하여 JSON 형식으로 반환하세요.
+        각 면접관에 대해 이름(name), 부서(dept), 직급(position)을 추출해야 합니다.
+        정보가 명시되지 않은 필드는 null로 설정하세요.
+        
+        응답 형식:
+        {"interviewers": [{"name": "이름", "dept": "부서", "position": "직급"}, ...]}
+        """
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("user", "{query}")
+        ])
+        
+        chain = prompt | llm
+        response = await chain.ainvoke({"query": query})
+        content = response.content.strip()
+        
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(0))
+            print(f"✅ LLM 면접관 엔티티 추출: {data}")
+            return data
+        
+        return {"interviewers": []}
+    
+    except Exception as e:
+        print(f"⚠️ LLM 면접관 엔티티 추출 실패: {e}")
+        return {"interviewers": []}
+
+
 def _fallback_schedule_extraction(query: str) -> Dict[str, Any]:
     """키워드 기반 일정 추출 (fallback)."""
     # 간단하게 쿼리를 제목으로

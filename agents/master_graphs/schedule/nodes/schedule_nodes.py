@@ -1119,18 +1119,26 @@ async def find_available_interview_slots(
 
 
 async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, Any]:
-    """면접 일정 조정 처리.
-    
-    순서:
-    1. 면접일정잡아줘 입력
-    2. 기간 입력 요청
-    3. 면접관 선택 UI 표시
-    4. 면접관 선택 후 "확인" 버튼
-    5. DB 조회 → 가능한 시간 후보군 반환
-    6. 사용자가 후보군에서 선택
-    """
+    """면접 일정 조정 처리."""
     try:
         query = state.get("query", "").strip()
+
+        # ⚠️ 취소/종료 요청 처리 (최우선)
+        cancel_keywords = ["취소", "종료", "그만", "stop", "cancel"]
+        if any(k == query.lower() for k in cancel_keywords):
+            print(f"🛑 [Interview] 워크플로우 취소 요청 감지: {query}")
+            return {
+                "final_response": "워크플로우가 취소되었습니다. 모든 임시 데이터가 초기화됩니다.",
+                "messages": ["워크플로우 취소"],
+                "workflow_in_progress": False,
+                "workflow_type": None,
+                "workflow_steps": None,
+                "current_workflow_step_index": None,
+                "workflow_temp_data": {},  # 임시 데이터 초기화
+                "schedule_context": {"interview": {}}, # 컨텍스트 초기화
+                "requires_input": False
+            }
+
         user_id = state.get("user_id") or state.get("employee_id")
         employee_id = state.get("employee_id")
         
@@ -1227,24 +1235,60 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
         selected_interviewers = interview_context.get("selected_interviewers", [])
         print(f"[면접 일정] 면접관 확인: selected_interviewers={selected_interviewers}, query='{query}'")
         
-        # 쿼리에서 면접관 정보가 있는지 확인 (프론트엔드에서 전달된 경우)
+        # 쿼리에서 면접관 정보가 있는지 확인 (프론트엔드에서 전달된 경우 또는 자연어 입력)
         if not selected_interviewers and query:
-            # JSON 형식으로 전달된 경우 파싱 시도
+            # 1. JSON 형식(프론트엔드 UI)으로 전달된 경우 파싱 시도
             try:
-                import json
                 if query.startswith("[") or query.startswith("{"):
                     parsed_data = json.loads(query)
                     if isinstance(parsed_data, list):
                         selected_interviewers = [item.get("employee_id") if isinstance(item, dict) else item for item in parsed_data]
                     elif isinstance(parsed_data, dict) and "employee_id" in parsed_data:
                         selected_interviewers = [parsed_data["employee_id"]]
-                    # 선택된 면접관 정보를 컨텍스트에 저장
+                    
                     if selected_interviewers:
                         interview_context["selected_interviewers"] = selected_interviewers
                         state["schedule_context"]["interview"] = interview_context
-                        print(f"[면접 일정] 면접관 파싱 성공: {selected_interviewers}")
+                        print(f"[면접 일정] 면접관 ID 파싱 성공: {selected_interviewers}")
             except:
                 pass
+            
+            # 2. 자연어 입력인 경우 (시나리오 2 워크플로우)
+            if not selected_interviewers:
+                from agents.master_graphs.schedule.utils.entity_parser import extract_interviewer_entities
+                interviewer_info = await extract_interviewer_entities(query)
+                
+                if interviewer_info and interviewer_info.get("interviewers"):
+                    print(f"✅ [면접 일정] 자연어에서 면접관 정보 추출 완료: {interviewer_info['interviewers']}")
+                    
+                    # 사용자 요구사항: 이름, 부서, 직급을 임시 state에 업로드
+                    workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+                    workflow_temp_data["interviewers_detail"] = interviewer_info["interviewers"]
+                    state["workflow_temp_data"] = workflow_temp_data
+                    
+                    # 이름 기반으로 employee_id 조회 시도 (간이 구현)
+                    from agents.master_graphs.schedule.services.database_service import DatabaseService
+                    db = DatabaseService()
+                    found_ids = []
+                    
+                    from sqlalchemy import text
+                    async with db._session() as session:
+                        for inv in interviewer_info["interviewers"]:
+                            name = inv.get("name")
+                            if not name: continue
+                            
+                            # 이름으로 검색 (부서 정보가 있으면 더 정확하겠지만 일단 이름으로)
+                            sql = text("SELECT employee_id FROM employee WHERE name = :name LIMIT 1")
+                            result = await session.execute(sql, {"name": name})
+                            row = result.fetchone()
+                            if row:
+                                found_ids.append(row[0])
+                    
+                    if found_ids:
+                        selected_interviewers = found_ids
+                        interview_context["selected_interviewers"] = selected_interviewers
+                        state["schedule_context"]["interview"] = interview_context
+                        print(f"✅ [면접 일정] DB에서 면접관 ID 매칭 성공: {selected_interviewers}")
         
         # 면접관이 없으면 선택 UI 요청
         if not selected_interviewers:
