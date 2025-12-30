@@ -231,9 +231,8 @@ class TechMasterGraph(BaseMasterGraph):
         # 논문: ask_source (최근 활성 agent가 논문이면 우선 확인)
         if article_ctx:
             article_intent = article_ctx.get("intent")
-            # 논문 관련 키워드가 없는 경우에도 이전 컨텍스트 유지
-            has_article_keywords = any(k in query.lower() for k in ["논문", "paper", "학술", "article", "scienceon"])
-            if article_intent == "ask_source" and not has_article_keywords:
+            has_patent_keywords = any(k in query.lower() for k in ["특허", "patent"])
+            if article_intent == "ask_source" and not has_patent_keywords:
                 LOGGER.info(f"✅ 이전 컨텍스트(ask_source, 논문 키워드 없음)에 따라 라우팅 유지: article")
                 return {"intent": "article"}
         
@@ -241,8 +240,8 @@ class TechMasterGraph(BaseMasterGraph):
         if patent_ctx:
             patent_intent = patent_ctx.get("intent")
             waiting_for_web_search = patent_ctx.get("waiting_for_web_search", False)
-            has_patent_keywords = any(k in query.lower() for k in ["특허", "patent"])
-            if (patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search) and not has_patent_keywords:
+            has_article_keywords = any(k in query.lower() for k in ["논문", "paper", "학술", "article", "scienceon"])
+            if (patent_intent == "ask_search_mode" or patent_intent == "ask_web_search" or waiting_for_web_search) and not has_article_keywords:
                 LOGGER.info(f"✅ 이전 컨텍스트({patent_intent}, waiting_for_web_search={waiting_for_web_search}, 특허 키워드 없음)에 따라 라우팅 유지: patent")
                 return {"intent": "patent"}
         
