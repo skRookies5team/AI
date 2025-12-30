@@ -95,6 +95,17 @@ def process_domain_node_result(
     workflow_in_progress = state.get("workflow_in_progress", False)
     requires_input = result.get("requires_input", False)
     
+    # recruitment 도메인의 휴먼인더루프 진행 중인지 확인
+    is_recruitment_hitl = False
+    if domain_name == "recruitment":
+        recruitment_context = result.get("recruitment_context", {}) or state.get("recruitment_context", {})
+        if recruitment_context:
+            search_params = recruitment_context.get("search_parameters", {})
+            collection_step = search_params.get("collection_step")
+            if collection_step and collection_step != "complete":
+                is_recruitment_hitl = True
+                print(f"✅ Recruitment 휴먼인더루프 진행 중: collection_step={collection_step}")
+    
     if workflow_in_progress:
         # 워크플로우 진행 중일 때는 last_domain을 워크플로우 단계 정보로 설정
         workflow_type = state.get("workflow_type")
