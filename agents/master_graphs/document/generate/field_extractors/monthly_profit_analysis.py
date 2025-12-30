@@ -1,16 +1,82 @@
 """월별 수익 분석 리포트 필드 추출 모듈."""
 
+from __future__ import annotations
+
 import json
 import re
 from typing import Any, Dict, List, Optional
 
 try:
     from langchain_openai import ChatOpenAI
+
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
 
+from agents.llm_router import load_agent_prompts
 from ...document_utils import get_env
+
+_DOCUMENT_PROMPTS_CACHE: Optional[Dict[str, Any]] = None
+
+
+def _get_document_prompts() -> Dict[str, Any]:
+    """문서 도메인 YAML 프롬프트를 캐시하여 반환."""
+    global _DOCUMENT_PROMPTS_CACHE
+    if _DOCUMENT_PROMPTS_CACHE is None:
+        try:
+            _DOCUMENT_PROMPTS_CACHE = load_agent_prompts().get("document", {})
+        except Exception:
+            _DOCUMENT_PROMPTS_CACHE = {}
+    return _DOCUMENT_PROMPTS_CACHE or {}
+
+
+def _get_conclusion_prompt() -> str:
+    """결론 생성 프롬프트를 YAML에서 조회하고, 없으면 기본값을 반환한다."""
+    prompts = _get_document_prompts()
+    return prompts.get("prompts", {}).get("conclusion_generation", "") or """다음 월별 수익 분석 리포트 데이터를 분석하여 결론 및 제언을 작성해주세요.
+
+=== 문서 정보 ===
+제목: {document_title}
+요구사항: {requirements}
+
+=== 분석 데이터 요약 ===
+{summary_text}
+{db_summary}
+
+=== 작업 지시 ===
+위의 데이터를 분석하여 다음 형식으로 결론 및 제언을 작성해주세요:
+1. 주요 성과: 매출, 수익, 성장 등 긍정적인 내용
+2. 개선사항: 부족한 부분, 개선이 필요한 영역
+3. 향후 계획: 다음 달을 위한 제안사항
+
+각 항목은 구체적이고 실용적인 내용으로 작성해주세요.
+
+=== 응답 형식 ===
+반드시 JSON 형식으로만 응답하세요. 코드 블록(```json) 없이 JSON만 반환하세요.
+
+{
+    "conclusionTable": [
+        {
+            "category": "주요 성과",
+            "content": "상세한 성과 내용 (2-3문장)"
+        },
+        {
+            "category": "개선사항",
+            "content": "상세한 개선사항 내용 (2-3문장)"
+        },
+        {
+            "category": "향후 계획",
+            "content": "상세한 향후 계획 내용 (2-3문장)"
+        }
+    ]
+}
+
+**중요:**
+1. JSON 형식만 반환 (설명이나 다른 텍스트 없이)
+2. conclusionTable은 최소 3개 항목 이상 포함
+3. category는 "주요 성과", "개선사항", "향후 계획" 등으로 작성
+4. content는 구체적이고 실용적인 내용으로 작성 (2-3문장)
+"""
 
 
 def extract_monthly_profit_analysis_fields(
@@ -27,7 +93,7 @@ def extract_monthly_profit_analysis_fields(
         document_title: 문서 제목
         db_data: DB에서 조회한 데이터 (선택사항)
     """
-    print(f"🔍 [monthly_profit_analysis] 필드 값 추출 시작...")
+    print("🔍 [monthly_profit_analysis] 필드 값 추출 시작...")
     
     # 1. 년도, 월 추출
     year_match = re.search(r'(\d{4})\s*년', requirements)
@@ -247,11 +313,11 @@ def extract_monthly_profit_analysis_fields(
         if 'conclusionTable' not in field_values or not field_values.get('conclusionTable'):
             _generate_conclusion_table(field_values, db_data, requirements, document_title)
         else:
-            print(f"✅ conclusionTable이 이미 존재하여 생성 건너뜀")
+            print("✅ conclusionTable이 이미 존재하여 생성 건너뜀")
     
     # 3. 요구사항에서 직접 추출 (DB 데이터가 없는 경우)
     if not db_data or len(db_data) == 0:
-        print(f"⚠️ DB 데이터 없음, 요구사항에서 직접 추출...")
+        print("⚠️ DB 데이터 없음, 요구사항에서 직접 추출...")
         
         # 기본 테이블 구조 생성
         if 'regionalTable' not in field_values:
@@ -266,7 +332,7 @@ def extract_monthly_profit_analysis_fields(
         if 'conclusionTable' not in field_values or not field_values.get('conclusionTable'):
             _generate_conclusion_table(field_values, None, requirements, document_title)
     
-    print(f"✅ [monthly_profit_analysis] 필드 값 추출 완료!")
+    print("✅ [monthly_profit_analysis] 필드 값 추출 완료!")
 
 
 def _generate_conclusion_table(
@@ -292,7 +358,7 @@ def _generate_conclusion_table(
         print("⚠️ OPENAI_API_KEY가 설정되지 않아 결론 및 제언 생성 건너뜀")
         return
     
-    print(f"🤖 LLM을 사용하여 결론 및 제언 생성 시작...")
+    print("🤖 LLM을 사용하여 결론 및 제언 생성 시작...")
     
     try:
         # 생성된 테이블 데이터 요약
@@ -326,58 +392,21 @@ def _generate_conclusion_table(
 - 평균 수익률: {avg_margin:.2f}%
 """
         
-        prompt_text = f"""다음 월별 수익 분석 리포트 데이터를 분석하여 결론 및 제언을 작성해주세요.
-
-=== 문서 정보 ===
-제목: {document_title}
-요구사항: {requirements}
-
-=== 분석 데이터 요약 ===
-{summary_text}
-{db_summary}
-
-=== 작업 지시 ===
-위의 데이터를 분석하여 다음 형식으로 결론 및 제언을 작성해주세요:
-1. 주요 성과: 매출, 수익, 성장 등 긍정적인 내용
-2. 개선사항: 부족한 부분, 개선이 필요한 영역
-3. 향후 계획: 다음 달을 위한 제안사항
-
-각 항목은 구체적이고 실용적인 내용으로 작성해주세요.
-
-=== 응답 형식 ===
-반드시 JSON 형식으로만 응답하세요. 코드 블록(```json) 없이 JSON만 반환하세요.
-
-{{
-    "conclusionTable": [
-        {{
-            "category": "주요 성과",
-            "content": "상세한 성과 내용 (2-3문장)"
-        }},
-        {{
-            "category": "개선사항",
-            "content": "상세한 개선사항 내용 (2-3문장)"
-        }},
-        {{
-            "category": "향후 계획",
-            "content": "상세한 향후 계획 내용 (2-3문장)"
-        }}
-    ]
-}}
-
-**중요:**
-1. JSON 형식만 반환 (설명이나 다른 텍스트 없이)
-2. conclusionTable은 최소 3개 항목 이상 포함
-3. category는 "주요 성과", "개선사항", "향후 계획" 등으로 작성
-4. content는 구체적이고 실용적인 내용으로 작성 (2-3문장)
-"""
-
+        prompt_template = _get_conclusion_prompt()
+        prompt_text = prompt_template.format(
+            document_title=document_title,
+            requirements=requirements,
+            summary_text=summary_text,
+            db_summary=db_summary,
+        )
+        
         llm = ChatOpenAI(
             model=get_env("OPENAI_MODEL", "gpt-4o-mini"),
             temperature=0.7,  # 창의적인 분석을 위해 약간 높게 설정
             api_key=api_key
         )
         
-        print(f"🔄 LLM 모델 호출 중... (결론 및 제언 생성)")
+        print("🔄 LLM 모델 호출 중... (결론 및 제언 생성)")
         response = llm.invoke(prompt_text)
         response_text = response.content.strip()
         
@@ -403,23 +432,25 @@ def _generate_conclusion_table(
                         content = item.get('content', '')
                         print(f"  {idx}. {category}: {content[:50]}...")
                 else:
-                    print(f"⚠️ conclusionTable이 빈 리스트입니다")
+                    print("⚠️ conclusionTable이 빈 리스트입니다")
             else:
-                print(f"⚠️ JSON 형식이 올바르지 않습니다 (conclusionTable 키 없음)")
+                print("⚠️ JSON 형식이 올바르지 않습니다 (conclusionTable 키 없음)")
                 # 기본값으로 빈 테이블 생성
                 field_values['conclusionTable'] = []
                 
-        except json.JSONDecodeError as e:
-            print(f"⚠️ JSON 파싱 실패: {e}")
+        except json.JSONDecodeError as exc:
+            print(f"⚠️ JSON 파싱 실패: {exc}")
             print(f"응답 내용 (처음 500자): {response_text[:500]}")
             # 기본값으로 빈 테이블 생성
             field_values['conclusionTable'] = []
             
-    except Exception as e:
-        print(f"⚠️ 결론 및 제언 생성 실패: {e}")
+    except Exception as exc:
+        print(f"⚠️ 결론 및 제언 생성 실패: {exc}")
         import traceback
         traceback.print_exc()
         # 기본값으로 빈 테이블 생성
         if 'conclusionTable' not in field_values:
             field_values['conclusionTable'] = []
+
+
 

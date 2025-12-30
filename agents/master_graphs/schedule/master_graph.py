@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from typing import Any, Dict
-import asyncio
-import time
 
 from langgraph.graph import StateGraph, END
 
 from agents.state import OrchestratorState
-from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
+from .router import determine_schedule_intent
 
 
 class ScheduleMasterGraph(BaseMasterGraph):
@@ -41,6 +39,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
         workflow.add_node("handle_schedule", self.handle_schedule)
         workflow.add_node("handle_meeting_room", self.handle_meeting_room)
         workflow.add_node("handle_business_trip", self.handle_business_trip)
+        workflow.add_node("handle_interview", self.handle_interview)
         
         # 엣지 설정
         workflow.set_entry_point("route_intent")
@@ -54,6 +53,7 @@ class ScheduleMasterGraph(BaseMasterGraph):
                 "schedule": "handle_schedule",
                 "meeting": "handle_meeting_room",
                 "business_trip": "handle_business_trip",
+                "interview": "handle_interview",
             }
         )
         
@@ -62,123 +62,14 @@ class ScheduleMasterGraph(BaseMasterGraph):
         workflow.add_edge("handle_schedule", END)
         workflow.add_edge("handle_meeting_room", END)
         workflow.add_edge("handle_business_trip", END)
+        workflow.add_edge("handle_interview", END)
         
         return workflow.compile()
     
     async def route_intent(self, state: OrchestratorState) -> Dict[str, Any]:
         """스케줄 도메인 내부 의도 분류."""
         print("--- [Schedule Master] Routing Intent ---")
-        step_start = time.time()
-        query = state.get("query", "")
-        session_id = state.get("session_id")
-
-        # ✅ 워크플로우 모드 확인 (최우선 처리)
-        workflow_in_progress = state.get("workflow_in_progress", False)
-        workflow_type = state.get("workflow_type")
-        current_step_index = state.get("current_workflow_step_index", 0)
-        workflow_steps = state.get("workflow_steps", [])
-
-        # 출장 워크플로우 진행 중인 경우 의도를 business_trip으로 강제
-        if workflow_in_progress and workflow_type == "business_trip":
-            # 현재 단계가 schedule 도메인이라면 business_trip으로 라우팅 (Step 1 또는 Step 3)
-            if current_step_index < len(workflow_steps) and workflow_steps[current_step_index] == "schedule":
-                step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step {current_step_index + 1}) → business_trip으로 의도 강제 ({step_elapsed/1000:.2f}초)")
-                return {"intent": "business_trip"}
-
-        schedule_context = state.get("schedule_context") or {}
-        
-        # 면접 일정 조정인지 확인 (최우선 처리)
-        interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
-        if any(keyword in query for keyword in interview_keywords):
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 면접 일정 조정 감지 - schedule으로 라우팅 ({step_elapsed/1000:.2f}초)")
-            return {"intent": "schedule"}  # schedule intent로 라우팅하되, process_schedule_request에서 면접 처리
-        
-        # ✅ 면접 컨텍스트가 있으면 schedule로 강제 라우팅 (JSON 데이터 처리용)
-        interview_context = schedule_context.get("interview") or {}
-        if interview_context:
-            # 면접 관련 JSON 데이터 체크 (면접관 선택, 지속 시간 선택, 시간대 선택)
-            try:
-                import json
-                if query.strip().startswith('{'):
-                    query_json = json.loads(query)
-                    if isinstance(query_json, dict):
-                        # 면접 관련 JSON 타입 체크
-                        if any(key in query_json for key in ["selectedInterviewers", "duration_minutes", "slot_index", "start", "end"]):
-                            step_elapsed = (time.time() - step_start) * 1000
-                            print(f"✅ 면접 일정 진행 중 감지 (JSON) - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-                            return {"intent": "schedule"}
-            except (json.JSONDecodeError, AttributeError):
-                pass  # JSON 파싱 실패 시 계속 진행
-            
-            # 면접 컨텍스트에 선택된 면접관이나 지속 시간, 시간대 선택 플래그가 있으면 schedule로 라우팅
-            if (interview_context.get("selected_interviewers") or 
-                interview_context.get("duration_minutes") or 
-                interview_context.get("requires_slot_selection") or
-                interview_context.get("available_slots")):
-                step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ 면접 일정 진행 중 감지 (컨텍스트) - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-                return {"intent": "schedule"}
-        
-        # schedule의 awaiting_slots 체크 (일정 삭제 선택 대기 중)
-        schedule_ctx = schedule_context.get("schedule") or {}
-        schedule_awaiting_slots = schedule_ctx.get("awaiting_slots") or []
-        if schedule_awaiting_slots:
-            # delete_selection이나 update_selection이 있으면 schedule로 강제 라우팅
-            if "delete_selection" in schedule_awaiting_slots or "update_selection" in schedule_awaiting_slots:
-                step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ 일정 삭제/수정 선택 대기 중 - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-                return {"intent": "schedule"}
-        
-        # delete_candidates가 있으면 연속 삭제 가능하므로 schedule로 강제 라우팅
-        if schedule_ctx.get("delete_candidates"):
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 일정 삭제 후보가 남아있음 - schedule으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-            return {"intent": "schedule"}
-        
-        # meeting의 awaiting_slots 체크
-        meeting_context = schedule_context.get("meeting") or {}
-        meeting_slot_state = meeting_context.get("slot_state") or {}
-        awaiting_slots = meeting_context.get("awaiting_slots") or []
-        missing_slots = meeting_slot_state.get("missing_slots") or []
-        
-        # 추천 후 회의실 선택 중이면 무조건 meeting으로 라우팅
-        if meeting_context.get("recommended_rooms"):
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 회의실 추천 후 선택 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-            return {"intent": "meeting"}
-        
-        if awaiting_slots:
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 회의실 슬롯 질의 응답 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-            return {"intent": "meeting"}
-        if missing_slots:
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 회의실 슬롯이 아직 남아 있음 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-            return {"intent": "meeting"}
-        pending_reservation = meeting_context.get("pending_reservation")
-        awaiting_field = meeting_context.get("awaiting_field")
-        if pending_reservation and awaiting_field:
-            step_elapsed = (time.time() - step_start) * 1000
-            print(f"✅ 회의실 예약 슬롯 채우기 진행 중 - meeting으로 강제 라우팅 ({step_elapsed/1000:.2f}초)")
-            return {"intent": "meeting"}
-        
-        # llm_router를 사용한 LLM 기반 분류
-        intent = await asyncio.to_thread(
-            classify_intent_with_llm,
-            query=query,
-            route_type="schedule",
-            fallback_route="schedule",
-            session_id=session_id
-        )
-        
-        # intent 검증: "leave", "schedule", "meeting", "business_trip" 중 하나
-        if intent not in ["leave", "schedule", "meeting", "business_trip"]:
-            intent = "schedule"  # 기본값
-        
-        step_elapsed = (time.time() - step_start) * 1000
-        print(f"✅ Schedule 의도 결정: {intent} ({step_elapsed/1000:.2f}초)")
+        intent = await determine_schedule_intent(state)
         return {"intent": intent}
     
     def route_to_subagent(self, state: OrchestratorState) -> str:
@@ -220,8 +111,8 @@ class ScheduleMasterGraph(BaseMasterGraph):
         """
         print("--- [Schedule Master] Handling Meeting Room ---")
         
-        # nodes/meeting_room_nodes.py에서 처리
-        from agents.master_graphs.schedule.nodes.meeting_room_nodes import process_meeting_room_request
+        # nodes/meeting_room/core.py에서 처리
+        from .nodes.meeting_room.core import process_meeting_room_request
         
         result = await process_meeting_room_request(state)
         return result
@@ -238,6 +129,13 @@ class ScheduleMasterGraph(BaseMasterGraph):
         from agents.master_graphs.schedule.nodes.business_trip_nodes import process_business_trip_request
         
         result = await process_business_trip_request(state)
+        return result
+
+    async def handle_interview(self, state: OrchestratorState) -> Dict[str, Any]:
+        """면접 일정 관리."""
+        from .nodes.interview_nodes import process_interview_request
+
+        result = await process_interview_request(state)
         return result
 
 
