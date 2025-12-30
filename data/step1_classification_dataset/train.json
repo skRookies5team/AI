@@ -1,3856 +1,5306 @@
-{
-  "metadata": {
-    "created_at": "2025-12-19T12:15:17.386288",
-    "total_samples": 640,
-    "workflow_samples": 381,
-    "regular_task_samples": 259,
-    "description": "1단계 워크플로우 vs 일반 요청 분류 데이터셋 (KLUE-RoBERTa/SetFit 최적화)",
-    "classification_type": "binary",
-    "models": [
-      "KLUE-RoBERTa",
-      "SetFit"
-    ]
+[
+  {
+    "query": "출장 절차 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
   },
-  "samples": [
-    {
-      "query": "복리후생 정책 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 울산로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "일정 삭제해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "발주서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 방법은?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대구로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "월별 수익 분석 리포트 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 여행 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "회의실 규정 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "출장 수정해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "문서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 가는 방법은?",
-      "is_workflow": false,
-      "confidence": 0.9,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대구로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 일정 변경해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "KISTI에서 논문 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "12월 말에 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 삭제",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 부산로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가규정 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "내일 점심 메뉴 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 어떻게 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "프로젝트 일정표 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "예약 수정해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "수당 관련 정보 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "KISTI 논문 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 출장 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "일정 업데이트해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "구내식당 메뉴 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "내일부터 3일간 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "특허 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 울산로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "보험 정보 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "일정 삭제해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 어떻게 해야 해?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "메일에서 특정 키워드 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 워크샵 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "프로젝트 일정표 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 사용 내역 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 규정 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "연차 어떻게 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가규정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 회의실 예약 가능한 시간 보여주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "부산 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "급여 외 혜택 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "일정 수정해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "월별 수익 분석 리포트 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "KISTI 논문 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 삭제해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "제품개발 계획서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 수정",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "연차 신청 방법은?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "특허 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 달 초에 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "발주서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 월요일부터 수요일까지 서울 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "보고서 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "활동기준 원가 계산서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "매뉴얼 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이메일에서 육아휴직 관련 내용 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 취소해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "연차 절차 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 휴가 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 다니려면 어떻게 해야 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "지원자 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "월별 수익 분석 리포트 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 일정 삭제해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "이력서 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "이메일 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "수당 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 예약해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "근무제도 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 신청서 양식 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "오늘 식단 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "내일부터 광주 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "예약 취소",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 수정",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 울산로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "보험 정보 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "인재 추천해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 신청 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 규정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대전로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 규정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "구내식당 메뉴 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이번 주 금요일부터 월요일까지 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "반차 신청",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "제품 비교표 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 변경",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 부산로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이력서 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이메일 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "바이러스 관련 특허 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "급여 외 혜택 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 삭제해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "계약 갱신 보고서 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "인사정보 요약 리포트 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 삭제해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "구내식당 메뉴 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "월별 수익 분석 리포트 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 예약 취소해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이번 주 금요일부터 월요일까지 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 업데이트해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "공급업체 평가서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "공급업체 평가서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 신청서 보여주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "특허 정보 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "예약 수정해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "발주서 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "메일 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "프로젝트 일정표 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 절차 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 변경해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 다녀오려면 어떻게 해야 하나요?",
-      "is_workflow": false,
-      "confidence": 0.9,
-      "label": 0
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "인사정보 요약 리포트 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이메일 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "일정 지워줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 신청 절차는?",
-      "is_workflow": false,
-      "confidence": 0.9,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 출장 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 출장 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 여행 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 신청 취소해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 인천 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 어떻게 해야 해?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "바이러스 관련 특허 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "수당 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "구내식당 메뉴 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 규정 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 여행 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "휴가 삭제해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "12월 20일부터 22일까지 부산 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 어떻게 해야 해?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 예약 방법 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "연차 사용 내역 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "논문 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 변경",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 신청하려면 어떻게 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 조회해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "휴가 신청 방법은?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "인사정보 요약 리포트 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "Python 개발자 추천해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 삭제",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "연차 사용 내역 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 신청 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 휴가 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 가야 해서 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "복리후생 정책 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대전로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "우리 회사 메뉴얼에서 연차사용 정보 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "ScienceON 자료 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "내 일정 보여주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 여행 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "예약 변경",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "계약 갱신 보고서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 휴가 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "이력서 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 수정해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 제주도 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "이메일 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 출장 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "휴가 규정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "회의실 예약 취소",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "ScienceON 자료 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "문서 작성 방법은?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "내일부터 5일간 부산 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "지원자 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "보험 정보 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "채용 관련 정보 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 회의실 예약 가능한 시간 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "회의실 예약 가능한 시간 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 규정 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "출장 일정 취소해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "보고서 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "출장 규정 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 갈 예정이야",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "예약 취소해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대구로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일주일간 부산 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "제품개발 계획서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "논문 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 보여주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 취소해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "예약 취소해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "바이러스 관련 특허 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 준비 부탁해",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 어떻게 해야 해?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 울산로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 부산로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "내일 점심 메뉴 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "메일 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "회의실 예약 가능한 시간 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "1월 5일부터 7일까지 대전 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "업무 성과 평가서 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "회의실 예약 가능한 시간 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이메일 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "내일 점심 메뉴 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "예약 삭제해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 신청하려고 해",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "제품개발 계획서 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "회의실 예약 가능한 시간 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "오늘 식단 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대전로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 일정 제거해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 다녀와야 해",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "인재 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "인재 채용 프로세스 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 울산로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 일정 수정해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "내일 점심 메뉴 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "공급업체 평가서 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대전로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 취소해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "연차 방법은?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 여행 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 일정 취소",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "이메일 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 여행 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 변경",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 울산로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 일정 변경해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "업무 성과 평가서 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대전로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 사용 내역 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 일정 변경해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "메뉴얼에서 연차 정보 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "오늘 식단 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "일정 삭제",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대구로 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 어떻게 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 여행 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "예약 삭제해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "일정 변경해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다이어트 중인데 내일 식단을 어떻게 먹어야해?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "논문 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 취소해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "계약 갱신 보고서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 부산로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대구로 워크샵 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "연차 신청해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "내 일정 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 신청서 양식 보여주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 인천로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 절차 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 일정 변경해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 절차 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 여행 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "휴가 신청 절차 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 2박 3일 제주도로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "근무제도 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "바이러스 관련 특허 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "메일 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "예약 삭제",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "문서 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "휴가 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이번 달 연차 사용 내역 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "이번 달 연차 사용 내역 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "수당 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "문서 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "인사정보 요약 리포트 생성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 여행 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 예약 방법 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "휴가 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "근무제도 확인해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "2박 3일 제주도 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 출장 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 취소",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "내일부터 휴가 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "이메일 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 울산로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 신청해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 일정 수정해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 인천로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "보고서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 일정 삭제",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 예약",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "활동기준 원가 계산서 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대전로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 방법은?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "내일 연차 신청",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 대구로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "인재 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "지원자 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 제주도로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 절차 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 대구로 휴가 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "메일 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 부산로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 출장 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 대전로 휴가 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "출장 어떻게 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 부산로 워크샵 준비해주세요",
-      "is_workflow": true,
-      "confidence": 0.85,
-      "label": 1
-    },
-    {
-      "query": "근무제도에 대해 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "KISTI 논문 검색해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 휴가 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 제주도로 워크샵 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "급여 외 혜택에 대해 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "특허 찾기",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "울산 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.95,
-      "label": 1
-    },
-    {
-      "query": "회의실 규정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "특허 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 출장 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "출장 일정 제거해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 광주로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 광주로 휴가 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "문서 규정 알려줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 서울로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "일정 고쳐줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대전로 워크샵 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 신청 취소해주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "ScienceON 자료 검색",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 서울로 휴가 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 서울로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 서울로 출장 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 광주로 출장 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 휴가 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "보고서 만들어줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 수정",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 광주로 여행 다녀올게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "제품 비교표 작성해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 제주도로 출장 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "회의실 어떻게 해야 해?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "일정 조회해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 대구로 여행 신청해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 일주일간 울산로 여행 준비해줘",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "휴가규정 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "회의실 절차 알려주세요",
-      "is_workflow": false,
-      "confidence": 0.85,
-      "label": 0
-    },
-    {
-      "query": "복리후생 정책 보여줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "문서 작성",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 일주일간 인천로 워크샵 가야 해",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "다음 주 3일간 인천로 워크샵 갈게",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "출장 준비는 어떻게 하나요?",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "다음 주 3일간 울산로 워크샵 신청하고 싶어",
-      "is_workflow": true,
-      "confidence": 0.9,
-      "label": 1
-    },
-    {
-      "query": "예약 변경해줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    },
-    {
-      "query": "이력서 찾아줘",
-      "is_workflow": false,
-      "confidence": 0.95,
-      "label": 0
-    }
-  ]
-}
+  {
+    "query": "다음 주 2박 3일 제주도로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 부산로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "디자이너 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "데이터 엔지니어 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프론트엔드 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "디자이너 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "KISTI 논문 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "React 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 가는 방법은?",
+    "is_workflow": false,
+    "confidence": 0.9,
+    "label": 0
+  },
+  {
+    "query": "자바 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "수당 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대전로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "Node.js 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "바이러스 관련 특허 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 절차 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "Node.js 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "Node.js 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 신청 절차 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대전로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "연차 신청 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "보험 정보 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "괜찮은 자바 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "예약 취소",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "AI 엔지니어 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이번에 뽑을 풀스택 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보고서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 관련 정보 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 준비 방법 알려줘",
+    "is_workflow": false,
+    "confidence": 0.9,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "수당 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "월별 수익 분석 리포트 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "디자이너 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대전로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 React 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "논문 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 월요일부터 수요일까지 서울 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "백엔드 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "데이터 엔지니어 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 채용 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "일정 삭제",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "메일 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 일정 변경해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "특허 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "기획자 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "QA 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "기획자 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 인사 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 부산로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "문서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 일정 제거해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "월별 수익 분석 리포트 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "내일 연차 신청",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보안 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "논문 다운로드해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "QA 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "React 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "휴가 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "디자이너 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "KISTI 논문 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "데이터 엔지니어 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "계약 갱신 보고서 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "바이러스 관련 특허 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "예약 변경해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "연차 신청해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "내일 점심 메뉴 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "오늘 식단 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "KISTI 논문 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 울산로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 휴가 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "KISTI 논문 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "QA 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "일정 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "보고서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "계약 갱신 보고서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: ML 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "디자이너 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 출장 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 프론트엔드 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대전로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "연차 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "예약 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 수정해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "공급업체 평가서 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "AI 엔지니어 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이메일 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "부산 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "문서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 확인해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "AI 엔지니어 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "휴가 어떻게 하나요?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프론트엔드 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 인사 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 취소해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "업무 성과 평가서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 변경해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "백엔드 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 절차 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "급여 외 혜택 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "괜찮은 인사 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "보안 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 워크샵 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "일정 고쳐줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "공급업체 평가서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "보안 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "QA 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "연차 사용 내역 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "데이터 엔지니어 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "KISTI에서 논문 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인사 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "QA 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "디자이너 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 파이썬 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "React 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보안 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "ML 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "휴가 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 삭제",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이번에 뽑을 ML 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 여행 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "풀스택 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프론트엔드 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 신청하려고 해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "수당 관련 정보 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "연차 사용 내역 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "일정 지워줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "특허 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프로젝트 일정표 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "오늘 식단 뭐야?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "백엔드 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이력서 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 일정 변경해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "출장 어떻게 해야 해?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이번에 뽑을 보안 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "인사 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "휴가 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 취소",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "데이터 엔지니어 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 보안 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "수당 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "3일간 제주도로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이력서 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "백엔드 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 일정 수정해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "오늘 식단 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 취소",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "12월 대구 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 데이터 엔지니어 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "지원자 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보험 정보 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "논문 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "연차 규정 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 보여주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 자바 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "기획자 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "데이터 엔지니어 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "Node.js 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 규정 보여주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "이번에 뽑을 프론트엔드 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "근무제도 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 예약 방법 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "QA 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: AI 엔지니어 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "연차 절차 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "파이썬 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이메일 답장문 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "활동기준 원가 계산서 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보안 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이번에 뽑을 백엔드 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 디자이너 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 Node.js 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "자바 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 일정 변경해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 예약 방법 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "업무 성과 평가서 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인사 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "백엔드 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이메일 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 신청 도와줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 수정",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "자바 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "Node.js 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 일정 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프론트엔드 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이번에 뽑을 React 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이메일 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 신청 절차 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "회의실 예약 가능한 시간 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 수정",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "Node.js 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "월별 수익 분석 리포트 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "공급업체 평가서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 AI 엔지니어 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "기획자 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 절차 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "이번 주 금요일부터 월요일까지 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "QA 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "채용 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 확인해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "일정 업데이트해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 ML 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "휴가규정 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "예약 삭제해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "급여 외 혜택에 대해 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "채용 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인재 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "ScienceON 자료 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "기획자 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이메일 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "풀스택 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "기획자 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "백엔드 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "제품 비교표 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "근무제도 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "ML 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "백엔드 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "휴가 보여주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "기획자 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "특허 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 일정 제거해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "인사 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 부산로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "ML 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "인사 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "React 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "예약 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "지원자 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "문서 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사정보 요약 리포트 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "기획자 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "우리 회사 메뉴얼에서 연차사용 정보 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "괜찮은 보안 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 삭제해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "인사 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 변경해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 백엔드 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "회의실 예약 가능한 시간 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 작성 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "AI 엔지니어 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 일정 변경해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "회의실 예약",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "일정 변경",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 부산로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "병가 신청해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "ML 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "ML 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "Node.js 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "React 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "QA 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "파이썬 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "자바 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 신청서 양식 보여주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "출장 신청서 양식 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "백엔드 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 채용 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "일정 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 변경해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "활동기준 원가 계산서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "괜찮은 기획자 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "React 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 다녀오려면 어떻게 해야 하나요?",
+    "is_workflow": false,
+    "confidence": 0.9,
+    "label": 0
+  },
+  {
+    "query": "Node.js 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "데이터 엔지니어 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "데이터 엔지니어 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "급여 외 혜택 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 신청서 보여주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "계약 갱신 보고서 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "12월 20일부터 22일까지 부산 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "백엔드 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "월별 수익 분석 리포트 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대전로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 서울로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인사 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "이메일 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 변경해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 파이썬 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프론트엔드 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "구내식당 메뉴 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이메일에서 육아휴직 관련 내용 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인사 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 일정 삭제해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "파이썬 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 울산로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인재 채용 프로세스 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "기획자 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 여행 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "특허 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "풀스택 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 조회해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "보안 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "자바 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "Node.js 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "Node.js 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "일정 취소해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프로젝트 일정표 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "1월 5일부터 7일까지 대전 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이메일 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "내 일정 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "12월 25일부터 27일까지 제주도 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인재 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "React 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "제품개발 계획서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 보여주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "React 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "기획자 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 QA 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 변경해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프로젝트 일정표 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 워크샵 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "React 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 여행 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "백엔드 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 신청 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 변경해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 일정 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "파이썬 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "기획자 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "Node.js 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 디자이너 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "발주서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "내일부터 3일간 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "백엔드 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "자바 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "내일부터 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "채용 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "메일 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "문서 절차 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 워크샵 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 프론트엔드 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "보안 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 울산로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "디자이너 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "괜찮은 AI 엔지니어 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "제품 비교표 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "데이터 엔지니어 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: QA 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이번에 뽑을 데이터 엔지니어 이력서 검토 후에 면접 일정까지 연동해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "일정 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "바이러스 관련 특허 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 어떻게 하나요?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "QA 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 삭제해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "내일부터 5일간 부산 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "일주일간 부산 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "디자이너 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 갈 예정이야",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 예약 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 여행 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "보안 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "메일 자동응답 설정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "구내식당 메뉴 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 신청 취소해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대전로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "백엔드 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 삭제해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "일정 삭제해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "업무 성과 평가서 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가규정 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 가야 해서 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 출장 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "이메일 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "ScienceON 자료 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 울산로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "자바 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인사 개발자 이력서 검색해서 면접 일정까지 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "지원자 검색",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 규정 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 휴가 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "QA 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "회의실 예약해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "보험 정보 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "일정 수정",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "백엔드 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "예약 삭제",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 프로세스 시작해줘: React 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "보안 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대구로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 조회해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "파이썬 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보안 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 수정해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "회의실 예약 가능한 시간 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "기획자 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "일정 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 일정 취소해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 출장 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "발주서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "ML 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 광주로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "연차 어떻게 해야 해?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인재 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "연차 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "예약 삭제해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 출장 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "복리후생 정책 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "울산 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이번 달 연차 사용 내역 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 서울로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "Node.js 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 울산로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "회의실 예약 취소",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "ML 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "React 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "데이터 엔지니어 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: Node.js 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가규정 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 여행 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "내일 점심 메뉴 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사정보 요약 리포트 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "React 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "풀스택 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "구내식당 메뉴 조회",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 달 초에 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "바이러스 관련 특허 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "보안 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "예약 변경해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "제품개발 계획서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "디자이너 포지션 지원자 이력서 검토하고 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 삭제해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "근무제도 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 광주로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "채용 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "이력서 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "AI 엔지니어 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "디자이너 이력서에서 기술 스택 추출해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "제품 비교표 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "메뉴얼에서 연차 정보 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "괜찮은 디자이너 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "ML 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "출장 예약 취소해주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "일정 업데이트해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "이번 달 연차 사용 내역 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사정보 요약 리포트 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 워크샵 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "회의실 어떻게 하나요?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "QA 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 대전로 여행 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "디자이너 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "오늘 식단 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "AI 엔지니어 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "이메일 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "ML 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "활동기준 원가 계산서 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "제품개발 계획서 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 출장 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "프론트엔드 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "출장 준비 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 달 1일부터 3일까지 제주도 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "인사 채용 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "인사정보 요약 리포트 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 휴가 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 출장 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "발주서 작성",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 규정 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "ScienceON에서 자료 찾아줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "오늘 식단 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 인천로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "연차 절차 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "QA 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 신청서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프론트엔드 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 2박 3일 제주도로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 인천 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "지원자 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "React 인재 추천받고 바로 면접 세팅해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 여행 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "업무 성과 평가서 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 자바 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 출장 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "휴가 신청 방법은?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "괜찮은 데이터 엔지니어 지원자 찾아서 면접 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "파이썬 지원자 리스트 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "QA 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "보안 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 울산로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 휴가 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "데이터 엔지니어 구인 중인데 이력서 리스트업하고 면접 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "풀스택 이력서 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "프로젝트 일정표 만들어줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 휴가 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "Node.js 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 일정 취소",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "휴가 어떻게 해야 해?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "채용 프로세스 시작해줘: 백엔드 검색부터 면접 안내까지",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대전로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다이어트 중인데 내일 식단을 어떻게 먹어야해?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 대구로 워크샵 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 출장 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 지원자 합격 처리해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 워크샵 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "회의실 절차 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 부산로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 울산로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "풀스택 지원자들 확인하고 면접 일시 확정해줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 신청해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "이번 주 금요일부터 월요일까지 휴가 갈게",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 광주로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "보안 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 부산로 워크샵 준비해주세요",
+    "is_workflow": true,
+    "confidence": 0.85,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 부산로 여행 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 서울로 출장 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "파이썬 면접 질문 예시 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "논문 찾기",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 출장 갈게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "React 채용 공고 수정해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "복리후생 정책 알려줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사 채용 현황 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "자바 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 부산로 여행 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "데이터 엔지니어 면접 취소해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "공급업체 평가서 생성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 인천로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 광주로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "예약 변경",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 준비는 어떻게 하나요?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 예약 가능한 시간 조회해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 휴가 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대전로 휴가 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 제주도로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 일주일간 대구로 휴가 신청해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 인천로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "매뉴얼 보여줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 서울로 워크샵 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 규정 알려주세요",
+    "is_workflow": false,
+    "confidence": 0.85,
+    "label": 0
+  },
+  {
+    "query": "휴가 변경",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 부산로 여행 신청하고 싶어",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "반차 신청",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "문서 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "출장 어떻게 하나요?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 3일간 제주도로 워크샵 다녀올게",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "급여 외 혜택 확인해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "다음 주 일주일간 인천로 워크샵 가야 해",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "휴가 일정 삭제",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "백엔드 채용 공고 지원자들 중에서 면접 대상자 고르고 일정 잡아줘",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "다음 주 3일간 대구로 여행 준비해줘",
+    "is_workflow": true,
+    "confidence": 0.9,
+    "label": 1
+  },
+  {
+    "query": "QA 채용 진행하고 싶은데 지원자 검색이랑 면접 일정 부탁해",
+    "is_workflow": true,
+    "confidence": 0.95,
+    "label": 1
+  },
+  {
+    "query": "인재 검색해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "회의실 어떻게 해야 해?",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  }
+]

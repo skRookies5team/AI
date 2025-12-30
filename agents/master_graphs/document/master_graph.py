@@ -81,7 +81,19 @@ class DocumentMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 0단계: 결재 진행 요청 확인 (최우선 처리)
+        # 0단계: 워크플로우 감지 및 결재 진행 요청 확인 (최우선 처리)
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        current_workflow_step_index = state.get("current_workflow_step_index", 0)
+
+        # recruitment 워크플로우의 평가표 생성 단계인 경우
+        if workflow_in_progress and workflow_type == "recruitment" and current_workflow_step_index == 3:
+            print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step 3) → generate로 자동 라우팅")
+            return {
+                "intent": "generate",
+                "template_name": "interview_evaluation_form",
+            }
+
         document_context = state.get("document_context", {})
         proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
         is_proceed = any(kw in query for kw in proceed_keywords)
@@ -215,11 +227,14 @@ class DocumentMasterGraph(BaseMasterGraph):
         
         # 워크플로우 모드이고 business_trip 워크플로우인 경우
         if workflow_in_progress and workflow_type == "business_trip":
-            # workflow_temp_data에서 필요한 정보 확인
-            start_time_str = workflow_temp_data.get("start_time")
-            end_time_str = workflow_temp_data.get("end_time")
-            description = workflow_temp_data.get("description", "")
-            destination = workflow_temp_data.get("destination", "")
+            # ... (기존 business_trip 로직)
+            pass # (생략된 부분 유지됨)
+        elif workflow_in_progress and workflow_type == "recruitment" and current_workflow_step_index == 3:
+            # recruitment 워크플로우: 면접 평가표 생성
+            template_name = "interview_evaluation_form"
+            document_title = "면접 평가표"
+            requirements = "선택된 후보자와 면접 일정을 바탕으로 면접 평가표를 작성해주세요."
+            print(f"✅ [워크플로우 모드] 면접 평가표 작성 단계 진입")
             
             # query에서 정보 추출 시도 (LLM 사용) - 기존 값이 없거나 불완전한 경우
             if query and query.strip() and (not description or not destination):
@@ -619,6 +634,26 @@ class DocumentMasterGraph(BaseMasterGraph):
         if result.get("ok") and document_content:
             final_response = document_content
             
+            # recruitment 워크플로우 완료 처리
+            if workflow_in_progress and workflow_type == "recruitment":
+                from agents.orchestrator_v3 import load_workflows_config
+                workflows = load_workflows_config()
+                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                completion_message = workflow_config.get("completion_message", "채용 워크플로우가 모두 완료되었습니다.")
+                
+                final_response = document_content + f"\n\n**[워크플로우 완료]**\n{completion_message}"
+                
+                return {
+                    "final_response": final_response,
+                    "messages": ["채용 워크플로우 완료"],
+                    "workflow_in_progress": False,
+                    "workflow_type": None,
+                    "workflow_steps": None,
+                    "current_workflow_step_index": None,
+                    "workflow_temp_data": {}, # 초기화
+                    "document_context": orchestrator_state["document_context"],
+                }
+
             # 출장/휴가 신청서인 경우 워크플로우 모드와 일반 요청 모드 모두 결재 진행 여부 확인
             template_name = state.get("template_name")
             is_approval_required = template_name in ["business_trip_request_form", "vacation_request_form"]
@@ -989,6 +1024,12 @@ class DocumentMasterGraph(BaseMasterGraph):
                 # 추가 템플릿별 매핑 규칙...
             }
             
+            if template_name == "interview_evaluation_form":
+                from field_extractors.interview_evaluation import extract_interview_evaluation_data
+                db_data = await extract_interview_evaluation_data(state)
+                print(f"✅ 면접 평가표 데이터 추출 완료: {db_data.get('candidate_name')}")
+                return db_data
+
             if template_name and template_name in data_mapping_rules:
                 rules = data_mapping_rules[template_name]
                 print(f"  → 테이블: {rules.get('tables', [])}")

@@ -2027,6 +2027,25 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             # 검색 결과가 없을 때
             response = f"죄송합니다. 조건에 맞는 인재를 찾지 못했습니다.\n\n다른 조건으로 검색해보시겠어요? 포지션이나 경력, 기술 스택을 조정해보시면 더 많은 인재를 찾을 수 있습니다."
         
+        # 워크플로우 모드 확인
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_steps = state.get("workflow_steps")
+        current_workflow_step_index = state.get("current_workflow_step_index", 0)
+
+        # 워크플로우 모드인 경우 상태 유지
+        if workflow_in_progress and workflow_type == "recruitment":
+            return {
+                "final_response": response,
+                "messages": [response],
+                "search_results": displayed_resumes,
+                "recruitment_context": recruitment_context,
+                "workflow_in_progress": True,
+                "workflow_type": workflow_type,
+                "workflow_steps": workflow_steps,
+                "current_workflow_step_index": current_workflow_step_index,
+            }
+
         return {
             "final_response": response,
             "messages": [response],
@@ -2035,6 +2054,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "workflow_in_progress": False,  # 단순 검색 요청이므로 워크플로우 차단 (일반 요청으로 분류)
             "workflow_type": None,  # 워크플로우 타입 제거
             "workflow_steps": None,  # 워크플로우 단계 제거
+            "current_workflow_step_index": None,
         }
     
     async def summarize_resume(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -2109,6 +2129,53 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "last_resume_id": result.get("summary_data", {}).get("resume_id"),
             "last_summary": result.get("summary_data", {}),
         }
+
+        # 워크플로우 모드 확인 및 처리
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+
+        if workflow_in_progress and workflow_type == "recruitment":
+            # 후보자 정보를 workflow_temp_data에 저장
+            summary_data = result.get("summary_data", {})
+            
+            # last_results에서 원본 데이터를 가져와 더 자세한 정보를 추출 (연락처, 이메일 등)
+            selected_resume = {}
+            last_results = recruitment_context.get("resume_search", {}).get("last_results", [])
+            for resume in last_results:
+                if resume.get("resume_id") == summary_data.get("resume_id"):
+                    selected_resume = resume
+                    break
+            
+            # 상세 정보 추출 (연락처, 이메일, 학력 등)
+            candidate_info = {
+                "resume_id": summary_data.get("resume_id"),
+                "name": summary_data.get("name"),
+                "position": summary_data.get("position"),
+                "experience": summary_data.get("experience"),
+                "email": selected_resume.get("email") or "info@company.com", # 기본값
+                "phone": selected_resume.get("phone") or "010-0000-0000", # 기본값
+                "education": selected_resume.get("education") or "학력 정보 없음",
+                "skills": summary_data.get("skills", []),
+                "summary": summary_data.get("summary", ""),
+            }
+            
+            workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+            workflow_temp_data["selected_candidate"] = candidate_info
+            
+            response = result.get("message", "이력서 요약을 완료했습니다.")
+            response += "\n\n**[워크플로우]** 후보자를 선택하셨습니다. 이제 면접 일정을 잡기 위해 면접관 정보를 입력해주세요."
+            
+            return {
+                "final_response": response,
+                "messages": [response],
+                "recruitment_context": recruitment_context,
+                "workflow_temp_data": workflow_temp_data,
+                "workflow_in_progress": True,
+                "workflow_type": workflow_type,
+                "current_workflow_step_index": 1, # 다음 단계로
+                "next_domain": "schedule", # 다음 도메인
+                "requires_input": True # 면접관 입력 필요
+            }
         
         return {
             "final_response": result.get("message", "이력서 요약을 완료했습니다."),

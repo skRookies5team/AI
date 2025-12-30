@@ -1143,6 +1143,22 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
         interview_context = state["schedule_context"]["interview"]
         print(f"[면접 일정] process_interview_scheduling 호출: query='{query}', interview_context={interview_context}")
         
+        # 🔥 워크플로우 모드 확인 및 데이터 주입
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+        selected_candidate = workflow_temp_data.get("selected_candidate")
+        
+        if workflow_in_progress and workflow_type == "recruitment" and selected_candidate:
+            if not interview_context.get("candidate_id"):
+                print(f"[면접 일정] 워크플로우 데이터 감지 - 후보자 정보 주입: {selected_candidate.get('name')}")
+                interview_context["candidate_id"] = selected_candidate.get("resume_id")
+                interview_context["candidate_name"] = selected_candidate.get("name")
+                # 워크플로우 시작 시 기간 입력을 유도하기 위해 requires_date_range 설정
+                if not interview_context.get("date_range"):
+                    interview_context["requires_date_range"] = True
+                state["schedule_context"]["interview"] = interview_context
+
         # 🔥 새로운 면접 일정 요청인지 확인 (면접 키워드가 있고 기간이 없으면 초기화)
         interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
         is_new_request = any(keyword in query.lower() for keyword in interview_keywords)
@@ -1453,6 +1469,37 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                     slot_time = slot_start.strftime("%H:%M")
                     message = f"면접 일정이 생성되었습니다.\n\n📅 일시: {slot_date} {slot_time}\n⏱️ 소요 시간: {duration_minutes}분\n👥 면접관: {len(selected_interviewers)}명"
                     
+                    # 🔥 워크플로우 연동 처리
+                    workflow_in_progress = state.get("workflow_in_progress", False)
+                    workflow_type = state.get("workflow_type")
+                    
+                    if workflow_in_progress and workflow_type == "recruitment":
+                        workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+                        
+                        # 면접관 상세 정보 추출 (이름, 부서, 직급 등)
+                        # 여기서는 employee_id만 있으므로 간단히 저장하거나 DB에서 정보를 가져올 수 있음
+                        # 일단은 employee_id 리스트를 저장하고 다음 단계(Email)에서 상세 정보를 활용하도록 함
+                        workflow_temp_data["interviewers"] = selected_interviewers
+                        workflow_temp_data["interview_date"] = f"{slot_date} {slot_time}"
+                        workflow_temp_data["interview_duration"] = duration_minutes
+                        
+                        message += "\n\n**[워크플로우]** 일정이 확정되었습니다. 이제 지원자에게 보낼 안내 메일을 작성하겠습니다."
+                        
+                        # 컨텍스트 초기화 (완료)
+                        state["schedule_context"]["interview"] = {}
+                        
+                        return {
+                            "final_response": message,
+                            "messages": [message],
+                            "schedule_context": state["schedule_context"],
+                            "workflow_temp_data": workflow_temp_data,
+                            "workflow_in_progress": True,
+                            "workflow_type": workflow_type,
+                            "current_workflow_step_index": 2, # Email 단계로
+                            "next_domain": "email",
+                            "requires_input": False # 메일 초안 생성을 위해 바로 진행
+                        }
+
                     # 컨텍스트 초기화 (완료)
                     state["schedule_context"]["interview"] = {}
                     
