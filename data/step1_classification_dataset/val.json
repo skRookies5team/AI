@@ -658,5 +658,17 @@
     "is_workflow": true,
     "confidence": 0.9,
     "label": 1
+  },
+  {
+    "query": "csu1940@gmail.com한테 오늘 야근 부탁 메일 보내주세요",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "야근 부탁 메일 초안 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
   }
 ]

@@ -103,6 +103,9 @@ def _get_default_summary_prompt() -> str:
 - 이름: [이름]
 - 포지션: [지원 포지션]
 - 경력: [경력년수 및 레벨]
+- 연락처: [전화번호]
+- 이메일: [이메일 주소]
+- 학력: [최종 학력 및 전공]
 
 ## 핵심 경력 요약
 [주요 회사 및 역할을 2-3줄로 요약]
@@ -158,7 +161,53 @@ def _parse_summary_to_structured(summary: str) -> Dict[str, Any]:
         "considerations": ""
     }
     
-    # 섹션별로 파싱
+    # 1. JSON 블록이 있는지 먼저 확인
+    import json
+    json_match = re.search(r'```json\s*(\{.*?\})\s*```', summary, re.DOTALL)
+    if json_match:
+        try:
+            json_data = json.loads(json_match.group(1))
+            structured["basic_info"] = {
+                "name": json_data.get("name"),
+                "position": json_data.get("position"),
+                "experience": json_data.get("experience"),
+                "phone": json_data.get("phone"),
+                "email": json_data.get("email"),
+                "education": json_data.get("education")
+            }
+            structured["career_summary"] = json_data.get("career_summary", "")
+            if "skills" in json_data:
+                structured["core_skills"] = json_data["skills"]
+            
+            # JSON 데이터가 있으면 기본 정보는 여기서 끝
+            print(f"✅ 요약에서 JSON 데이터를 성공적으로 파싱했습니다: {structured['basic_info']}")
+        except Exception as e:
+            print(f"⚠️ JSON 파싱 실패: {e}")
+
+    # 2. 정규표현식으로 보완 (JSON이 없거나 일부 데이터가 누락된 경우)
+    # 기본 정보 파싱
+    patterns = {
+        "name": [r'이름:\s*(.+)', r'-\s*이름:\s*(.+)'],
+        "position": [r'포지션:\s*(.+)', r'-\s*포지션:\s*(.+)'],
+        "experience": [r'경력:\s*(.+)', r'-\s*경력:\s*(.+)'],
+        "phone": [r'연락처:\s*(.+)', r'-\s*연락처:\s*(.+)', r'전화번호:\s*(.+)'],
+        "email": [r'이메일:\s*(.+)', r'-\s*이메일:\s*(.+)', r'Email:\s*(.+)'],
+        "education": [r'학력:\s*(.+)', r'-\s*학력:\s*(.+)']
+    }
+    
+    for key, p_list in patterns.items():
+        if not structured["basic_info"].get(key): # JSON에서 가져오지 못한 경우만
+            for p in p_list:
+                match = re.search(p, summary)
+                if match:
+                    val = match.group(1).strip()
+                    # 마크다운 태그 제거 ([내용])
+                    val = re.sub(r'[\[\]]', '', val)
+                    if val and "정보 없음" not in val and "null" not in val:
+                        structured["basic_info"][key] = val
+                        break
+
+    # 3. 섹션별 내용 추출 (기존 로직 유지하되 보완)
     sections = {
         "기본 정보": "basic_info",
         "핵심 경력 요약": "career_summary",
@@ -169,29 +218,23 @@ def _parse_summary_to_structured(summary: str) -> Dict[str, Any]:
         "주의사항": "considerations"
     }
     
-    # 기본 정보 파싱
-    name_match = re.search(r'이름:\s*(.+)', summary)
-    position_match = re.search(r'포지션:\s*(.+)', summary)
-    experience_match = re.search(r'경력:\s*(.+)', summary)
-    
-    if name_match:
-        structured["basic_info"]["name"] = name_match.group(1).strip()
-    if position_match:
-        structured["basic_info"]["position"] = position_match.group(1).strip()
-    if experience_match:
-        structured["basic_info"]["experience"] = experience_match.group(1).strip()
-    
-    # 섹션별 내용 추출
     for section_name, key in sections.items():
-        pattern = rf'##\s*{re.escape(section_name)}.*?\n(.*?)(?=\n##|$)'
+        # 이미 데이터가 충분히 있는 섹션은 건너뛰기 (JSON에서 가져온 경우)
+        if key == "career_summary" and structured[key]:
+            continue
+            
+        pattern = rf'##\s*{re.escape(section_name)}.*?\n(.*?)(?=\n##|---|$)'
         match = re.search(pattern, summary, re.DOTALL)
         if match:
             content = match.group(1).strip()
-            if key == "key_achievements" or key == "core_skills" or key == "strengths":
+            if key in ["key_achievements", "core_skills", "strengths"]:
                 # 리스트 형식으로 파싱
-                items = [item.strip() for item in content.split('\n') if item.strip() and item.strip().startswith(('-', '•', '1.', '2.', '3.'))]
-                structured[key] = items if items else [content]
-            else:
+                items = [item.strip() for item in content.split('\n') if item.strip() and (item.strip().startswith(('-', '•')) or re.match(r'^\d+\.', item.strip()))]
+                # 불필요한 기호 제거
+                items = [re.sub(r'^[-\s•\d\.]+', '', item).strip() for item in items]
+                if items:
+                    structured[key] = items
+            elif key != "basic_info":
                 structured[key] = content
     
     return structured

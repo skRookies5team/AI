@@ -779,9 +779,9 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     # 1. state에서 직접 확인
     workflow_in_progress = state.get("workflow_in_progress", False)
     workflow_type = state.get("workflow_type")
-    workflow_steps = state.get("workflow_steps", [])
+    workflow_steps = state.get("workflow_steps") or [] # ✅ None 방지
     current_step_index = state.get("current_workflow_step_index", 0)
-    workflow_temp_data = state.get("workflow_temp_data", {})
+    workflow_temp_data = state.get("workflow_temp_data") or {} # ✅ None 방지
 
     # 디버깅: 워크플로우 상태 확인
     print(f"🔍 [워크플로우 상태 확인] workflow_in_progress={workflow_in_progress}, workflow_type={workflow_type}, workflow_steps={workflow_steps}, current_step_index={current_step_index}, last_domain={last_domain}")
@@ -815,15 +815,14 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                                 workflow_steps = redis_workflow_steps
                                 current_step_index = redis_current_step
                                 workflow_in_progress = True
+                                
+                                # ✅ Redis 데이터를 최우선으로 복구 (시나리오 1 스타일)
                                 if redis_workflow_temp_data:
                                     workflow_temp_data = redis_workflow_temp_data
-                                print(f"🔄 워크플로우 상태 복구: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)}) from Redis session")
-                                state["workflow_in_progress"] = True
-                                state["workflow_type"] = workflow_type
-                                state["workflow_steps"] = workflow_steps
-                                state["current_workflow_step_index"] = current_step_index
-                                if redis_workflow_temp_data:
                                     state["workflow_temp_data"] = redis_workflow_temp_data
+                                    print(f"🔄 [라우팅] Redis에서 workflow_temp_data 복구 완료: {list(redis_workflow_temp_data.keys())}")
+                                
+                                print(f"🔄 워크플로우 상태 복구: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)}) from Redis session")
                             # workflow_temp_data가 있으면 워크플로우 진행 중일 가능성이 높음
                             elif redis_workflow_temp_data:
                                 # workflow_temp_data가 있으면 워크플로우 진행 중으로 간주
@@ -894,9 +893,13 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
     if workflow_in_progress:
         next_domain = state.get("next_domain")
         # workflow_temp_data 가져오기 (state에서)
-        workflow_temp_data = state.get("workflow_temp_data", {})
+        workflow_temp_data = state.get("workflow_temp_data") or {}
 
-        print(f"🔄 워크플로우 진행 중 감지: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps)})")
+        # ✅ None 방지 로직 강화
+        workflow_type = workflow_type or state.get("workflow_type")
+        workflow_steps = workflow_steps or state.get("workflow_steps") or []
+        
+        print(f"🔄 워크플로우 진행 중 감지: {workflow_type} (step {current_step_index + 1}/{len(workflow_steps) if workflow_steps else 0})")
 
         # "진행" 또는 "취소"/"종료" 버튼 선택 확인
         proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
@@ -905,8 +908,17 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
         is_proceed = any(kw in query for kw in proceed_keywords)
         is_cancel = any(kw in query.lower() for kw in cancel_keywords)
 
+        # ✅ [개선] 단순 "진행" 요청인지 아니면 도메인 특정 요청(예: "1번 면접 진행해줘")인지 구분
+        # 숫자가 포함되어 있거나 쿼리가 너무 길면(예: 10자 이상) 도메인 특정 요청으로 간주하여 도메인 분류로 넘김
+        is_pure_proceed = is_proceed and not is_cancel and (len(query) < 10 and not any(char.isdigit() for char in query))
+        
+        # 만약 "1번 면접 진행해줘" 같이 "진행"은 포함되어 있지만 번호가 있는 경우
+        if is_proceed and not is_pure_proceed and any(char.isdigit() for char in query):
+            print(f"ℹ️ [route_to_domain] 도메인 특정 진행 요청 감지 ('{query}') - 도메인 분류로 진행")
+            is_proceed = False # 워크플로우 자동 진행 차단
+
         # "진행" 선택 시 다음 단계로 진행
-        if is_proceed and not is_cancel:
+        if is_pure_proceed:
             # ⚠️ 중요: "진행" 시 Redis에서 최신 workflow_temp_data를 다시 로드
             print(f"🔍 [route_to_domain] '진행' 키워드 감지 - session_id: {session_id}, workflow_temp_data (현재): {list(workflow_temp_data.keys()) if workflow_temp_data else '비어있음'}")
 
@@ -1480,14 +1492,26 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     async def schedule_node(state: OrchestratorState) -> Dict[str, Any]:
         """스케줄 마스터그래프 실행."""
         graph = get_schedule_master_graph()
+        # ⚠️ 중요: 현재 state의 workflow_temp_data를 보존
+        current_temp_data = state.get("workflow_temp_data", {})
         result = await graph.ainvoke(state)
+        
+        # result에 workflow_temp_data가 없으면 기존 데이터 유지
+        if "workflow_temp_data" not in result and current_temp_data:
+            result["workflow_temp_data"] = current_temp_data
+            
         default_msg = completion_messages.get("schedule", "스케줄 작업을 완료했습니다.")
         return process_domain_node_result(state, result, "schedule", default_msg)
     
     async def document_node(state: OrchestratorState) -> Dict[str, Any]:
         """문서 마스터그래프 실행."""
         graph = get_document_master_graph()
+        current_temp_data = state.get("workflow_temp_data", {})
         result = await graph.ainvoke(state)
+        
+        if "workflow_temp_data" not in result and current_temp_data:
+            result["workflow_temp_data"] = current_temp_data
+            
         default_msg = completion_messages.get("document", "문서 작업을 완료했습니다.")
         return process_domain_node_result(state, result, "document", default_msg)
     
@@ -1502,7 +1526,12 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         """이메일 마스터그래프 실행."""
         print("--- [Orchestrator] Executing Email Master Graph ---")
         graph = get_email_master_graph()
+        current_temp_data = state.get("workflow_temp_data", {})
         result = await graph.ainvoke(state)
+        
+        if "workflow_temp_data" not in result and current_temp_data:
+            result["workflow_temp_data"] = current_temp_data
+            
         default_msg = completion_messages.get("email", "이메일 작업을 완료했습니다.")
         return process_domain_node_result(state, result, "email", default_msg)
     
@@ -1517,7 +1546,12 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
         """채용 마스터그래프 실행."""
         print("--- [Orchestrator] Executing Recruitment Master Graph ---")
         graph = get_recruitment_master_graph()
+        current_temp_data = state.get("workflow_temp_data", {})
         result = await graph.ainvoke(state)
+        
+        if "workflow_temp_data" not in result and current_temp_data:
+            result["workflow_temp_data"] = current_temp_data
+            
         default_msg = completion_messages.get("recruitment", "채용 작업을 완료했습니다.")
         return process_domain_node_result(state, result, "recruitment", default_msg)
     
@@ -1529,7 +1563,7 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
     workflow.add_node("tech", tech_node)
     workflow.add_node("recruitment", recruitment_node)
 
-    print(f"✅ 마스터그래프 등록 완료: schedule, document, qa, email, tech, recruitment")
+    print(f"[SUCCESS] 마스터그래프 등록 완료: schedule, document, qa, email, tech, recruitment")
     
     # 엣지 설정
     workflow.set_entry_point("route_to_domain")
@@ -1558,7 +1592,8 @@ def get_orchestrator_graph(checkpointer: Optional[Any] = None):
             next_domain = state.get("next_domain")
             workflow_steps = state.get("workflow_steps", [])
             current_step_index = state.get("current_workflow_step_index", 0)
-            
+            workflow_type = state.get("workflow_type")
+
             # next_domain이 있으면 다음 단계로 진행
             if next_domain and next_domain in MASTER_GRAPHS:
                 print(f"--- [Orchestrator] 워크플로우 다음 단계 라우팅: {next_domain} ---")

@@ -483,8 +483,8 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 단, 워크플로우 모드에서는 예시문을 출력하지 않음
         if not document_title and not requirements:
             # 워크플로우 모드에서는 템플릿 예시를 출력하지 않음
-            if workflow_in_progress and workflow_type == "business_trip":
-                print("📋 워크플로우 모드: 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
+            if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
+                print(f"📋 워크플로우 모드({workflow_type}): 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
                 # 워크플로우 모드에서는 여기 도달하지 않아야 함 (위에서 이미 처리됨)
                 # 하지만 안전을 위해 그냥 진행
             else:
@@ -520,7 +520,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             orchestrator_state["document_context"] = {}
         
         # ⚠️ 중요: workflow_temp_data를 orchestrator_state에 저장 (extractor_func에서 사용하기 위해)
-        if workflow_in_progress and workflow_type == "business_trip":
+        if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
             orchestrator_state["workflow_temp_data"] = workflow_temp_data
             print(f"✅ [워크플로우 모드] orchestrator_state에 workflow_temp_data 저장: {list(workflow_temp_data.keys())}")
             print(f"🔍 [워크플로우 모드] workflow_temp_data 상세:")

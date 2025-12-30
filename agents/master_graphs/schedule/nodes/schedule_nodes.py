@@ -9,11 +9,16 @@ from zoneinfo import ZoneInfo
 import os
 import re
 import json
+from sqlalchemy import text
 
 from agents.state import OrchestratorState
 from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
+from agents.master_graphs.schedule.services.database_service import DatabaseService
 from agents.master_graphs.schedule.utils.date_parser import parse_korean_date_with_llm
-from agents.master_graphs.schedule.utils.entity_parser import extract_schedule_entities
+from agents.master_graphs.schedule.utils.entity_parser import (
+    extract_schedule_entities,
+    extract_interviewer_entities
+)
 from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
 from agents.master_graphs.schedule.models.schedule_models import ScheduleSlotDecision
 from agents.master_graphs.schedule.utils.schedule_slot_manager import analyze_schedule_slots
@@ -1157,6 +1162,14 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
         workflow_temp_data = state.get("workflow_temp_data", {}) or {}
         selected_candidate = workflow_temp_data.get("selected_candidate")
         
+        # ✅ [추가] Recruitment -> Schedule 전환 시 쿼리 정규화 처리
+        # Orchestrator에서 query를 "면접 일정"으로 바꿔서 넘겨준 경우, 컨텍스트를 초기화하여 처음부터 시작
+        is_transition_query = query == "면접 일정"
+        if workflow_in_progress and workflow_type == "recruitment" and is_transition_query:
+            print(f"[면접 일정] 워크플로우 전환 감지 - 컨텍스트 초기화 후 새로 시작")
+            interview_context = {}
+            state["schedule_context"]["interview"] = {}
+
         if workflow_in_progress and workflow_type == "recruitment" and selected_candidate:
             if not interview_context.get("candidate_id"):
                 print(f"[면접 일정] 워크플로우 데이터 감지 - 후보자 정보 주입: {selected_candidate.get('name')}")
@@ -1179,83 +1192,46 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
             interview_context = {}  # 기간과 면접관 정보 초기화
             state["schedule_context"]["interview"] = interview_context
         
-        # 1단계: 기간 확인
+        # 1단계: 정보 추출 (면접관 및 기간)
+        selected_interviewers = interview_context.get("selected_interviewers", [])
         date_range = interview_context.get("date_range", {})
         start_date_str = date_range.get("start")
         end_date_str = date_range.get("end")
         
-        print(f"[면접 일정] 초기 기간 확인: start_date_str={start_date_str}, end_date_str={end_date_str}")
-        
-        # 쿼리에서 기간 파싱 시도
-        if not start_date_str or not end_date_str:
-            print(f"[면접 일정] 기간 파싱 시도: query='{query}'")
-            from agents.master_graphs.schedule.utils.date_parser import parse_korean_date_with_llm
-            current_datetime = state.get("current_datetime")
-            if current_datetime:
-                try:
-                    current_dt = datetime.fromisoformat(current_datetime.replace('Z', '+00:00'))
-                except:
-                    current_dt = None
-            else:
-                current_dt = None
-            
-            parsed_start, parsed_end, _ = await parse_korean_date_with_llm(query, current_datetime=current_dt)
-            if parsed_start and parsed_end:
-                start_date_str = parsed_start.isoformat()
-                end_date_str = parsed_end.isoformat()
-                interview_context["date_range"] = {
-                    "start": start_date_str,
-                    "end": end_date_str
-                }
-                # 컨텍스트 저장
-                state["schedule_context"]["interview"] = interview_context
-                print(f"[면접 일정] 기간 파싱 성공: {start_date_str} ~ {end_date_str}")
-            else:
-                print(f"[면접 일정] 기간 파싱 실패: parsed_start={parsed_start}, parsed_end={parsed_end}")
-        
-        # 2단계: 기간이 없으면 기간 입력 요청 (최우선)
-        print(f"[면접 일정] 기간 확인: start_date_str={start_date_str}, end_date_str={end_date_str}")
-        if not start_date_str or not end_date_str:
-            message = "면접 가능한 기간을 알려주세요. (예: 다음 주, 12월 20일부터 25일까지)"
-            # 면접 컨텍스트에 플래그 저장
-            interview_context["requires_date_range"] = True
-            state["schedule_context"]["interview"] = interview_context
-            print(f"[면접 일정] 기간 입력 요청, 면접 컨텍스트 저장: {interview_context}")
-            # 🔥 여기 수정! - 최상위에 UI 플래그 추가
-            return {
-                "final_response": message,
-                "messages": [message],
-                "schedule_context": state["schedule_context"],
-                "requires_date_range_input": True,  # ✅ 추가
-                "requires_interviewer_selection": False,  # ✅ 기간 입력 단계에서는 면접관 선택 X
-                "requires_slot_selection": False,  # ✅ 추가
-            }
-        
-        # 3단계: 면접관 선택 확인
-        selected_interviewers = interview_context.get("selected_interviewers", [])
-        print(f"[면접 일정] 면접관 확인: selected_interviewers={selected_interviewers}, query='{query}'")
-        
-        # 쿼리에서 면접관 정보가 있는지 확인 (프론트엔드에서 전달된 경우 또는 자연어 입력)
+        print(f"[면접 일정] 초기 상태 확인: selected_interviewers={selected_interviewers}, start_date={start_date_str}")
+
+        # 쿼리에서 면접관 정보 추출 시도 (JSON 또는 자연어)
         if not selected_interviewers and query:
-            # 1. JSON 형식(프론트엔드 UI)으로 전달된 경우 파싱 시도
-            try:
-                if query.startswith("[") or query.startswith("{"):
-                    parsed_data = json.loads(query)
+            # 1. JSON 형식(프론트엔드 UI)으로 전달된 경우 파싱 시도 (Regex로 더 견고하게 추출)
+            json_match = re.search(r'(\[.*\]|\{.*\})', query, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+                try:
+                    parsed_data = json.loads(json_str)
+                    print(f"[면접 일정] JSON 추출 성공: {json_str[:50]}...")
+                    
                     if isinstance(parsed_data, list):
                         selected_interviewers = [item.get("employee_id") if isinstance(item, dict) else item for item in parsed_data]
-                    elif isinstance(parsed_data, dict) and "employee_id" in parsed_data:
-                        selected_interviewers = [parsed_data["employee_id"]]
+                    elif isinstance(parsed_data, dict):
+                        if "employee_id" in parsed_data:
+                            selected_interviewers = [parsed_data["employee_id"]]
+                        elif "interviewers" in parsed_data:
+                            ivs = parsed_data["interviewers"]
+                            if isinstance(ivs, list):
+                                selected_interviewers = [item.get("employee_id") if isinstance(item, dict) else item for item in ivs]
                     
                     if selected_interviewers:
                         interview_context["selected_interviewers"] = selected_interviewers
                         state["schedule_context"]["interview"] = interview_context
-                        print(f"[면접 일정] 면접관 ID 파싱 성공: {selected_interviewers}")
-            except:
-                pass
+                        print(f"[면접 일정] 면접관 ID 파싱 성공 (JSON): {selected_interviewers}")
+                    else:
+                        print(f"[면접 일정] JSON에서 면접관 ID를 찾지 못함: {parsed_data}")
+                except Exception as e:
+                    print(f"[면접 일정] JSON 파싱 중 오류 발생: {e}, text='{json_str[:50]}...'")
             
-            # 2. 자연어 입력인 경우 (시나리오 2 워크플로우)
+            # 2. 자연어 입력인 경우 (NLP 추출) - JSON 파싱 실패 시에만 수행
             if not selected_interviewers:
-                from agents.master_graphs.schedule.utils.entity_parser import extract_interviewer_entities
+                print(f"[면접 일정] 자연어 엔티티 추출 시도 (query='{query[:50]}...')")
                 interviewer_info = await extract_interviewer_entities(query)
                 
                 if interviewer_info and interviewer_info.get("interviewers"):
@@ -1266,61 +1242,121 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                     workflow_temp_data["interviewers_detail"] = interviewer_info["interviewers"]
                     state["workflow_temp_data"] = workflow_temp_data
                     
-                    # 이름 기반으로 employee_id 조회 시도 (간이 구현)
-                    from agents.master_graphs.schedule.services.database_service import DatabaseService
+                    # 이름 기반으로 employee_id 조회 시도
                     db = DatabaseService()
                     found_ids = []
                     
-                    from sqlalchemy import text
                     async with db._session() as session:
                         for inv in interviewer_info["interviewers"]:
                             name = inv.get("name")
                             if not name: continue
-                            
-                            # 이름으로 검색 (부서 정보가 있으면 더 정확하겠지만 일단 이름으로)
                             sql = text("SELECT employee_id FROM employee WHERE name = :name LIMIT 1")
                             result = await session.execute(sql, {"name": name})
                             row = result.fetchone()
-                            if row:
-                                found_ids.append(row[0])
+                            if row: found_ids.append(row[0])
                     
                     if found_ids:
                         selected_interviewers = found_ids
                         interview_context["selected_interviewers"] = selected_interviewers
                         state["schedule_context"]["interview"] = interview_context
                         print(f"✅ [면접 일정] DB에서 면접관 ID 매칭 성공: {selected_interviewers}")
+
+        # 쿼리에서 기간 추출 시도
+        if (not start_date_str or not end_date_str) and query:
+            # 쿼리가 JSON인 경우(면접관 선택 데이터)는 날짜 파싱 제외
+            # Regex로 다시 확인 (안전장치)
+            is_json = bool(re.search(r'(\[.*\]|\{.*\})', query, re.DOTALL))
+            if not is_json:
+                print(f"[면접 일정] 기간 파싱 시도: query='{query}'")
+                current_datetime = state.get("current_datetime")
+                if current_datetime:
+                    try:
+                        current_dt = datetime.fromisoformat(current_datetime.replace('Z', '+00:00'))
+                    except:
+                        current_dt = None
+                else:
+                    current_dt = None
+                
+                parsed_start, parsed_end, _ = await parse_korean_date_with_llm(query, current_datetime=current_dt)
+                if parsed_start and parsed_end:
+                    start_date_str = parsed_start.isoformat()
+                    end_date_str = parsed_end.isoformat()
+                    interview_context["date_range"] = {
+                        "start": start_date_str,
+                        "end": end_date_str
+                    }
+                    state["schedule_context"]["interview"] = interview_context
+                    print(f"[면접 일정] 기간 파싱 성공: {start_date_str} ~ {end_date_str}")
+            else:
+                print(f"[면접 일정] JSON 데이터 감지 - 기간 파싱 건너뜀")
+
+        # 2단계: 필수 정보 누락 확인 및 요청
         
-        # 면접관이 없으면 선택 UI 요청
+        # (A) 면접관 정보가 없는 경우
         if not selected_interviewers:
-            message = "면접관을 선택해주세요."
-            # 면접 컨텍스트에 플래그 저장
-            interview_context["requires_interviewer_selection"] = True
-            interview_context["interviewer_selection_config"] = {
-                "api_endpoint": "/api/employees",
-                "filter_fields": ["dept", "position"],
-                "multiple": True
-            }
+            if workflow_in_progress and workflow_type == "recruitment":
+                message = (
+                    "**[면접 일정 설정]**\n"
+                    "먼저 면접에 참여할 **면접관 정보**(이름, 부서, 직급)를 입력해주세요. \n"
+                    "아래 **[면접관 선택]** 버튼을 눌러 직접 검색하거나, 채팅창에 정보를 입력해 주셔도 됩니다.\n\n"
+                    "동시에 면접을 진행할 **희망 기간**(예: 다음 주, 1월 5일~10일)도 함께 말씀해 주세요."
+                )
+                interview_context["requires_interviewer_selection"] = True
+                interview_context["interviewer_selection_config"] = {
+                    "api_endpoint": "/api/employees",
+                    "filter_fields": ["dept", "position"],
+                    "multiple": True
+                }
+            else:
+                message = "면접관을 선택하거나 이름을 입력해주세요."
+            
+            interview_context["requires_date_range"] = True
             state["schedule_context"]["interview"] = interview_context
-            print(f"[면접 일정] 면접관 선택 UI 요청, 면접 컨텍스트 저장: {interview_context}")
-            # 🔥 여기 수정! - 최상위에 UI 플래그 추가
+            
             return {
                 "final_response": message,
                 "messages": [message],
                 "schedule_context": state["schedule_context"],
-                "requires_date_range_input": True,  # ✅ 추가 (기간은 이미 입력됨)
-                "requires_interviewer_selection": True,  # ✅ 추가 - 이게 핵심!
-                "requires_duration_selection": False,  # ✅ 추가
-                "requires_slot_selection": False,  # ✅ 추가
-                "interviewer_selection_config": interview_context["interviewer_selection_config"]  # ✅ 추가
+                "requires_date_range_input": True,
+                "requires_interviewer_selection": True,
+                "interviewer_selection_config": interview_context.get("interviewer_selection_config"),
+                "requires_slot_selection": False,
+                "workflow_in_progress": workflow_in_progress,
+                "workflow_type": workflow_type,
+                "requires_input": True
+            }
+
+        # (B) 면접관은 있는데 기간 정보가 없는 경우
+        if not start_date_str or not end_date_str:
+            if workflow_in_progress and workflow_type == "recruitment":
+                message = (
+                    f"✅ 면접관({len(selected_interviewers)}명) 설정이 완료되었습니다.\n"
+                    "이제 면접을 진행할 **희망 기간**(예: 다음 주, 1월 5일~10일)을 입력해주세요."
+                )
+            else:
+                message = "면접 가능한 기간을 알려주세요. (예: 다음 주, 12월 20일부터 25일까지)"
+            
+            interview_context["requires_date_range"] = True
+            state["schedule_context"]["interview"] = interview_context
+            
+            return {
+                "final_response": message,
+                "messages": [message],
+                "schedule_context": state["schedule_context"],
+                "requires_date_range_input": True,
+                "requires_interviewer_selection": False, # ✅ 면접관 선택 완료되었으므로 UI 끔
+                "requires_slot_selection": False,
+                "workflow_in_progress": workflow_in_progress,
+                "workflow_type": workflow_type,
+                "requires_input": True
             }
         
-        # 4단계: 지속 시간 확인
+        # 3단계: 지속 시간 확인 (기존 4단계)
         duration_minutes = interview_context.get("duration_minutes")
         print(f"[면접 일정] 지속 시간 확인: duration_minutes={duration_minutes}, query='{query}'")
         
         # 쿼리에서 지속 시간 파싱 시도 (1시간, 2시간, 60분, 120분 등)
         if not duration_minutes and query:
-            import re
             # "1시간", "2시간", "1.5시간", "60분", "120분" 등 파싱
             hour_match = re.search(r'(\d+(?:\.\d+)?)\s*시간', query)
             minute_match = re.search(r'(\d+)\s*분', query)
@@ -1335,7 +1371,6 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
             else:
                 # JSON 형식으로 전달된 경우 (프론트엔드에서 선택한 지속 시간)
                 try:
-                    import json
                     if query.startswith("{") and "duration" in query.lower():
                         parsed_data = json.loads(query)
                         if isinstance(parsed_data, dict) and "duration_minutes" in parsed_data:
@@ -1363,10 +1398,14 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 "final_response": message,
                 "messages": [message],
                 "schedule_context": state["schedule_context"],
+                "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
                 "requires_date_range_input": True,  # ✅ 추가 (기간은 이미 입력됨)
                 "requires_interviewer_selection": False,  # ✅ 추가 (면접관은 이미 선택됨)
                 "requires_duration_selection": True,  # ✅ 추가 - 지속 시간 선택!
                 "requires_slot_selection": False,  # ✅ 추가
+                "workflow_in_progress": workflow_in_progress,
+                "workflow_type": workflow_type,
+                "requires_input": True  # ✅ 추가
             }
         
         # 5단계: 면접관들의 일정 조회 및 가능한 시간대 찾기
@@ -1394,10 +1433,13 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 "final_response": message,
                 "messages": [message],
                 "schedule_context": state["schedule_context"],
+                "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
                 "requires_date_range_input": True,
                 "requires_interviewer_selection": False,
                 "requires_duration_selection": False,
                 "requires_slot_selection": False,
+                "workflow_in_progress": workflow_in_progress,
+                "workflow_type": workflow_type,
             }
         
         if not available_slots:
@@ -1407,9 +1449,12 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 "final_response": message,
                 "messages": [message],
                 "schedule_context": state["schedule_context"],
+                "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
                 "requires_date_range_input": True,  # ✅ 추가
                 "requires_interviewer_selection": False,  # ✅ 추가 (면접관은 이미 선택됨)
                 "requires_slot_selection": False,  # ✅ 추가
+                "workflow_in_progress": workflow_in_progress,
+                "workflow_type": workflow_type,
             }
         
         # 6단계: 선택된 시간대 확인
@@ -1419,7 +1464,6 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
         # 쿼리에서 시간대 선택 정보 파싱 (프론트엔드에서 전달된 경우)
         if not selected_slot and query:
             try:
-                import json
                 if query.startswith("{") and ("slot" in query.lower() or "start" in query.lower()):
                     parsed_data = json.loads(query)
                     if isinstance(parsed_data, dict):
@@ -1445,8 +1489,6 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
         if selected_slot:
             print(f"[면접 일정] 시간대 선택됨, 일정 생성 시작: {selected_slot}")
             try:
-                from agents.master_graphs.schedule.services.database_service import DatabaseService
-                
                 db = DatabaseService()
                 
                 # 선택된 시간대 정보
@@ -1462,7 +1504,6 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 # ✅ 면접 일정 생성 (DB만 사용, 구글 캘린더 제외)
                 # 다른 기능(회의실, 출장 등)은 hybrid_scheduler.create_event 사용
                 created_events = []
-                from sqlalchemy import text
                 async with db._session() as session:
                     try:
                         # ✅ 하나의 행만 생성 (면접관 리스트를 interviewer_ids에 저장)
@@ -1484,7 +1525,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                             )
                         """)
                         await session.execute(insert_sql, {
-                            "employee_id": selected_interviewers[0] if selected_interviewers else None,  # 첫 번째 면접관 ID
+                            "employee_id": employee_id,  # ✅ 변경: 현재 채팅 중인 사용자 ID (작성자)
                             "title": "면접",
                             "description": f"면접 일정 (소요 시간: {duration_minutes}분)",
                             "start_time": slot_start,
@@ -1496,7 +1537,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         await session.commit()
                         
                         created_events.append({
-                            "employee_id": selected_interviewers[0] if selected_interviewers else None,
+                            "employee_id": employee_id,  # ✅ 변경: 현재 채팅 중인 사용자 ID
                             "start_time": slot_start,
                             "end_time": slot_end,
                             "interviewer_ids": selected_interviewers
@@ -1518,7 +1559,10 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                     workflow_type = state.get("workflow_type")
                     
                     if workflow_in_progress and workflow_type == "recruitment":
+                        # 기존 workflow_temp_data를 안전하게 가져옴
                         workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+                        # ⚠️ 새로운 딕셔너리를 생성하여 기존 데이터가 유실되지 않도록 보장
+                        workflow_temp_data = {**workflow_temp_data}
                         
                         # 면접관 상세 정보 추출 (이름, 부서, 직급 등)
                         # 여기서는 employee_id만 있으므로 간단히 저장하거나 DB에서 정보를 가져올 수 있음
@@ -1531,6 +1575,8 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         
                         # 컨텍스트 초기화 (완료)
                         state["schedule_context"]["interview"] = {}
+                        
+                        print(f"✅ [면접 일정] 워크플로우 임시 데이터 업데이트 완료: {list(workflow_temp_data.keys())}")
                         
                         return {
                             "final_response": message,
@@ -1551,6 +1597,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         "final_response": message,
                         "messages": [message],
                         "schedule_context": state["schedule_context"],
+                        "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
                         "requires_date_range_input": False,
                         "requires_interviewer_selection": False,
                         "requires_duration_selection": False,
@@ -1562,6 +1609,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         "final_response": message,
                         "messages": [message],
                         "schedule_context": state["schedule_context"],
+                        "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
                         "requires_date_range_input": True,
                         "requires_interviewer_selection": False,
                         "requires_duration_selection": False,
@@ -1577,6 +1625,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                     "final_response": message,
                     "messages": [message],
                     "schedule_context": state["schedule_context"],
+                    "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
                     "requires_date_range_input": True,
                     "requires_interviewer_selection": False,
                     "requires_duration_selection": False,
@@ -1609,23 +1658,27 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
             "final_response": message,
             "messages": [message],
             "schedule_context": state["schedule_context"],
+            "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
             "requires_date_range_input": True,  # ✅ 추가
             "requires_interviewer_selection": False,  # ✅ 추가 (면접관은 이미 선택됨)
             "requires_duration_selection": False,  # ✅ 추가 (지속 시간은 이미 선택됨)
             "requires_slot_selection": True,  # ✅ 추가 - 이제 시간대 선택!
-            "available_slots": available_slots[:20]  # ✅ 추가 - 프론트엔드에서 사용할 슬롯 데이터
+            "available_slots": available_slots[:20],  # ✅ 추가 - 프론트엔드에서 사용할 슬롯 데이터
+            "requires_input": True  # ✅ 추가
         }
     except Exception as e:
         print(f"[면접 일정] 오류 발생: {str(e)}")
         import traceback
         traceback.print_exc()
-        # 🔥 에러 시에도 UI 플래그 추가
+        # 🔥 에러 시에도 UI 플래그 추가 및 HITL 유지
         return {
             "final_response": f"면접 일정 조정 중 오류가 발생했습니다: {str(e)}",
             "messages": [f"면접 일정 조정 중 오류가 발생했습니다: {str(e)}"],
             "ok": False,
             "schedule_context": state.get("schedule_context", {}),
-            "requires_date_range_input": False,  # ✅ 추가
-            "requires_interviewer_selection": False,  # ✅ 추가
-            "requires_slot_selection": False,  # ✅ 추가
+            "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
+            "requires_input": True, # 🔥 오류 발생 시 다음 단계로 넘어가지 않고 대기
+            "requires_interviewer_selection": True, # 면접관 선택 UI 다시 노출 유도
+            "workflow_in_progress": state.get("workflow_in_progress", False),
+            "workflow_type": state.get("workflow_type")
         }

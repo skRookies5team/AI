@@ -705,6 +705,43 @@
             font-size: 12px;
             color: #999;
             font-style: italic;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .card-proceed-btn {
+            background: linear-gradient(135deg, #48c6ef 0%, #6f86d6 100%);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .card-proceed-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(72, 198, 239, 0.3);
+            filter: brightness(1.05);
+        }
+
+        .card-proceed-btn i {
+            font-size: 16px;
+        }
+
+        .action-btn.proceed-btn {
+            background: linear-gradient(135deg, #48c6ef 0%, #6f86d6 100%);
+        }
+
+        .action-btn.proceed-btn:hover {
+            box-shadow: 0 4px 12px rgba(72, 198, 239, 0.3);
         }
 
         /* ===== 상세 정보 모달 스타일 ===== */
@@ -4139,6 +4176,9 @@
                         </div>
                         <div class="card-footer">
                             <span class="card-click-hint">클릭하여 상세 정보 보기 →</span>
+                            <button class="card-proceed-btn" onclick="event.stopPropagation(); requestInterview('${resume.index || (index + 1)}')">
+                                📅 면접 진행
+                            </button>
                         </div>
                     </div>
                 `;
@@ -4197,7 +4237,8 @@
                             <div class="content-text">${formattedContent}</div>
                         </div>
                         <div class="detail-actions">
-                            <button class="action-btn" onclick="requestResumeSummary(${resume.index || index})">📋 요약 요청</button>
+                            <button class="action-btn" onclick="requestResumeSummary('${resume.index || index}')">📋 요약 요청</button>
+                            <button class="action-btn proceed-btn" onclick="requestInterview('${resume.index || index}')">📅 면접 진행</button>
                         </div>
                     </div>
                 </div>
@@ -4227,9 +4268,21 @@
                 return;
             }
             // index가 문자열일 수 있으므로 숫자로 변환
-            const resumeIndex = typeof index === 'string' ? parseInt(index) : index;
+            const resumeIndex = typeof index === 'string' ? index : index.toString();
             inputField.value = `${resumeIndex}번 요약해줘`;
             console.log(`📋 요약 요청: ${resumeIndex}번`);
+            sendMessage();
+        }
+
+        function requestInterview(index) {
+            const inputField = document.getElementById('chatInput');
+            if (!inputField) {
+                console.error('chatInput 필드를 찾을 수 없습니다.');
+                return;
+            }
+            const resumeIndex = typeof index === 'string' ? index : index.toString();
+            inputField.value = `${resumeIndex}번 면접 진행해줘`;
+            console.log(`📅 면접 진행 요청: ${resumeIndex}번`);
             sendMessage();
         }
 
