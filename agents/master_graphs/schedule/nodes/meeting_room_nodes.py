@@ -871,8 +871,8 @@ async def _parse_meeting_intent(
         if not text:
             return None, None, False
         if text not in parse_cache:
-            start, end, _ = await parse_korean_date_with_llm(text)
-            parse_cache[text] = (start, end)
+            start, end, is_precise = await parse_korean_date_with_llm(text)
+            parse_cache[text] = (start, end, is_precise)
         return parse_cache[text]
 
     entities = await extract_meeting_room_entities(query)
@@ -1581,8 +1581,8 @@ async def _resolve_end_time_from_response(
         if not text:
             return None, None, False
         if text not in parse_cache:
-            start, end, _ = await parse_korean_date_with_llm(text)
-            parse_cache[text] = (start, end)
+            start, end, is_precise = await parse_korean_date_with_llm(text)
+            parse_cache[text] = (start, end, is_precise)
         return parse_cache[text]
 
     start_time = _ensure_aware(start_time) if start_time else None
