@@ -310,7 +310,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             requirements = f"출장 기간: {start_time_str} ~ {end_time_str}\n목적지: {destination}\n출장 사유: {trip_reason}\n제목: {title}"
             document_title = title
             
-        elif workflow_in_progress and workflow_type == "recruitment" and current_workflow_step_index == 3:
+        elif workflow_in_progress and workflow_type == "recruitment" and current_step_index == 3:
             # recruitment 워크플로우: 면접 평가표 생성
             template_name = "interview_evaluation_form"
             document_title = "면접 평가표"
@@ -513,7 +513,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                 }
         
         # DB 데이터 매핑을 위한 정보 추출
-        db_data = await self._fetch_db_data_for_template(template_name, query, requirements)
+        db_data = await self._fetch_db_data_for_template(template_name, query, requirements, state)
         
         # Redis 기반 컨텍스트 초기화
         if orchestrator_state.get("document_context") is None:
@@ -666,6 +666,13 @@ class DocumentMasterGraph(BaseMasterGraph):
             # 워크플로우 모드인 경우 workflow_temp_data도 포함
             if workflow_in_progress and workflow_type == "business_trip":
                 return_result["workflow_temp_data"] = workflow_temp_data
+        
+        # 🔥 추가: recruitment 워크플로우 완료 처리
+        if workflow_in_progress and workflow_type == "recruitment" and current_step_index == 3:
+            print(f"✅ [워크플로우 종료] 채용 프로세스 자동화 워크플로우가 완료되었습니다.")
+            return_result["workflow_in_progress"] = False  # 워크플로우 종료
+            return_result["workflow_temp_data"] = {}       # 임시 데이터 초기화
+            return_result["final_response"] = final_response + "\n\n✅ **채용 프로세스 모든 단계가 완료되었습니다.** 임시 데이터가 초기화됩니다."
         
         return return_result
     
@@ -918,7 +925,8 @@ class DocumentMasterGraph(BaseMasterGraph):
         self, 
         template_name: Optional[str], 
         query: str, 
-        requirements: Optional[str]
+        requirements: Optional[str],
+        state: OrchestratorState
     ) -> Dict[str, Any]:
         """템플릿에 필요한 DB 데이터를 조회합니다 (Data Binding).
         

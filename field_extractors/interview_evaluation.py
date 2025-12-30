@@ -10,12 +10,25 @@ async def extract_interview_evaluation_data(state: OrchestratorState) -> Dict[st
     interview_date = workflow_temp_data.get("interview_date", "")
     interviewers = workflow_temp_data.get("interviewers", [])
     
-    # 면접관 이름 목록 생성 (사원 ID만 있는 경우 fallback 처리)
+    # 면접관 이름 목록 생성
     interviewer_names = []
-    if interviewers:
-        # 실제 환경에서는 DB에서 이름을 가져와야 하지만, 
-        # 일단은 저장된 정보를 활용하거나 기본값 설정
-        interviewer_names = [str(i) for i in interviewers]
+    
+    # 1. 상세 정보가 있는 경우 (이름, 부서, 직급 포함)
+    interviewers_detail = workflow_temp_data.get("interviewers_detail", [])
+    if interviewers_detail:
+        for inv in interviewers_detail:
+            name = inv.get("name")
+            dept = inv.get("dept")
+            pos = inv.get("position")
+            if name:
+                info = name
+                if dept or pos:
+                    info += f"({dept or ''} {pos or ''})".replace("  ", " ")
+                interviewer_names.append(info)
+    
+    # 2. 상세 정보가 없고 ID만 있는 경우
+    elif interviewers:
+        interviewer_names = [f"면접관(ID: {i})" for i in interviewers]
     
     return {
         "candidate_name": candidate.get("name", ""),

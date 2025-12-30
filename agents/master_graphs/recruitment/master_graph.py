@@ -208,6 +208,7 @@ def _validate_experience_years(years: Optional[float]) -> Optional[float]:
     # 소수점 첫째 자리까지 반올림
     return round(years, 1)
 from agents.master_graphs.recruitment.resume_summarize_agent import summarize_resume
+from agents.master_graphs.recruitment.utils.prompt_loader import get_recruitment_prompt
 from pydantic import BaseModel, Field
 
 # 로거 설정
@@ -510,7 +511,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         if is_hitl_in_progress:
             return {
                 "intent": intent,
-                "workflow_in_progress": False,  # 명시적으로 워크플로우 차단
+                "workflow_in_progress": state.get("workflow_in_progress", False),
                 "workflow_type": None,  # 워크플로우 타입 제거
                 "workflow_steps": None,  # 워크플로우 단계 제거
             }
@@ -538,7 +539,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         if not has_workflow_keyword or (has_simple_search_keyword and not has_workflow_keyword):
             return {
                 "intent": intent,
-                "workflow_in_progress": False,  # 명시적으로 워크플로우 차단
+                "workflow_in_progress": state.get("workflow_in_progress", False),
                 "workflow_type": None,  # 워크플로우 타입 제거
                 "workflow_steps": None,  # 워크플로우 단계 제거
             }
@@ -620,93 +621,10 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             if existing_position:
                 position_change_hint = f"\n\n**중요:** 사용자가 이미 '{existing_position}' 포지션을 요청했었습니다. 만약 사용자가 새로운 포지션을 명시적으로 언급했다면 (예: '백엔드 개발자', '프론트엔드 개발자', '인사 담당자' 등), 이는 포지션 변경 요청입니다. **포지션이 변경되면 반드시 tech_stack을 빈 리스트([])로 설정하고, experience_type, experience_years, min_years, max_years, experience_operator를 모두 None 또는 빈 값으로 설정해야 합니다.** 포지션 변경 시 기존 경력/기술 스택 정보는 완전히 초기화되어야 합니다."
             
-            system_prompt = f"""
-사용자 입력에서 인재 검색에 필요한 모든 정보를 추출하고, 누락된 정보를 분석하세요.
-
-**이미 수집된 정보:**
-{context_info}
-
-**필요한 정보:**
-1. position: 포지션 (예: '개발자', '백엔드 개발자', '프론트엔드 개발자', '풀스택 개발자', '데이터 엔지니어', 'AI 엔지니어', '전자 엔지니어', '임베디드 엔지니어', '반도체 엔지니어', '기획자', '디자이너', 'QA 엔지니어', '데브옵스 엔지니어', '인사 담당자', '채용 담당자', '인사채용 담당자', '경영 관리자', '경영지원 담당자')
-   - 다양한 표현 인식: "개발자", "백엔드", "프론트엔드", "풀스택", "데이터 엔지니어", "AI 엔지니어", "ML 엔지니어", "전자 엔지니어", "임베디드", "반도체", "기획자", "디자이너", "QA", "테스터", "데브옵스", "인사", "채용", "인사채용", "경영", "경영지원", "HR", "recruiter"
-   - 복합 표현: "백엔드 개발자", "프론트엔드 개발자", "풀스택 개발자", "인사 담당자", "채용 담당자", "경영 관리자" 등
-   - 약어: "백엔드" → "백엔드 개발자", "프론트" → "프론트엔드 개발자", "데이터" → "데이터 엔지니어", "인사" → "인사 담당자", "채용" → "채용 담당자", "경영" → "경영 관리자", "HR" → "인사 담당자"
-2. experience_type: 경력 타입 ('신입' 또는 '경력직')
-   - 신입: "신입", "주니어", "junior", "entry level", "신입 개발자", "주니어 개발자", "초급", "entry", "신입급"
-   - 경력직: "경력", "시니어", "senior", "experienced", "경력직", "시니어 개발자", "중급", "고급", "경력자", "경력 있는"
-3. experience_years: 경력년수 (숫자, 0.5 이상 50 이하) - 범위 조건이 없을 때만 사용
-   - 기본 표현: "3년", "약 5년", "5년차" → experience_years=3.0 또는 5.0
-   - 신입이면 None
-4. min_years: 최소 경력년수 (이상/초과 조건)
-   - "5년 이상", "최소 5년", "5년 이상 경력" → min_years=5.0, experience_operator="이상"
-   - "5년 초과", "5년보다 많은" → min_years=5.0, experience_operator="초과"
-5. max_years: 최대 경력년수 (이하/미만 조건)
-   - "5년 이하", "최대 5년", "5년 이하 경력" → max_years=5.0, experience_operator="이하"
-   - "5년 미만", "5년보다 적은" → max_years=5.0, experience_operator="미만"
-6. experience_operator: 경력 조건 연산자
-   - "이상", "이하", "초과", "미만", "범위", "정확"
-   - "3-5년", "3년 이상 5년 이하" → experience_operator="범위"
-4. tech_stack: 기술 스택 리스트 (중복 제거, 정규화)
-   - 프론트엔드: React, Vue.js, Angular, Next.js, Nuxt.js, Svelte, TypeScript, JavaScript, HTML, CSS, SCSS, Sass, Tailwind CSS, Bootstrap, Material-UI, Ant Design
-   - 백엔드: Node.js, Express, NestJS, Python, Django, Flask, FastAPI, Java, Spring, Spring Boot, Kotlin, C#, .NET, ASP.NET, Go, Rust, Ruby, Ruby on Rails, PHP, Laravel
-   - 모바일: React Native, Flutter, Swift, Kotlin, iOS, Android, Xamarin, Ionic
-   - 데이터베이스: MySQL, PostgreSQL, MongoDB, Redis, Oracle, SQL Server, MariaDB, DynamoDB, Cassandra, Elasticsearch
-   - 클라우드/인프라: AWS, GCP, Azure, Docker, Kubernetes, Terraform, Ansible, Jenkins, GitLab CI/CD, GitHub Actions, CircleCI, Travis CI
-   - AI/ML: Python, TensorFlow, PyTorch, Keras, Scikit-learn, Pandas, NumPy, Jupyter, R, MATLAB
-   - 빅데이터: Hadoop, Spark, Kafka, Airflow, Presto, Hive, HBase
-   - 모니터링/로깅: Prometheus, Grafana, ELK Stack, Kibana, Splunk, Datadog, New Relic
-   - 하드웨어/임베디드: C, C++, ARM, STM32, Arduino, Raspberry Pi, Verilog, VHDL, PCB Design, Altium, Cadence, OrCAD, KiCad, Eagle, LabVIEW
-   - 기타: Git, SVN, Jira, Confluence, Figma, Sketch, Adobe XD, Postman, Swagger
-   - 약어 정규화: "React.js" → "React", "Vue.js" → "Vue.js", "Node.js" → "Node.js", "JS" → "JavaScript", "TS" → "TypeScript", "Py" → "Python"
-
-**누락된 정보 분석 (우선순위: position > experience > tech_stack):**
-- position이 없으면 missing_fields에 'position' 추가 (최우선)
-- experience_type과 experience_years가 모두 없으면 missing_fields에 'experience' 추가
-- tech_stack이 없고 사용자가 명시적으로 건너뛰지 않았으면 missing_fields에 'tech_stack' 추가
-
-**추출 규칙:**
-1. 포지션 추출:
-   - 명시적 언급: "개발자", "백엔드 개발자", "인사 담당자", "채용 담당자", "경영 관리자" 등 → 그대로 추출
-   - 암시적 언급: "백엔드" → "백엔드 개발자", "프론트" → "프론트엔드 개발자", "인사" → "인사 담당자", "채용" → "채용 담당자", "경영" → "경영 관리자", "HR" → "인사 담당자"
-   - 맥락 기반: "데이터 분석할 수 있는" → "데이터 엔지니어", "인사 업무" → "인사 담당자", "채용 업무" → "채용 담당자", "경영 관리" → "경영 관리자"
-2. 경력 정보 추출:
-   - 신입: "신입", "주니어", "junior", "entry", "초급" → "신입"
-   - 경력직: "경력", "시니어", "senior", "experienced", "중급", "고급" → "경력직"
-   - 경력년수: "3년", "3-5년", "5년 이상", "5년차", "최소 3년" → 숫자 추출
-3. 기술 스택 추출:
-   - 직접 언급: "React", "Node.js", "Python" → 리스트에 추가
-   - 동사 패턴: "React 사용하는", "Python 경험 있는", "Java 할 수 있는" → 기술명 추출
-   - 필요 패턴: "React 필요", "Node.js 요구", "Python 필수" → 기술명 추출
-   - 건너뛰기: "없어", "필요없어", "없음", "skip", "건너뛰" → skip_requested=True
-
-**예시:**
-- "인재 추천해줘" → position=None, missing_fields=["position", "experience", "tech_stack"]
-- "개발자 추천해줘" → position="개발자", missing_fields=["experience", "tech_stack"]
-- "백엔드 개발자 경력 3년" → position="백엔드 개발자", experience_type="경력직", experience_years=3.0, missing_fields=["tech_stack"]
-- "백엔드 개발자 경력 3년 이상" → position="백엔드 개발자", experience_type="경력직", min_years=3.0, experience_operator="이상", missing_fields=["tech_stack"]
-- "경력 3년 이상" → experience_type="경력직", min_years=3.0, experience_operator="이상", missing_fields=["position", "tech_stack"]
-- "경력 3년 이하" → experience_type="경력직", max_years=3.0, experience_operator="이하", missing_fields=["position", "tech_stack"]
-- "경력 3년 초과" → experience_type="경력직", min_years=3.0, experience_operator="초과", missing_fields=["position", "tech_stack"]
-- "경력 3년 미만" → experience_type="경력직", max_years=3.0, experience_operator="미만", missing_fields=["position", "tech_stack"]
-- "3-5년 경력" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", missing_fields=["position", "tech_stack"]
-- "React, Node.js 사용하는 개발자" → position="개발자", tech_stack=["React", "Node.js"], missing_fields=["experience"]
-- "신입 개발자" → position="개발자", experience_type="신입", missing_fields=["tech_stack"]
-- "경력 5년 이상 백엔드 개발자 Python, Django 경험" → position="백엔드 개발자", experience_type="경력직", min_years=5.0, experience_operator="이상", tech_stack=["Python", "Django"], missing_fields=[]
-- "전자 엔지니어 3-5년 경력 ARM, STM32 경험" → position="전자 엔지니어", experience_type="경력직", experience_years=3.0, tech_stack=["ARM", "STM32"], missing_fields=[]
-- "AI 엔지니어 시니어 Python, TensorFlow, PyTorch" → position="AI 엔지니어", experience_type="경력직", tech_stack=["Python", "TensorFlow", "PyTorch"], missing_fields=["experience_years"]
-- "백엔드" → position="백엔드 개발자", missing_fields=["experience", "tech_stack"]
-- "인사" → position="인사 담당자", missing_fields=["experience", "tech_stack"]
-- "채용" → position="채용 담당자", missing_fields=["experience", "tech_stack"]
-- "경영" → position="경영 관리자", missing_fields=["experience", "tech_stack"]
-- "HR" → position="인사 담당자", missing_fields=["experience", "tech_stack"]
-- "React.js, Node.js" → tech_stack=["React", "Node.js"], missing_fields=["position", "experience"]
-
-**중요:**
-1. 포지션이 명시되지 않은 경우 (예: "인재 추천해줘", "추천해줘", "인재 찾아줘") 반드시 missing_fields에 "position"을 포함해야 합니다.
-2. 이미 수집된 정보가 있으면 그것을 활용하고, 새로운 정보만 추출하세요.
-3. 기술 스택은 중복을 제거하고 정규화된 형태로 반환하세요.
-4. 경력년수는 0.5 이상 50 이하의 값만 유효합니다.
-"""
+            system_prompt = get_recruitment_prompt("search", "check_parameters").format(
+                context_info=context_info,
+                position_change_hint=position_change_hint
+            )
             
             search_info = await extract_structured_output(
                 query=full_context,
@@ -929,7 +847,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         # 단순 검색 요청임을 명시 (워크플로우 차단 - 일반 요청으로 분류)
         return {
             "recruitment_context": recruitment_context,
-            "workflow_in_progress": False,  # 명시적으로 워크플로우 차단
+            "workflow_in_progress": state.get("workflow_in_progress", False),
             "workflow_type": None,  # 워크플로우 타입 제거
             "workflow_steps": None,  # 워크플로우 단계 제거
         }
@@ -1006,14 +924,20 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 
                 recruitment_context["search_parameters"] = search_params
                 
+                # 🔥 워크플로우 임시 데이터 실시간 업데이트
+                workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+                if state.get("workflow_in_progress"):
+                    workflow_temp_data["position"] = normalized_position
+                
                 return {
                     "recruitment_context": recruitment_context,
+                    "workflow_temp_data": workflow_temp_data,
                     "requires_input": False if search_params.get("collection_step") == "complete" else True,
                     "final_response": response,
                     "messages": [response],
-                    "workflow_in_progress": False,  # 워크플로우 차단
-                    "workflow_type": None,
-                    "workflow_steps": None,
+                    "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                    "workflow_type": state.get("workflow_type"),
+                    "workflow_steps": state.get("workflow_steps"),
                 }
         
         # 포지션을 찾지 못했으면 사용자에게 질문
@@ -1034,9 +958,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "requires_input": True,
             "final_response": response,
             "messages": [response],
-            "workflow_in_progress": False,  # 워크플로우 차단
-            "workflow_type": None,
-            "workflow_steps": None,
+            "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+            "workflow_type": state.get("workflow_type"),
+            "workflow_steps": state.get("workflow_steps"),
         }
     
     async def collect_experience_info(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -1067,41 +991,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         
         # LLM으로 경력 정보 추출 (경력 범위 조건 포함)
         try:
-            system_prompt = """
-사용자 입력에서 경력 정보를 추출하세요.
-
-경력 타입 (다양한 표현 인식):
-- 신입: "신입", "주니어", "junior", "entry level", "신입 개발자", "주니어 개발자", "초급", "entry", "신입급", "신입자", "신입 수준"
-- 경력직: "경력", "시니어", "senior", "experienced", "경력직", "경력 개발자", "시니어 개발자", "중급", "고급", "경력자", "경력 있는", "경력자급", "경력직급"
-- 명시되지 않았으면 experience_type=None
-
-경력년수 (다양한 표현 인식):
-- 기본 경력년수: "5년", "5년차", "약 5년", "5년 정도" → experience_years=5.0
-- 이상 조건: "5년 이상", "5년 이상 경력", "최소 5년", "5년 이상의 경력" → min_years=5.0, experience_operator="이상"
-- 이하 조건: "5년 이하", "5년 이하 경력", "최대 5년", "5년 이하의 경력" → max_years=5.0, experience_operator="이하"
-- 초과 조건: "5년 초과", "5년 초과 경력", "5년보다 많은" → min_years=5.0, experience_operator="초과"
-- 미만 조건: "5년 미만", "5년 미만 경력", "5년보다 적은" → max_years=5.0, experience_operator="미만"
-- 범위: "3-5년", "3~5년", "3년 이상 5년 이하", "3년에서 5년" → min_years=3.0, max_years=5.0, experience_operator="범위"
-- "신입"이면 experience_years=None, min_years=None, max_years=None
-- 명시되지 않았으면 모두 None
-
-추출 규칙:
-1. 경력 타입과 경력년수를 정확히 추출
-2. "이상", "이하", "초과", "미만" 키워드를 명확히 인식하여 min_years 또는 max_years 설정
-3. confidence는 추출 신뢰도를 0.0~1.0 사이 값으로 설정
-   - 명시적 언급: 0.9~0.95
-   - 암시적 언급: 0.7~0.85
-   - 없음: 0.0
-
-예시:
-- "경력 3년 이상" → experience_type="경력직", min_years=3.0, experience_operator="이상", confidence=0.95
-- "경력 3년 이하" → experience_type="경력직", max_years=3.0, experience_operator="이하", confidence=0.95
-- "경력 3년 초과" → experience_type="경력직", min_years=3.0, experience_operator="초과", confidence=0.95
-- "경력 3년 미만" → experience_type="경력직", max_years=3.0, experience_operator="미만", confidence=0.95
-- "3-5년 경력" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", confidence=0.95
-- "경력 5년" → experience_type="경력직", experience_years=5.0, confidence=0.95
-- "신입 찾아줘" → experience_type="신입", experience_years=None, confidence=0.9
-"""
+            system_prompt = get_recruitment_prompt("search", "collect_experience_hitl")
             
             experience_info = await extract_structured_output(
                 query=full_context,
@@ -1181,17 +1071,23 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             
             exp_str = " ".join(exp_info) if exp_info else "경력 정보"
             
+            # 🔥 워크플로우 임시 데이터 실시간 업데이트
+            workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+            if state.get("workflow_in_progress"):
+                workflow_temp_data["experience"] = exp_str
+            
             # 자연스러운 AI 답변 형식
             response = f"네, {exp_str} 확인했습니다.\n\n**현재까지 수집된 정보:**\n- 포지션: {position_info}\n- 경력: {exp_str}\n\n마지막으로, 이 포지션에 필요한 기술 스택이 있다면 알려주세요. 없으시면 '없어' 또는 '필요없어'라고 답변해주시면 됩니다. (예: React, Node.js, Python, Java 등)"
             
             return {
                 "recruitment_context": recruitment_context,
-                "requires_input": False,
+                "workflow_temp_data": workflow_temp_data,
+                "requires_input": True, # 다음 정보 수집을 위해 입력 대기
                 "final_response": response,
                 "messages": [response],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         else:
             # 포지션 정보가 있으면 포함
@@ -1205,9 +1101,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "requires_input": True,
                 "final_response": response,
                 "messages": [response],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
     
     async def collect_tech_stack_info(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -1257,9 +1153,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                     "requires_input": True,
                     "final_response": "포지션에 필요한 기술 스택이 있다면 적어주세요. 없으면 '없어' 또는 '필요없어'라고 답변해주세요. (예: React, Node.js, Python, Java 등)",
                     "messages": ["포지션에 필요한 기술 스택이 있다면 적어주세요. 없으면 '없어' 또는 '필요없어'라고 답변해주세요. (예: React, Node.js, Python, Java 등)"],
-                    "workflow_in_progress": False,  # 워크플로우 차단
-                    "workflow_type": None,
-                    "workflow_steps": None,
+                    "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                    "workflow_type": state.get("workflow_type"),
+                    "workflow_steps": state.get("workflow_steps"),
                 }
         elif skip_requested:
             search_params["tech_stack"] = []
@@ -1271,9 +1167,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "requires_input": True,
                 "final_response": "포지션에 필요한 기술 스택이 있다면 적어주세요. 없으면 '없어' 또는 '필요없어'라고 답변해주세요. (예: React, Node.js, Python, Java 등)",
                 "messages": ["포지션에 필요한 기술 스택이 있다면 적어주세요. 없으면 '없어' 또는 '필요없어'라고 답변해주세요. (예: React, Node.js, Python, Java 등)"],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         
         recruitment_context["search_parameters"] = search_params
@@ -1296,17 +1192,23 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         else:
             tech_stack_info = "기술 스택 없음"
         
+        # 🔥 워크플로우 임시 데이터 실시간 업데이트
+        workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+        if state.get("workflow_in_progress"):
+            workflow_temp_data["tech_stack"] = search_params.get("tech_stack", [])
+        
         # 자연스러운 AI 답변 형식 - 최종 확인 및 검색 시작
         response = f"완벽합니다! 모든 정보를 수집했습니다.\n\n**검색 조건 요약:**\n- 포지션: {position_info}\n- 경력: {exp_str}\n- 기술 스택: {tech_stack_info}\n\n이제 위 조건에 맞는 인재를 검색해드리겠습니다. 잠시만 기다려주세요..."
         
         return {
             "recruitment_context": recruitment_context,
+            "workflow_temp_data": workflow_temp_data,
             "requires_input": False,
             "final_response": response,
             "messages": [response],
-            "workflow_in_progress": False,  # 워크플로우 차단
-            "workflow_type": None,
-            "workflow_steps": None,
+            "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+            "workflow_type": state.get("workflow_type"),
+            "workflow_steps": state.get("workflow_steps"),
         }
     
     def route_after_intent(self, state: OrchestratorState) -> str:
@@ -1384,43 +1286,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
     async def _extract_position_with_llm(self, query: str) -> Optional[str]:
         """LLM 기반 포지션 추출 (키워드 기반 fallback 포함)."""
         try:
-            system_prompt = """
-사용자 입력에서 포지션 정보를 추출하세요.
-
-포지션 예시 (다양한 표현 인식):
-- 개발자: "개발자", "백엔드 개발자", "프론트엔드 개발자", "풀스택 개발자", "웹 개발자", "모바일 개발자", "게임 개발자"
-- 데이터/AI: "데이터 엔지니어", "데이터 사이언티스트", "AI 엔지니어", "머신러닝 엔지니어", "딥러닝 엔지니어", "ML 엔지니어", "DL 엔지니어"
-- 인프라/운영: "데브옵스 엔지니어", "DevOps", "SRE", "인프라 엔지니어", "시스템 엔지니어", "네트워크 엔지니어"
-- QA/테스트: "QA 엔지니어", "테스터", "QA", "테스트 엔지니어", "QA 엔지니어"
-- 기획/디자인: "기획자", "PM", "프로덕트 매니저", "디자이너", "UI/UX 디자이너", "그래픽 디자이너"
-- 하드웨어/임베디드: "전자 엔지니어", "하드웨어 엔지니어", "임베디드 엔지니어", "반도체 엔지니어", "펌웨어 엔지니어", "시스템 엔지니어"
-- 인사/채용: "인사 담당자", "인사담당자", "인사팀", "인사관리", "HR", "HR Manager", "HR Specialist", "채용 담당자", "채용담당자", "채용팀", "Recruiter", "Talent Acquisition", "인사채용 담당자", "인사채용담당자"
-- 경영: "경영 관리자", "경영관리자", "경영팀", "경영지원", "Business Manager", "경영전략", "경영기획", "경영지원 담당자", "경영지원담당자"
-- 기타: "보안 엔지니어", "보안 전문가", "블록체인 개발자", "솔루션 아키텍트", "시스템 아키텍트"
-
-추출 규칙:
-1. 사용자가 명시적으로 포지션을 언급한 경우 그 값을 position에 설정
-2. 포지션의 다양한 표현을 인식 (예: "백엔드"만 언급해도 "백엔드 개발자"로 추출)
-3. 포지션이 명시되지 않았으면 position은 None
-4. confidence는 추출 신뢰도를 0.0~1.0 사이 값으로 설정
-   - 명시적 언급: 0.9~0.95
-   - 암시적 언급: 0.7~0.85
-   - 없음: 0.0
-
-예시:
-- "개발자 포지션 지원자 찾아줘" → position="개발자", confidence=0.9
-- "백엔드 개발자 추천해줘" → position="백엔드 개발자", confidence=0.95
-- "백엔드 추천해줘" → position="백엔드 개발자", confidence=0.85
-- "전자 엔지니어 필요해" → position="전자 엔지니어", confidence=0.9
-- "임베디드 개발자 찾아줘" → position="임베디드 엔지니어", confidence=0.9
-- "AI 엔지니어 추천" → position="AI 엔지니어", confidence=0.95
-- "인사 담당자 추천해줘" → position="인사 담당자", confidence=0.9
-- "채용 담당자 찾아줘" → position="채용 담당자", confidence=0.9
-- "경영 관리자 추천" → position="경영 관리자", confidence=0.9
-- "HR 추천해줘" → position="인사 담당자", confidence=0.85
-- "인재 추천해줘" → position=None, confidence=0.0
-- "데이터 분석할 수 있는 사람" → position="데이터 엔지니어", confidence=0.8
-"""
+            system_prompt = get_recruitment_prompt("search", "extract_position")
             
             result = await extract_structured_output(
                 query=query,
@@ -1448,49 +1314,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
     async def _extract_experience_with_llm(self, query: str) -> Tuple[Optional[str], Optional[float]]:
         """LLM 기반 경력 정보 추출 (키워드 기반 fallback 포함)."""
         try:
-            system_prompt = """
-사용자 입력에서 경력 정보를 추출하세요.
-
-경력 타입 (다양한 표현 인식):
-- 신입: "신입", "주니어", "junior", "entry level", "신입 개발자", "주니어 개발자", "초급", "entry", "신입급", "신입자", "신입 수준"
-- 경력직: "경력", "시니어", "senior", "experienced", "경력직", "경력 개발자", "시니어 개발자", "중급", "고급", "경력자", "경력 있는", "경력자급", "경력직급"
-- 명시되지 않았으면 experience_type=None
-
-경력년수 (다양한 표현 인식):
-- 기본 경력년수: "5년", "5년차", "약 5년", "5년 정도" → experience_years=5.0
-- 이상 조건: "5년 이상", "5년 이상 경력", "최소 5년", "5년 이상의 경력" → min_years=5.0, experience_operator="이상"
-- 이하 조건: "5년 이하", "5년 이하 경력", "최대 5년", "5년 이하의 경력" → max_years=5.0, experience_operator="이하"
-- 초과 조건: "5년 초과", "5년 초과 경력", "5년보다 많은" → min_years=5.0, experience_operator="초과" (주의: 5년보다 많으므로 실제로는 5.1년 이상)
-- 미만 조건: "5년 미만", "5년 미만 경력", "5년보다 적은" → max_years=5.0, experience_operator="미만" (주의: 5년보다 적으므로 실제로는 4.9년 이하)
-- 범위: "3-5년", "3~5년", "3년 이상 5년 이하", "3년에서 5년" → min_years=3.0, max_years=5.0, experience_operator="범위"
-- "신입"이면 experience_years=None, min_years=None, max_years=None
-- 명시되지 않았으면 모두 None
-
-추출 규칙:
-1. 경력 타입과 경력년수를 정확히 추출
-2. 다양한 표현 패턴을 인식 (예: "5년차", "5년 이상", "최소 5년" 모두 5.0으로 추출)
-3. 범위 표현 (예: "3-5년")은 최소값을 사용
-4. confidence는 추출 신뢰도를 0.0~1.0 사이 값으로 설정
-   - 명시적 언급: 0.9~0.95
-   - 암시적 언급: 0.7~0.85
-   - 없음: 0.0
-
-예시:
-- "경력 5년" → experience_type="경력직", experience_years=5.0, confidence=0.95
-- "5년차 개발자" → experience_type="경력직", experience_years=5.0, confidence=0.95
-- "5년 이상 경력" → experience_type="경력직", min_years=5.0, experience_operator="이상", confidence=0.95
-- "5년 이하 경력" → experience_type="경력직", max_years=5.0, experience_operator="이하", confidence=0.95
-- "5년 초과 경력" → experience_type="경력직", min_years=5.0, experience_operator="초과", confidence=0.95
-- "5년 미만 경력" → experience_type="경력직", max_years=5.0, experience_operator="미만", confidence=0.95
-- "3-5년 경력" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", confidence=0.95
-- "3년 이상 5년 이하" → experience_type="경력직", min_years=3.0, max_years=5.0, experience_operator="범위", confidence=0.95
-- "최소 3년 경력" → experience_type="경력직", min_years=3.0, experience_operator="이상", confidence=0.95
-- "신입 찾아줘" → experience_type="신입", experience_years=None, confidence=0.9
-- "주니어 개발자" → experience_type="신입", experience_years=None, confidence=0.9
-- "시니어 개발자" → experience_type="경력직", experience_years=None, confidence=0.85
-- "5년 이상 경력 개발자" → experience_type="경력직", min_years=5.0, experience_operator="이상", confidence=0.95
-- "개발자 추천해줘" → experience_type=None, experience_years=None, confidence=0.0
-"""
+            system_prompt = get_recruitment_prompt("search", "extract_experience")
             
             result = await extract_structured_output(
                 query=query,
@@ -1540,51 +1364,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
     async def _extract_tech_stack_with_llm(self, query: str) -> Tuple[List[str], bool]:
         """LLM 기반 기술 스택 추출 (키워드 기반 fallback 포함)."""
         try:
-            system_prompt = """
-사용자 입력에서 기술 스택 정보를 추출하세요.
-
-기술 스택 (다양한 기술 인식):
-- 프론트엔드: React, Vue.js, Angular, Next.js, Nuxt.js, Svelte, TypeScript, JavaScript, HTML, CSS, SCSS, Sass, Tailwind CSS, Bootstrap, Material-UI, Ant Design
-- 백엔드: Node.js, Express, NestJS, Python, Django, Flask, FastAPI, Java, Spring, Spring Boot, Kotlin, C#, .NET, ASP.NET, Go, Rust, Ruby, Ruby on Rails, PHP, Laravel
-- 모바일: React Native, Flutter, Swift, Kotlin, iOS, Android, Xamarin, Ionic
-- 데이터베이스: MySQL, PostgreSQL, MongoDB, Redis, Oracle, SQL Server, MariaDB, DynamoDB, Cassandra, Elasticsearch
-- 클라우드/인프라: AWS, GCP, Azure, Docker, Kubernetes, Terraform, Ansible, Jenkins, GitLab CI/CD, GitHub Actions, CircleCI, Travis CI
-- AI/ML: Python, TensorFlow, PyTorch, Keras, Scikit-learn, Pandas, NumPy, Jupyter, R, MATLAB
-- 빅데이터: Hadoop, Spark, Kafka, Airflow, Presto, Hive, HBase
-- 모니터링/로깅: Prometheus, Grafana, ELK Stack, Kibana, Splunk, Datadog, New Relic
-- 하드웨어/임베디드: C, C++, ARM, STM32, Arduino, Raspberry Pi, Verilog, VHDL, PCB Design, Altium, Cadence, OrCAD, KiCad, Eagle, LabVIEW
-- HR/인사 관련: HRIS, HRIS 운영, 인사 정보시스템, HR 시스템, 보상, 보상 제도, 보상·승진 제도, 보상 승진 제도, compensation, promotion, 승진, 승진 제도, 면접, 면접 진행, 면접 관리, interview, 인사관리, HR management, 채용관리, recruitment management, 인력 관리, workforce management, 성과 관리, performance management, HR Analytics, 인사 분석, 인사 데이터 분석
-- 기타: Git, SVN, Jira, Confluence, Figma, Sketch, Adobe XD, Postman, Swagger
-
-추출 규칙:
-1. 기술 스택이 명시된 경우 tech_stack에 리스트로 추가
-2. 다양한 표현 패턴 인식:
-   - 직접 언급: "React", "Node.js", "Python"
-   - 기술명 + 동사: "React 사용하는", "Python 경험 있는", "Java 할 수 있는", "AWS 사용 가능한"
-   - 기술명 + 필요/요구: "React 필요", "Node.js 요구", "Python 필수"
-   - 기술명 + 개발자: "Python 개발자", "Java 개발자" (기술명만 추출)
-3. 건너뛰기 요청 인식:
-   - "없어", "필요없어", "없음", "없습니다", "skip", "건너뛰", "필요 없어요", "없어요", "없습니다", "필요 없음"
-4. confidence는 추출 신뢰도를 0.0~1.0 사이 값으로 설정
-   - 명시적 언급: 0.9~0.95
-   - 암시적 언급: 0.7~0.85
-   - 없음: 0.0
-
-예시:
-- "React, Node.js, AWS가 필요해" → tech_stack=["React", "Node.js", "AWS"], skip_requested=False, confidence=0.95
-- "React와 Node.js 사용하는 개발자" → tech_stack=["React", "Node.js"], skip_requested=False, confidence=0.9
-- "Python, Django 경험 있는" → tech_stack=["Python", "Django"], skip_requested=False, confidence=0.9
-- "Python 개발자" → tech_stack=["Python"], skip_requested=False, confidence=0.8
-- "Java와 Spring Boot 사용 가능한" → tech_stack=["Java", "Spring Boot"], skip_requested=False, confidence=0.9
-- "ARM, STM32 경험" → tech_stack=["ARM", "STM32"], skip_requested=False, confidence=0.9
-- "TensorFlow, PyTorch 사용하는 AI 엔지니어" → tech_stack=["TensorFlow", "PyTorch"], skip_requested=False, confidence=0.9
-- "HRIS 운영, 보상·승진 제도 기술스택이 필요해" → tech_stack=["HRIS 운영", "보상·승진 제도"], skip_requested=False, confidence=0.95
-- "HRIS, 보상 제도, 면접 진행" → tech_stack=["HRIS", "보상 제도", "면접 진행"], skip_requested=False, confidence=0.95
-- "인사관리, 채용관리 시스템" → tech_stack=["인사관리", "채용관리"], skip_requested=False, confidence=0.9
-- "없어" → tech_stack=[], skip_requested=True, confidence=0.9
-- "필요없어요" → tech_stack=[], skip_requested=True, confidence=0.9
-- "개발자 추천해줘" → tech_stack=[], skip_requested=False, confidence=0.0
-"""
+            system_prompt = get_recruitment_prompt("search", "extract_tech_stack")
             
             result = await extract_structured_output(
                 query=query,
@@ -1595,8 +1375,13 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             
             # 신뢰도가 0.7 이상이면 LLM 결과 사용
             if result.confidence >= 0.7:
-                print(f"✅ LLM 기반 기술 스택 추출: {result.tech_stack}, skip={result.skip_requested} (신뢰도: {result.confidence:.2f})")
-                return result.tech_stack, result.skip_requested
+                # 면접, 일정 등 워크플로우 키워드 추가 필터링
+                filtered_tech = [
+                    t for t in result.tech_stack 
+                    if t not in ["면접", "일정", "검토", "요청", "잡아줘", "진행", "결과", "대상자"]
+                ]
+                print(f"✅ LLM 기반 기술 스택 추출: {filtered_tech}, skip={result.skip_requested} (신뢰도: {result.confidence:.2f})")
+                return filtered_tech, result.skip_requested
             
         except Exception as e:
             print(f"⚠️ LLM 기반 기술 스택 추출 실패: {e}, 키워드 기반 fallback 사용")
@@ -1650,8 +1435,6 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             (r'보상\s*승진\s*제도', '보상·승진 제도'),
             (r'보상\s*제도', '보상 제도'),
             (r'승진\s*제도', '승진 제도'),
-            (r'면접\s*진행', '면접 진행'),
-            (r'면접\s*관리', '면접 관리'),
             (r'인사관리', '인사관리'),
             (r'채용관리', '채용관리'),
             (r'인력\s*관리', '인력 관리'),
@@ -1679,7 +1462,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             if not any(pos_kw in tech_lower for pos_kw in ["개발자", "엔지니어", "담당자", "매니저", "관리자", "디자이너", "기획자"]):
                 # 단순히 "인사", "채용", "경영"만 있는 경우도 제외 (포지션일 가능성)
                 if tech_lower not in ["인사", "채용", "경영", "hr", "recruiter", "business"]:
-                    filtered_tech_stack.append(tech)
+                    # 면접, 일정 등 워크플로우 키워드 추가 필터링
+                    if tech_lower not in ["면접", "일정", "검토", "요청", "잡아줘", "진행", "결과", "대상자"]:
+                        filtered_tech_stack.append(tech)
         
         if filtered_tech_stack:
             print(f"✅ 키워드 기반 기술 스택 추출: {filtered_tech_stack}")
@@ -1692,6 +1477,23 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         """이력서 검색 & 인재 추천."""
         print("--- [Recruitment Master] Searching Resumes ---")
         query = state.get("query", "")
+
+        # ⚠️ 취소/종료 요청 처리 (최우선)
+        cancel_keywords = ["취소", "종료", "그만", "stop", "cancel"]
+        if any(k == query.strip() for k in cancel_keywords):
+            print(f"🛑 [Recruitment] 워크플로우 취소 요청 감지: {query}")
+            return {
+                "final_response": "워크플로우가 취소되었습니다. 모든 임시 데이터가 초기화됩니다.",
+                "messages": ["워크플로우 취소"],
+                "workflow_in_progress": state.get("workflow_in_progress", False),
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
+                "current_workflow_step_index": state.get("current_workflow_step_index", 0),
+                "workflow_temp_data": {},  # 임시 데이터 초기화
+                "recruitment_context": {}, # 컨텍스트 초기화
+                "requires_input": False
+            }
+
         session_id = state.get("session_id")
         conversation_history = state.get("conversation_history", [])
         recruitment_context = state.get("recruitment_context", {}) or {}
@@ -1798,9 +1600,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             return {
                 "final_response": response,
                 "messages": [response],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         
         # 일반 검색 요청 처리
@@ -1875,30 +1677,17 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 return {
                     "final_response": response,
                     "messages": [response],
-                    "workflow_in_progress": False,  # 워크플로우 차단
-                    "workflow_type": None,
-                    "workflow_steps": None,
+                    "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                    "workflow_type": state.get("workflow_type"),
+                    "workflow_steps": state.get("workflow_steps"),
                 }
         else:
             print(f"✅ 수집된 파라미터가 있어 검색 실행: {search_params}")
         
         # LLM을 사용하여 프롬프트에서 적절한 검색 개수 추출
         print("--- [Recruitment Master] 검색 파라미터 추출 중 ---")
-        search_params_prompt = f"""
-사용자 요청을 분석하여 적절한 인재 추천 개수를 추출하세요.
-
-사용자 요청: {query}
-
-추출 규칙:
-1. 사용자가 명시적으로 인재 수를 요청한 경우 (예: "2명", "3-5명", "한 명", "여러 명", "몇 명") 그 값을 suggested_count에 설정
-2. 명시적 요청이 없으면 suggested_count는 None으로 설정
-
-예시:
-- "Python 개발자 2명 추천해줘" → suggested_count=2
-- "데이터 엔지니어 한 명만" → suggested_count=1
-- "백엔드 개발자 여러 명" → suggested_count=None
-- "경력 5년 이상인 개발자 3명" → suggested_count=3
-"""
+        search_params_prompt_template = get_recruitment_prompt("search", "extract_suggested_count")
+        search_params_prompt = search_params_prompt_template.format(query=query)
         
         try:
             search_params_result = await extract_structured_output(
@@ -2044,6 +1833,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "workflow_type": workflow_type,
                 "workflow_steps": workflow_steps,
                 "current_workflow_step_index": current_workflow_step_index,
+                "requires_input": True # 후보자 선택을 위해 입력 대기
             }
 
         return {
@@ -2051,16 +1841,34 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "messages": [response],
             "search_results": displayed_resumes,  # 검색된 모든 인재 표시 (suggested_count가 있으면 그 개수만큼)
             "recruitment_context": recruitment_context,
-            "workflow_in_progress": False,  # 단순 검색 요청이므로 워크플로우 차단 (일반 요청으로 분류)
-            "workflow_type": None,  # 워크플로우 타입 제거
-            "workflow_steps": None,  # 워크플로우 단계 제거
-            "current_workflow_step_index": None,
+            "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+            "workflow_type": state.get("workflow_type"),
+            "workflow_steps": state.get("workflow_steps"),
+            "current_workflow_step_index": state.get("current_workflow_step_index", 0),
+            "requires_input": True # 후보자 선택을 위해 입력 대기
         }
     
     async def summarize_resume(self, state: OrchestratorState) -> Dict[str, Any]:
         """이력서 핵심 요약."""
         print("--- [Recruitment Master] Summarizing Resume ---")
         query = state.get("query", "")
+        
+        # ⚠️ 취소/종료 요청 처리 (최우선)
+        cancel_keywords = ["취소", "종료", "그만", "stop", "cancel"]
+        if any(k == query.strip() for k in cancel_keywords):
+            print(f"🛑 [Recruitment] 워크플로우 취소 요청 감지: {query}")
+            return {
+                "final_response": "워크플로우가 취소되었습니다. 모든 임시 데이터가 초기화됩니다.",
+                "messages": ["워크플로우 취소"],
+                "workflow_in_progress": state.get("workflow_in_progress", False),
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
+                "current_workflow_step_index": state.get("current_workflow_step_index", 0),
+                "workflow_temp_data": {},  # 임시 데이터 초기화
+                "recruitment_context": {}, # 컨텍스트 초기화
+                "requires_input": False
+            }
+        
         session_id = state.get("session_id")
         recruitment_context = state.get("recruitment_context") or {}
         if not isinstance(recruitment_context, dict):
@@ -2082,9 +1890,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             return {
                 "final_response": "인재 번호를 찾을 수 없습니다. 번호를 입력해주세요 (예: '1번 요약해줘').",
                 "messages": ["인재 번호를 찾을 수 없습니다."],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         
         # 이전 검색 결과 확인
@@ -2103,9 +1911,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             return {
                 "final_response": "검색 결과를 찾을 수 없습니다. 먼저 인재를 검색해주세요.",
                 "messages": ["검색 결과를 찾을 수 없습니다."],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         
         # 요약 실행
@@ -2119,9 +1927,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             return {
                 "final_response": result.get("message", "이력서 요약 중 오류가 발생했습니다."),
                 "messages": [result.get("message", "")],
-                "workflow_in_progress": False,  # 워크플로우 차단
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         
         # recruitment_context 업데이트
@@ -2162,9 +1970,18 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             workflow_temp_data = state.get("workflow_temp_data", {}) or {}
             workflow_temp_data["selected_candidate"] = candidate_info
             
+            # 🔥 추가: 검색 조건(포지션, 경력, 기술스택)도 함께 저장
+            search_params = recruitment_context.get("search_parameters", {})
+            workflow_temp_data["search_parameters"] = {
+                "position": search_params.get("position"),
+                "experience": f"{search_params.get('experience_type', '')} {search_params.get('experience_years', '')}년".strip(),
+                "tech_stack": search_params.get("tech_stack", [])
+            }
+            
             response = result.get("message", "이력서 요약을 완료했습니다.")
             response += "\n\n**[워크플로우]** 후보자를 선택하셨습니다. 이제 면접 일정을 잡기 위해 면접관 정보를 입력해주세요."
             
+            # requires_input을 False로 설정하여 오케스트레이터가 바로 Schedule 도메인으로 제어권을 넘기게 함
             return {
                 "final_response": response,
                 "messages": [response],
@@ -2174,16 +1991,16 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "workflow_type": workflow_type,
                 "current_workflow_step_index": 1, # 다음 단계로
                 "next_domain": "schedule", # 다음 도메인
-                "requires_input": True # 면접관 입력 필요
+                "requires_input": False # ✅ 다음 도메인의 질문을 즉시 받기 위해 False로 변경
             }
         
         return {
             "final_response": result.get("message", "이력서 요약을 완료했습니다."),
             "messages": [result.get("message", "")],
             "recruitment_context": recruitment_context,
-            "workflow_in_progress": False,  # 워크플로우 차단
-            "workflow_type": None,
-            "workflow_steps": None,
+            "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
+            "workflow_type": state.get("workflow_type"),
+            "workflow_steps": state.get("workflow_steps"),
         }
     
     async def analyze_database(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -2198,9 +2015,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             return {
                 "final_response": analysis_result.get("message", "데이터 분석 중 오류가 발생했습니다."),
                 "messages": [analysis_result.get("message", "")],
-                "workflow_in_progress": False,
-                "workflow_type": None,
-                "workflow_steps": None,
+                "workflow_in_progress": state.get("workflow_in_progress", False),
+                "workflow_type": state.get("workflow_type"),
+                "workflow_steps": state.get("workflow_steps"),
             }
         
         statistics = analysis_result.get("statistics", {})
@@ -2285,9 +2102,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             "final_response": final_response,
             "messages": [final_response],
             "statistics": statistics,
-            "workflow_in_progress": False,
-            "workflow_type": None,
-            "workflow_steps": None,
+            "workflow_in_progress": state.get("workflow_in_progress", False),
+            "workflow_type": state.get("workflow_type"),
+            "workflow_steps": state.get("workflow_steps"),
         }
 
 

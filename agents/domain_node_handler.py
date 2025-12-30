@@ -93,6 +93,11 @@ def process_domain_node_result(
     
     # 2. 워크플로우 상태 업데이트
     workflow_in_progress = state.get("workflow_in_progress", False)
+    workflow_type = state.get("workflow_type")
+    current_step_index = state.get("current_workflow_step_index", 0)
+    workflow_steps = state.get("workflow_steps", [])
+    workflow_temp_data_state = state.get("workflow_temp_data", {})
+    
     requires_input = result.get("requires_input", False)
     
     # recruitment 도메인의 휴먼인더루프 진행 중인지 확인
@@ -104,12 +109,40 @@ def process_domain_node_result(
             collection_step = search_params.get("collection_step")
             if collection_step and collection_step != "complete":
                 is_recruitment_hitl = True
+                requires_input = True # HITL이면 항상 입력 필요
+                result["requires_input"] = True
                 print(f"✅ Recruitment 휴먼인더루프 진행 중: collection_step={collection_step}")
+
+    # 🔥 [효율적 개선] 워크플로우 상태 자동 보존 로직
+    # 워크플로우가 이미 진행 중이고, 도메인에서 HITL(사용자 입력 대기) 상태인 경우
+    # 도메인 마스터에서 명시적으로 False를 주었더라도 워크플로우 컨텍스트를 강제로 보존합니다.
+    if workflow_in_progress and requires_input:
+        # 단, 사용자가 명시적으로 취소/종료를 요청한 경우는 제외 (이미 마스터에서 False로 왔을 것)
+        # result에 workflow_in_progress가 명시적으로 False이고, 취소 메시지가 포함된 경우는 패스
+        is_explicit_cancel = result.get("workflow_in_progress") is False and any(k in str(result.get("final_response", "")).lower() for k in ["취소", "종료", "cancel", "stop"])
+        
+        if not is_explicit_cancel:
+            print(f"🔄 [워크플로우 상태 보존] {domain_name} HITL 감지 - 워크플로우 상태 강제 유지")
+            result["workflow_in_progress"] = True
+            result["workflow_type"] = workflow_type
+            result["workflow_steps"] = workflow_steps
+            result["current_workflow_step_index"] = current_step_index
+            
+            # workflow_temp_data 병합 및 유지
+            if "workflow_temp_data" in result:
+                merged_data = {**workflow_temp_data_state, **(result.get("workflow_temp_data", {}))}
+                result["workflow_temp_data"] = merged_data
+            else:
+                result["workflow_temp_data"] = workflow_temp_data_state
+
+    # 업데이트된 workflow_in_progress 값 사용
+    workflow_in_progress = result.get("workflow_in_progress", workflow_in_progress)
     
     if workflow_in_progress:
         # 워크플로우 진행 중일 때는 last_domain을 워크플로우 단계 정보로 설정
-        workflow_type = state.get("workflow_type")
-        current_step_index = state.get("current_workflow_step_index", 0)
+        # (이미 위에서 workflow_type 등을 보존했으므로 안전하게 사용 가능)
+        workflow_type = result.get("workflow_type", workflow_type)
+        current_step_index = result.get("current_workflow_step_index", current_step_index)
         
         # 워크플로우 타입을 영어로 변환 (사용자 요청 형식에 맞춤)
         workflow_type_en = {
