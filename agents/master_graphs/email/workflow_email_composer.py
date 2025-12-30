@@ -132,7 +132,7 @@ async def generate_workflow_email_draft(
         print(f"⚠️ 이메일 초안 생성 실패: {e}")
         # LLM 실패 시 fallback: 직접 문자열 생성
         fallback_subject = f"출장 알림: {start_time.strftime('%Y년 %m월 %d일')} ~ {end_time.strftime('%Y년 %m월 %d일')}"
-        fallback_body = f"""안녕하세요, 팀 여러분.
+        fallback_body = f"""안녕하세요, 여러분.
 
 저는 {start_time.strftime('%Y년 %m월 %d일')}부터 {end_time.strftime('%Y년 %m월 %d일')}까지 {destination} 출장으로 인해 부재 중입니다.
 
@@ -140,8 +140,7 @@ async def generate_workflow_email_draft(
 
 필요한 사항이 있으시면 이메일로 연락 주시면 감사하겠습니다.
 
-감사합니다.
-[당신의 이름]"""
+감사합니다."""
         
         return {
             "to_email": to_email,
