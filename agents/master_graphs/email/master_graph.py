@@ -291,13 +291,17 @@ class EmailMasterGraph(BaseMasterGraph):
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
         
-        # 워크플로우 모드이고 business_trip 워크플로우인 경우 자동으로 compose로 라우팅
-        if workflow_in_progress and workflow_type == "business_trip":
-            # workflow_temp_data에 출장 정보가 있으면 compose로 라우팅
-            if workflow_temp_data.get("start_time") and workflow_temp_data.get("end_time"):
-                print(f"✅ 워크플로우 모드 감지: {workflow_type} → compose로 자동 라우팅")
-                step_elapsed = (time.time() - step_start) * 1000
-                print(f"✅ Email 의도 결정: compose (워크플로우 모드, {step_elapsed/1000:.2f}초)")
+        # 워크플로우 모드이고 business_trip 또는 recruitment 워크플로우인 경우 자동으로 compose로 라우팅
+        if workflow_in_progress:
+            current_step_index = state.get("current_workflow_step_index", 0)
+            if workflow_type == "business_trip":
+                # workflow_temp_data에 출장 정보가 있으면 compose로 라우팅
+                if workflow_temp_data.get("start_time") and workflow_temp_data.get("end_time"):
+                    print(f"✅ 워크플로우 모드 감지: {workflow_type} → compose로 자동 라우팅")
+                    return {"intent": "compose"}
+            elif workflow_type == "recruitment" and current_step_index == 2:
+                # recruitment 워크플로우의 이메일 단계인 경우
+                print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step 2) → compose로 자동 라우팅")
                 return {"intent": "compose"}
         
         # ✅ 수신자 정보가 있으면 자동으로 compose로 라우팅
@@ -646,10 +650,10 @@ class EmailMasterGraph(BaseMasterGraph):
             
             # "발송" 명령이 있고 초안이 있으면 발송 처리
             if is_send_command and stored_draft_subject and stored_draft_body and stored_to_email:
-                # ✅ 워크플로우 모드: 팀원들에게 이메일 발송
+                # ✅ 워크플로우 모드: 이메일 발송
                 try:
                     result = await compose_and_send_email(
-                        to_email=stored_to_email,  # 팀원 이메일 주소
+                        to_email=stored_to_email,
                         user_message=query,
                         cc=None,
                         bcc=None,
@@ -662,12 +666,30 @@ class EmailMasterGraph(BaseMasterGraph):
                     )
                     
                     if result.get("ok"):
-                        # ✅ 발송 완료 - 워크플로우 완료 처리
+                        # ✅ 발송 완료 - 워크플로우 단계 업데이트
                         current_step_index = state.get("current_workflow_step_index", 0)
                         workflow_steps = state.get("workflow_steps", [])
                         
-                        # 마지막 단계인지 확인
-                        if current_step_index >= len(workflow_steps) - 1:
+                        # recruitment 워크플로우인 경우 다음 도메인(document)으로 라우팅
+                        if workflow_type == "recruitment":
+                            workflow_temp_data["email_sent_status"] = "success"
+                            msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
+                            msg += "\n\n**[워크플로우]** 이제 마지막 단계로 면접 평가표를 생성합니다."
+                            
+                            return {
+                                "final_response": msg,
+                                "messages": [msg],
+                                "email_compose_context": {}, 
+                                "workflow_temp_data": workflow_temp_data,
+                                "workflow_in_progress": True,
+                                "workflow_type": workflow_type,
+                                "current_workflow_step_index": 3, # Document 단계로
+                                "next_domain": "document",
+                                "requires_input": False
+                            }
+                        
+                        # 기존 business_trip 처리 (마지막 단계)
+                        if workflow_type == "business_trip" and current_step_index >= len(workflow_steps) - 1:
                             # 워크플로우 완료
                             from agents.orchestrator_v3 import load_workflows_config
                             workflows = load_workflows_config()
@@ -784,7 +806,8 @@ class EmailMasterGraph(BaseMasterGraph):
             draft_result = await generate_workflow_email_draft(
                 workflow_temp_data=workflow_temp_data,
                 employee_id=employee_id,
-                user_dept=user_dept
+                user_dept=user_dept,
+                workflow_type=workflow_type
             )
             
             if draft_result.get("error"):

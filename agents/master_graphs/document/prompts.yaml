@@ -208,6 +208,127 @@ classification_criteria: |
   - email_auto_reply: 이메일, 메일, 자동응답 관련 (참고: 실제로는 email 도메인으로 라우팅)
 output_format: '{"intent": "doc_generate|update_document|email_auto_reply"}'
 
+db_schemas:
+  product_comparison_table: |
+    데이터베이스: ai_agent
+
+    테이블 목록:
+    1. mobile_devices - 스마트폰/모바일 기기 제품 정보
+       - 주요 컬럼:
+         * company_name (브랜드명, 예: Apple, Samsung, Google 등)
+         * model_name (모델명, 예: iPhone 15 Pro 512GB, Galaxy S24 Ultra 128GB, Pixel 8 Pro 256GB 등)
+         * launch_price_kor (가격, 숫자)
+         * launch_price_usa (가격, 숫자)
+         * weight (무게, g 단위)
+         * battery_capacity (배터리 용량, mAh 단위)
+         * screen_size (디스플레이 크기, 인치)
+         * processor (프로세서명)
+         * front_camera (카메라 정보, 예: "48MP", "50MP Triple" 등)
+         * rear_camera (카메라 정보, 예: "48MP", "50MP Triple" 등)
+         * ram (메모리, 예: "8GB", "12GB" 등)
+         * 기타 스펙 정보
+
+    비고:
+    - 제품 비교표는 mobile_devices 테이블에서 데이터를 가져옴
+    - 사용자가 언급한 제품명(model_name 컬럼으로 검색, 예: "iPhone 15 Pro 512GB", "Galaxy S24 Ultra 128GB" 등)
+    - 비교 항목은 Weight, Battery, Display_Size, Processor, Camera, Storage, RAM, Color, Network, Operating_System, Price 등
+    - model_name 컬럼에 저장공간 정보가 포함되어 있을 수 있음 (예: "iPhone 15 Pro 512GB")
+
+  monthly_profit_analysis_report: |
+    데이터베이스: ai_agent
+
+    테이블 목록:
+    1. company_sales - 회사 매출 및 수익 분석 데이터
+       - 주요 컬럼:
+         * order_id (주문 ID)
+         * order_date (주문일자, DATE 형식 - 여기서 년도, 월 추출 가능)
+         * region (지역명, 예: 한국, 미국, 일본, 중국 등)
+         * city (도시명)
+         * country (국가명, 예: Korea, USA, Japan, China 등)
+         * product_name (제품명, 예: iPhone 15 Pro, Galaxy S24, iPad Pro 등)
+         * product_category (제품 카테고리, 예: 스마트폰, 태블릿, 노트북 등)
+         * product_subcategory (제품 하위 카테고리)
+         * manufacturer (제조업체, 예: Apple, Samsung, Google 등)
+         * unit_cost (단위 원가, 숫자)
+         * unit_price (단위 가격, 숫자)
+         * order_quantity (주문 수량, 숫자)
+         * cost_of_sales (판매원가, 숫자, 원화 단위)
+         * revenue (매출액, 숫자, 원화 단위)
+         * profit (수익, 숫자, 원화 단위)
+         * sales_channel (판매채널, 예: 온라인, 오프라인, 대리점 등)
+         * promotion_name (프로모션명, 예: 신년 특가, 여름 세일 등, NULL 가능)
+
+    비고:
+    - 월별 수익 분석 리포트는 company_sales 테이블에서 데이터를 가져옴
+    - 사용자가 언급한 기간(년도, 월)은 order_date에서 추출하여 필터링
+    - 지역별 수익현황: region, country, city, revenue(합계), profit(합계), 수익률(계산)
+    - 제품별 손익분석: product_name, product_category, manufacturer, revenue(합계), cost_of_sales(합계), profit(합계), 수익률(계산)
+    - 프로모션 효과분석: promotion_name이 있는 데이터만, product_name, revenue(추가 매출), ROI(계산)
+    - 판매채널별 요약: sales_channel, revenue(합계), profit(합계), 비중 계산, 증감률
+
+  activity_based_costing: |
+    데이터베이스: ai_agent
+
+    테이블 목록:
+    1. activity_based_costing - 활동기준 원가 계산 데이터
+       - 주요 컬럼:
+         * activity_name (활동명, 예: PCB 조립, 설비 셋업, 품질 검사 등)
+         * cost_driver (원가 드라이버, 예: hours, setups, inspections, orders 등)
+         * cost_rate_per_unit (단위당 원가율, 숫자)
+         * activity_quantity (활동량, 숫자)
+         * total_activity_cost (총 활동 원가, 숫자, 원화 단위) 또는 fixed_cost + variable_cost
+         * fixed_cost (고정비, 숫자, 원화 단위)
+         * variable_cost (변동비, 숫자, 원화 단위)
+         * fixed_variable_ratio (고정/변동 비율, 예: "70:30", "80:20" 등)
+         * activity_type (활동 유형, 예: 생산, 품질 관리, 배송 등)
+         * department (부서/센터명, 예: 생산부서, 품질관리부서 등)
+         * potential_savings_cost (절감 가능 비용, 숫자, 원화 단위)
+         * non_essential_activity_cost (비필수 활동 원가, 숫자, 원화 단위)
+         * productivity_impact_level (생산성 영향 수준, 예: High, Medium, Low)
+         * cost_pool (원가 풀, 예: 제조간접비, 관리비 등)
+         * data_reference_date (데이터 참조일, DATE 형식 - 여기서 기간 추출 가능)
+
+    비고:
+    - 활동기준 원가 계산서는 activity_based_costing 테이블에서 데이터를 가져옴
+    - 사용자가 언급한 기간(예: 2024년 1분기)은 data_reference_date에서 추출하여 필터링
+    - 부서/센터는 department 컬럼으로 필터링
+    - 활동 유형은 activity_type 컬럼으로 필터링
+    - 테이블 구조:
+      * Activity(활동명): activity_name
+      * Overhead(예상 제조간접비): total_activity_cost 또는 (fixed_cost + variable_cost)
+      * Per Activity(총 활동량): activity_quantity + cost_driver (예: "60,000 hours")
+      * Overhead Rate per Activ(활동당 배부율): cost_rate_per_unit
+
+  hr_summary_report: |
+    데이터베이스: ai_agent
+
+    테이블 목록:
+    1. employee - 직원 인사 정보
+       - 주요 컬럼:
+         * employee_id (직원 ID, 기본키)
+         * korean_name (국문 이름) 또는 name_kr
+         * english_name (영문 이름) 또는 name_en
+         * status (직원 상태, 예: 재직, 휴직, 퇴직, 퇴사예정) 또는 employment_status
+         * position (직급, 예: 대리, 과장, 차장, 부장 등) 또는 rank
+         * contract_type (계약형태, 예: 정규, 비정규, 인턴, 계약직) 또는 employment_type
+         * department (부서명, 예: 개발팀, 영업팀, 인사팀 등)
+         * hire_date (입사일, DATE 형식)
+         * phone (전화번호)
+         * email (이메일)
+         * address (주소)
+
+    비고:
+    - 인사정보 요약 리포트는 employee 테이블에서 데이터를 가져옴
+    - 테이블 구조:
+      * 이름: korean_name (국문), english_name (영문)
+      * 직원별 상태: status (재직, 휴직, 퇴직, 퇴사예정)
+      * 직급: position (대리, 과장, 차장, 부장 등)
+      * 계약형태: contract_type (정규, 비정규, 인턴, 계약직)
+    - 통계 계산:
+      * 총 직원 수: 전체 행 수
+      * 재직 중: status = '재직'인 직원 수
+      * 정규직: contract_type = '정규'인 직원 수
+
 prompts:
   field_extraction: |
     당신은 문서 생성 시스템의 필드 값 추출 전문가입니다.
@@ -268,6 +389,51 @@ prompts:
             "테이블2": "조건2"
         }}
     }}
+
+  conclusion_generation: |
+    다음 월별 수익 분석 리포트 데이터를 분석하여 결론 및 제언을 작성해주세요.
+
+    === 문서 정보 ===
+    제목: {document_title}
+    요구사항: {requirements}
+
+    === 분석 데이터 요약 ===
+    {summary_text}
+    {db_summary}
+
+    === 작업 지시 ===
+    위의 데이터를 분석하여 다음 형식으로 결론 및 제언을 작성해주세요:
+    1. 주요 성과: 매출, 수익, 성장 등 긍정적인 내용
+    2. 개선사항: 부족한 부분, 개선이 필요한 영역
+    3. 향후 계획: 다음 달을 위한 제안사항
+
+    각 항목은 구체적이고 실용적인 내용으로 작성해주세요.
+
+    === 응답 형식 ===
+    반드시 JSON 형식으로만 응답하세요. 코드 블록(```json) 없이 JSON만 반환하세요.
+
+    {{
+        "conclusionTable": [
+            {{
+                "category": "주요 성과",
+                "content": "상세한 성과 내용 (2-3문장)"
+            }},
+            {{
+                "category": "개선사항",
+                "content": "상세한 개선사항 내용 (2-3문장)"
+            }},
+            {{
+                "category": "향후 계획",
+                "content": "상세한 향후 계획 내용 (2-3문장)"
+            }}
+        ]
+    }}
+
+    **중요:**
+    1. JSON 형식만 반환 (설명이나 다른 텍스트 없이)
+    2. conclusionTable은 최소 3개 항목 이상 포함
+    3. category는 "주요 성과", "개선사항", "향후 계획" 등으로 작성
+    4. content는 구체적이고 실용적인 내용으로 작성 (2-3문장)
 
 utils:
   business_trip_info_extraction: |
