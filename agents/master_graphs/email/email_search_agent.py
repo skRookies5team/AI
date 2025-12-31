@@ -1299,11 +1299,36 @@ def _imap_connect() -> imaplib.IMAP4_SSL:
 	m.select("INBOX")
 	return m
 
+
+def _imap_join_bytes_from_msg_data(msg_data: Any) -> bytes:
+	"""imaplib fetch/uid fetch의 msg_data에서 payload bytes를 안전하게 복원.
+
+	일부 서버/상황에서는 RFC822(또는 HEADER) payload가 여러 tuple로 쪼개져 올 수 있습니다.
+	이때 msg_data[0][1]만 사용하면 뒤 조각이 유실되어 긴 HTML 메일이 '중간에서 끊긴 것처럼' 보일 수 있어,
+	tuple[1] bytes들을 모두 이어붙여 반환합니다.
+	"""
+	if not msg_data:
+		return b""
+
+	chunks: list[bytes] = []
+	for item in msg_data:
+		# (b'..header..', b'...payload...') 형태
+		if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
+			if item[1]:
+				chunks.append(bytes(item[1]))
+	# msg_data에 tuple payload가 없다면(예외 케이스), 안전하게 빈 bytes 반환
+	return b"".join(chunks)
+
 def _imap_fetch_msg(m: imaplib.IMAP4_SSL, msg_id: bytes) -> email_pkg.message.Message:
 	st, msg_data = m.fetch(msg_id, "(RFC822)")
 	if st != "OK" or not msg_data or not msg_data[0]:
 		raise RuntimeError("메일을 가져오지 못했습니다.")
-	return email_pkg.message_from_bytes(msg_data[0][1])
+	raw = _imap_join_bytes_from_msg_data(msg_data)
+	if not raw:
+		raise RuntimeError("메일 payload(RFC822 bytes)를 가져오지 못했습니다.")
+	return email_pkg.message_from_bytes(raw)
+
+
 
 def _extract_summary_from_msg(idx: int, msg: email_pkg.message.Message) -> EmailSummary:
 	subject = _decode_mime_header(msg.get("Subject"))
@@ -1374,45 +1399,44 @@ async def sync_emails_to_redis(
 		for batch_start in range(0, len(mail_ids_bytes), batch_size):
 			batch_ids = mail_ids_bytes[batch_start:batch_start + batch_size]
 			
-			# UID 기반으로 헤더만 FETCH (BODY.PEEK[HEADER])
-			for msg_id_bytes in batch_ids:
-				try:
-					uid_str = msg_id_bytes.decode("utf-8") if isinstance(msg_id_bytes, (bytes, bytearray)) else str(msg_id_bytes)
-					status, msg_data = mail.uid("fetch", uid_str, "(BODY.PEEK[HEADER])")
-					if status != "OK" or not msg_data or not msg_data[0]:
-						continue
-					
-					# 헤더 파싱
-					header_data = msg_data[0][1]
-					if isinstance(header_data, bytes):
-						# 헤더만으로 메시지 객체 생성
-						msg = email_pkg.message_from_bytes(header_data)
-					else:
-						continue
-					
-					# 메타데이터 추출
-					subject = _decode_mime_header(msg.get("Subject", ""))
-					from_addr = _decode_mime_header(msg.get("From", ""))
-					date = _decode_header_value(msg.get("Date", ""))
-					
-					# 본문 요약은 헤더만으로는 불가능하므로 제목과 발신자만 사용
-					snippet = f"{subject[:200]}" if subject else ""
-					
-					# 이메일 ID는 UID 사용
-					email_id = uid_str
-					
-					all_emails.append({
-						"email_id": email_id,
-						"subject": subject or "(제목 없음)",
-						"from_addr": from_addr or "(발신자 없음)",
-						"date": date or "",
-						"snippet": snippet,
-						# msg_id_bytes에도 UID bytes 저장 (향후 UID FETCH에 사용)
-						"msg_id_bytes": msg_id_bytes
-					})
-				except Exception as e:
-					logger.debug(f"메일 헤더 파싱 중 오류 (ID: {msg_id_bytes}): {e}")
+		# UID 기반으로 헤더만 FETCH (BODY.PEEK[HEADER])
+		for msg_id_bytes in batch_ids:
+			try:
+				uid_str = msg_id_bytes.decode("utf-8") if isinstance(msg_id_bytes, (bytes, bytearray)) else str(msg_id_bytes)
+				status, msg_data = mail.uid("fetch", uid_str, "(BODY.PEEK[HEADER])")
+				if status != "OK" or not msg_data or not msg_data[0]:
 					continue
+
+				# 헤더 payload도 분할될 수 있으므로 join 처리
+				raw = _imap_join_bytes_from_msg_data(msg_data)
+				if not raw:
+					continue
+				# 헤더만으로 메시지 객체 생성
+				msg = email_pkg.message_from_bytes(raw)
+				
+				# 메타데이터 추출
+				subject = _decode_mime_header(msg.get("Subject", ""))
+				from_addr = _decode_mime_header(msg.get("From", ""))
+				date = _decode_header_value(msg.get("Date", ""))
+				
+				# 본문 요약은 헤더만으로는 불가능하므로 제목과 발신자만 사용
+				snippet = f"{subject[:200]}" if subject else ""
+				
+				# 이메일 ID는 UID 사용
+				email_id = uid_str
+				
+				all_emails.append({
+					"email_id": email_id,
+					"subject": subject or "(제목 없음)",
+					"from_addr": from_addr or "(발신자 없음)",
+					"date": date or "",
+					"snippet": snippet,
+					# msg_id_bytes에도 UID bytes 저장 (향후 UID FETCH에 사용)
+					"msg_id_bytes": msg_id_bytes
+				})
+			except Exception as e:
+				logger.debug(f"메일 헤더 파싱 중 오류 (ID: {msg_id_bytes}): {e}")
+				continue
 		
 		# Redis에 배치 저장
 		if all_emails:
@@ -1589,18 +1613,22 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 				"date": "",
 				"content": "",
 			}
-			try:
-				st2, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
-				if st2 == "OK" and msg_data and msg_data[0]:
-					msg = email_pkg.message_from_bytes(msg_data[0][1])
-					email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
-					email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
-					email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
-					text_body, html_body, _atts = _get_email_body_and_attachments(msg)
-					email_info["content"] = html_body or text_body or email_info["subject"]
-			except Exception as fetch_err:
-				logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
-				email_info["content"] = email_info["subject"]
+		try:
+			st2, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
+			
+			if st2 == "OK" and msg_data and msg_data[0]:
+				raw = _imap_join_bytes_from_msg_data(msg_data)
+				if not raw:
+					raise RuntimeError("RFC822 payload is empty")
+				msg = email_pkg.message_from_bytes(raw)
+				email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
+				email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
+				email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
+				text_body, html_body, _atts = _get_email_body_and_attachments(msg)
+				email_info["content"] = html_body or text_body or email_info["subject"]
+		except Exception as fetch_err:
+			logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
+			email_info["content"] = email_info["subject"]
 
 			email_data[str(idx)] = email_info
 
@@ -1785,6 +1813,7 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 	"""
 	# 세션별 이메일 저장 제거 - UID만 사용
 	while True:
+		mail = None
 		try:
 			# 콘솔 카운트다운 출력은 비활성화 (요청: "다음 체크" 문구 미출력)
 			await asyncio.sleep(check_interval)
@@ -1804,7 +1833,6 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 			user = _get_env("GMAIL_EMAIL")
 			pwd = _get_env("GMAIL_APP_PASSWORD")
 
-			mail = None
 			if user and pwd:
 				try:
 					mail = imaplib.IMAP4_SSL(host, port)
@@ -1814,45 +1842,42 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 					logger.error(f"[EMAIL CHECK][{session_id}] IMAP 연결 실패: {e}")
 					mail = None
 
-			try:
-				for idx, uid_str in enumerate(new_uids, 1):
-					email_info: Dict[str, str] = {
-						"subject": "(제목 없음)",
-						"from": "(발신자 없음)",
-						"date": "",
-						"content": "",
-					}
+			for idx, uid_str in enumerate(new_uids, 1):
+				email_info: Dict[str, str] = {
+					"subject": "(제목 없음)",
+					"from": "(발신자 없음)",
+					"date": "",
+					"content": "",
+				}
 
-					if mail:
-						try:
-							st, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
-							if st == "OK" and msg_data and msg_data[0]:
-								msg = email_pkg.message_from_bytes(msg_data[0][1])
-								email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
-								email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
-								email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
-								text_body, html_body, attachments = _get_email_body_and_attachments(msg)
-								if html_body:
-									email_info["content"] = html_body
-								elif text_body:
-									email_info["content"] = text_body
-								else:
-									email_info["content"] = email_info["subject"]
-							else:
-								email_info["content"] = email_info["subject"]
-						except Exception as fetch_err:
-							logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
-							email_info["content"] = email_info["subject"]
-					else:
-						email_info["content"] = email_info["subject"]
-
-					email_data[str(idx)] = email_info
-			finally:
 				if mail:
 					try:
-						mail.logout()
-					except Exception:
-						pass
+						st, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
+
+						if st == "OK" and msg_data and msg_data[0]:
+							raw = _imap_join_bytes_from_msg_data(msg_data)
+							if not raw:
+								raise RuntimeError("RFC822 payload is empty")
+							msg = email_pkg.message_from_bytes(raw)
+							email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
+							email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
+							email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
+							text_body, html_body, attachments = _get_email_body_and_attachments(msg)
+							if html_body:
+								email_info["content"] = html_body
+							elif text_body:
+								email_info["content"] = text_body
+							else:
+								email_info["content"] = email_info["subject"]
+						else:
+							email_info["content"] = email_info["subject"]
+					except Exception as fetch_err:
+						logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
+						email_info["content"] = email_info["subject"]
+				else:
+					email_info["content"] = email_info["subject"]
+
+				email_data[str(idx)] = email_info
 
 			# employee 단위 알림(영속+실시간): session_id -> employee_id 매핑 사용
 			emp_id = _EMAIL_CHECKER_ACTIVE_SESSIONS.get(session_id)
@@ -1860,8 +1885,8 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 				items = []
 				for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
 					it = email_data.get(k) or {}
-					idx = int(k) if str(k).isdigit() else None
-					uid = new_uids[idx - 1] if (idx and 0 <= idx - 1 < len(new_uids)) else None
+					_idx = int(k) if str(k).isdigit() else None
+					uid = new_uids[_idx - 1] if (_idx and 0 <= _idx - 1 < len(new_uids)) else None
 					items.append(
 						{
 							"index": str(k),
@@ -1900,6 +1925,12 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 			logger.error(f"[EMAIL CHECK][{session_id}] 백그라운드 오류: {e}")
 			# 콘솔 스팸 방지: 에러는 logger로만 남김
 			await asyncio.sleep(60)
+		finally:
+			if mail:
+				try:
+					mail.logout()
+				except Exception:
+					pass
 
 
 def start_email_checker_for_session(session_id: str, employee_id: int, check_interval: int = 30) -> None:
@@ -2169,8 +2200,12 @@ async def email_search(
 			info: Dict[str, str] = {"subject": "(제목 없음)", "from": "(발신자 없음)", "date": "", "content": ""}
 			try:
 				st2, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
+				
 				if st2 == "OK" and msg_data and msg_data[0]:
-					msg = email_pkg.message_from_bytes(msg_data[0][1])
+					raw = _imap_join_bytes_from_msg_data(msg_data)
+					if not raw:
+						raise RuntimeError("RFC822 payload is empty")
+					msg = email_pkg.message_from_bytes(raw)
 					info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
 					info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
 					info["date"] = _decode_header_value(msg.get("Date", "")) or ""

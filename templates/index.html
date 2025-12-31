@@ -2449,6 +2449,8 @@
             }
         }
 
+        // (reverted) email_new 본문 모달 표시 기능 제거
+
         async function loadNotificationHistory() {
             try {
                 const res = await authenticatedFetch('/api/notifications?limit=50');

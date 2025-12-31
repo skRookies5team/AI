@@ -627,22 +627,12 @@ async def _generate_draft(
 			employee_id=employee_id,
 		)
 		
-		# HTML 본문을 텍스트로 변환하여 미리보기 생성
-		text_body = re.sub(r'<[^>]+>', '', body)
-		text_body = text_body.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-		body_preview = text_body[:500] + "..." if len(text_body) > 500 else text_body
-		
 		# 승인 상태가 이미 설정되어 있으면 그대로 유지, 아니면 "pending"으로 설정
 		final_approval_status = approval_status if approval_status in ["approved", "rejected"] else "pending"
 		
-		message = f"""이메일 초안이 생성되었습니다. 아래 초안 카드에서 전송/수정/취소를 진행해주세요.
-
-📧 **제목:** {subject}
-📮 **수신자:** {to_email}
-
-📝 **본문 미리보기:**
-{body_preview}
-"""
+		# NOTE: 프론트에서 email_draft 카드(UI)로 제목/수신자/본문을 보여주므로,
+		# 서버 message에는 레거시 "본문 미리보기" 등을 포함하지 않습니다.
+		message = "이메일 초안이 생성되었습니다. 아래 초안 카드에서 전송/수정/취소를 진행해주세요."
 		
 		return {
 			"email_draft_subject": subject,
@@ -692,19 +682,9 @@ async def _revise_draft(
 			employee_id=employee_id,
 		)
 		
-		# HTML 본문을 텍스트로 변환하여 미리보기 생성
-		text_body = re.sub(r'<[^>]+>', '', body)
-		text_body = text_body.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-		body_preview = text_body[:500] + "..." if len(text_body) > 500 else text_body
-		
-		message = f"""피드백을 반영하여 이메일 초안을 수정했습니다. 아래 초안 카드에서 전송/수정/취소를 진행해주세요.
-
-📧 **제목:** {subject}
-📮 **수신자:** {to_email}
-
-📝 **본문 미리보기:**
-{body_preview}
-"""
+		# NOTE: 프론트에서 email_draft 카드(UI)로 제목/수신자/본문을 보여주므로,
+		# 서버 message에는 레거시 "본문 미리보기" 등을 포함하지 않습니다.
+		message = "피드백을 반영하여 이메일 초안을 수정했습니다. 아래 초안 카드에서 전송/수정/취소를 진행해주세요."
 		
 		return {
 			"email_draft_subject": subject,

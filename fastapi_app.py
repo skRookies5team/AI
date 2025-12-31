@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Optional, List
 
@@ -22,6 +23,16 @@ import threading
 from datetime import datetime, timedelta
 import time
 from typing import Dict, Tuple
+
+# Windows PowerShell/cmd 기본 인코딩(cp949 등)에서 이모지/유니코드 print가
+# UnicodeEncodeError를 일으켜 앱이 부팅 실패하는 것을 방지합니다.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 from google_auth_oauthlib.flow import Flow
 
@@ -1393,6 +1404,7 @@ async def email_reply_endpoint(
         _decode_mime_header,
         _decode_header_value,
         _get_email_body_and_attachments,
+        _imap_join_bytes_from_msg_data,
     )
     from agents.master_graphs.email.email_compose_agent import (
         generate_email_draft,
@@ -1409,7 +1421,10 @@ async def email_reply_endpoint(
         if st2 != "OK" or not msg_data or not msg_data[0]:
             raise HTTPException(status_code=404, detail=f"메일을 가져오지 못했습니다. (uid={uid})")
 
-        msg = email_pkg.message_from_bytes(msg_data[0][1])
+        raw = _imap_join_bytes_from_msg_data(msg_data)
+        if not raw:
+            raise HTTPException(status_code=404, detail=f"메일을 가져오지 못했습니다. (uid={uid})")
+        msg = email_pkg.message_from_bytes(raw)
         original_subject = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
         original_from = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
         original_date = _decode_header_value(msg.get("Date", "")) or ""

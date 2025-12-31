@@ -39,6 +39,12 @@ def optimize_email_search_context(context: Optional[Dict[str, Any]]) -> Optional
     """이메일 검색 컨텍스트를 최적화합니다.
     
     성능 최적화: 필요한 경우에만 복사하고 최적화.
+
+    NOTE:
+    - email_search_context의 items[*].content/body/text는 프론트에서 원문 표시/후속 처리에
+      사용될 수 있어, 길이 제한으로 잘라내면 기능 품질이 떨어질 수 있습니다.
+    - 따라서 email_search_context에서는 텍스트 길이 제한(기존 400자)을 적용하지 않고,
+      리스트 개수 제한(items/ids)만 적용합니다.
     
     Args:
         context: 이메일 검색 컨텍스트
@@ -52,21 +58,10 @@ def optimize_email_search_context(context: Optional[Dict[str, Any]]) -> Optional
     # 변경이 필요한지 먼저 확인 (불필요한 복사 방지)
     needs_optimization = False
     
-    # items 리스트 크기 확인
+    # items 리스트 크기 확인 (개수 제한만)
     if "items" in context and isinstance(context["items"], list):
         if len(context["items"]) > MAX_CONTEXT_ITEMS:
             needs_optimization = True
-        else:
-            # 각 아이템의 큰 필드 확인
-            for item in context["items"]:
-                if isinstance(item, dict):
-                    for key in ["content", "body", "text"]:
-                        if key in item and isinstance(item[key], str):
-                            if len(item[key]) > MAX_CONTEXT_TEXT_LENGTH:
-                                needs_optimization = True
-                                break
-                    if needs_optimization:
-                        break
     
     # ids 리스트 크기 확인
     if "ids" in context and isinstance(context["ids"], list):
@@ -86,15 +81,6 @@ def optimize_email_search_context(context: Optional[Dict[str, Any]]) -> Optional
             optimized["items"] = context["items"][:MAX_CONTEXT_ITEMS]
         else:
             optimized["items"] = context["items"].copy()
-        
-        # 각 아이템의 내용도 제한
-        for item in optimized["items"]:
-            if isinstance(item, dict):
-                # content나 body 같은 큰 필드 제한
-                for key in ["content", "body", "text"]:
-                    if key in item and isinstance(item[key], str):
-                        if len(item[key]) > MAX_CONTEXT_TEXT_LENGTH:
-                            item[key] = item[key][:MAX_CONTEXT_TEXT_LENGTH] + "..."
     else:
         if "items" in context:
             optimized["items"] = context["items"]
