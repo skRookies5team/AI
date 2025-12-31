@@ -636,8 +636,8 @@ class EmailMasterGraph(BaseMasterGraph):
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
         
-        # 워크플로우 모드이고 business_trip 워크플로우인 경우
-        if workflow_in_progress and workflow_type == "business_trip":
+        # 워크플로우 모드인 경우 (business_trip 또는 recruitment)
+        if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
             # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
             email_compose_context = state.get("email_compose_context") or {}
             stored_draft_subject = email_compose_context.get("email_draft_subject")
@@ -769,7 +769,7 @@ class EmailMasterGraph(BaseMasterGraph):
             
             # 초안이 이미 있고 명령이 없으면 초안 표시
             if stored_draft_subject and stored_draft_body and stored_to_email:
-                message = f"📧 **팀원 알림 이메일 초안**\n\n"
+                message = f"📧 **이메일 초안**\n\n"
                 message += f"**제목:** {stored_draft_subject}\n\n"
                 message += f"**수신자:** {stored_to_email}\n\n"
                 message += f"**본문:**\n{stored_draft_body}\n\n"
@@ -783,7 +783,7 @@ class EmailMasterGraph(BaseMasterGraph):
                     "requires_input": True,
                 }
             
-            # ✅ 초안 생성 (팀원들에게 출장 알림) - workflow_email_composer 사용
+            # ✅ 초안 생성 - workflow_email_composer 사용
             employee_id = state.get("employee_id")
             
             # user_dept 조회 (없으면 자동 조회)
@@ -820,13 +820,20 @@ class EmailMasterGraph(BaseMasterGraph):
                 }
             
             to_email = draft_result.get("to_email", "")
-            absence_subject = draft_result.get("subject", "")
-            absence_body = draft_result.get("body", "")
+            draft_subject = draft_result.get("subject", "")
+            draft_body = draft_result.get("body", "")
             
             # 현재 단계 번호 계산
             current_step_index = state.get("current_workflow_step_index", 0)
             current_step_number = current_step_index + 1
-            step_complete_msg = f"✅ [Step {current_step_number} 완료] 팀원 알림 이메일 초안이 생성되었습니다.\n\n"
+            
+            # 워크플로우별 메시지 최적화
+            if workflow_type == "recruitment":
+                step_complete_msg = f"✅ [Step {current_step_number} 완료] 면접 안내 이메일 초안이 생성되었습니다.\n\n"
+                title_msg = "📧 **면접 안내 이메일 초안**"
+            else:
+                step_complete_msg = f"✅ [Step {current_step_number} 완료] 팀원 알림 이메일 초안이 생성되었습니다.\n\n"
+                title_msg = "📧 **팀원 알림 이메일 초안**"
             
             # 초안 컨펌 요청
             buttons_html = """
@@ -839,16 +846,16 @@ class EmailMasterGraph(BaseMasterGraph):
     </button>
 </div>
 """
-            message = f"📧 **팀원 알림 이메일 초안**\n\n"
-            message += f"**제목:** {absence_subject}\n\n"
+            message = f"{title_msg}\n\n"
+            message += f"**제목:** {draft_subject}\n\n"
             message += f"**수신자:** {to_email}\n\n"
-            message += f"**본문:**\n{absence_body}\n\n"
+            message += f"**본문:**\n{draft_body}\n\n"
             message += "이 초안을 사용하시겠습니까?" + buttons_html
             message = step_complete_msg + message
             
             # email_compose_context에 초안 저장
-            email_compose_context["email_draft_subject"] = absence_subject
-            email_compose_context["email_draft_body"] = absence_body
+            email_compose_context["email_draft_subject"] = draft_subject
+            email_compose_context["email_draft_body"] = draft_body
             email_compose_context["to_email"] = to_email  # 수신자 정보도 저장
             email_compose_context["approval_status"] = "pending"
             

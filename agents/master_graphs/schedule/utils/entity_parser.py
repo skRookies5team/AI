@@ -137,8 +137,8 @@ async def extract_interviewer_entities(query: str) -> Dict[str, Any]:
         각 면접관에 대해 이름(name), 부서(dept), 직급(position)을 추출해야 합니다.
         정보가 명시되지 않은 필드는 null로 설정하세요.
         
-        응답 형식:
-        {"interviewers": [{"name": "이름", "dept": "부서", "position": "직급"}, ...]}
+        결과는 반드시 아래와 같은 키를 가진 JSON 객체여야 합니다:
+        - interviewers: 면접관 정보 리스트 (객체 필드: name, dept, position)
         """
         
         prompt = ChatPromptTemplate.from_messages([

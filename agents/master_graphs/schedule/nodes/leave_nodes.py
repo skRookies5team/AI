@@ -138,6 +138,9 @@ async def process_leave_request(state: OrchestratorState) -> Dict[str, Any]:
             initial_prompt = _build_initial_application_prompt(initial_missing)
             slot_state_ctx.setdefault("intent", parsed.action)
             slot_state_ctx.setdefault("slots", {})
+            # leave_type을 slots에 저장 (반차 정보 유지)
+            if parsed.leave_type:
+                slot_state_ctx["slots"]["leave_type"] = parsed.leave_type
             slot_state_ctx["missing_slots"] = initial_missing
             leave_context["slot_state"] = slot_state_ctx
             leave_context["awaiting_slots"] = initial_missing
@@ -422,7 +425,8 @@ async def _parse_leave_intent(
         if start_date_obj:
             start_date_str = start_date_obj.strftime("%Y-%m-%d")
             # 반차가 아닌 경우 end_date가 없으면 None으로 설정 (missing에 추가되도록)
-            leave_type = entities.get("leave_type") or existing_slots.get("leave_type", "연차")
+            # existing_slots를 우선 확인하여 이전 컨텍스트의 leave_type 유지
+            leave_type = existing_slots.get("leave_type") or entities.get("leave_type") or "연차"
             if leave_type == "반차":
                 # 반차는 end_date를 start_date와 같게 설정
                 end_date_str = start_date_str
@@ -443,13 +447,21 @@ async def _parse_leave_intent(
     if awaiting_slots and ("cancel_selection" in awaiting_slots or "update_selection" in awaiting_slots):
         selection_index = _extract_selection_index(query)
     
+    # 5. 최종 leave_type 결정 (existing_slots 우선)
+    final_leave_type = existing_slots.get("leave_type") or entities.get("leave_type") or "연차"
+    
+    # 6. total_days 최종 결정 (반차는 무조건 0.5)
+    final_total_days = total_days or entities.get("total_days")
+    if final_leave_type == "반차":
+        final_total_days = 0.5
+    
     return ParsedLeaveIntent(
         action=action,
-        leave_type=entities.get("leave_type", existing_slots.get("leave_type", "연차")),
+        leave_type=final_leave_type,
         employee_id=employee_id,
         start_date=start_date_str,
         end_date=end_date_str,
-        total_days=total_days or entities.get("total_days"),
+        total_days=final_total_days,
         reason=entities.get("reason") or existing_slots.get("reason", "개인 사정"),
         request_id=selection_index,
     )
@@ -874,27 +886,52 @@ async def _handle_cancel(
         
         return {"ok": False, "message": "올바른 번호를 선택해주세요."}
     
-    # 후보 목록 조회 (대기 + 승인된 연차 모두 조회)
+    # 후보 목록 조회 (대기 + 승인된 연차만 조회, 미래 날짜만)
     try:
-        # 대기 중인 연차 조회 (과거 날짜 포함)
+        from datetime import date
+        
+        # 대기 중인 연차 조회 (미래 날짜만)
         pending_leaves = await scheduler.db.get_leave_list(
             employee_id=parsed.employee_id,
             status='대기',
-            include_past=True  # ✅ 취소는 과거 날짜도 포함
+            include_past=False  # ✅ 미래 날짜만 조회
         )
         
-        # 승인된 연차도 조회 (취소 가능, 과거 날짜 포함)
+        # 승인된 연차도 조회 (취소 가능, 미래 날짜만)
         approved_leaves = await scheduler.db.get_leave_list(
             employee_id=parsed.employee_id,
             status='승인',
-            include_past=True  # ✅ 취소는 과거 날짜도 포함
+            include_past=False  # ✅ 미래 날짜만 조회
         )
         
         # 두 목록 합치기
         all_leaves = pending_leaves + approved_leaves
         
+        # leave_type 필터링 (연차 취소해줘 → 연차만, 반차 취소해줘 → 반차만)
+        if parsed.leave_type in ["연차", "반차"]:
+            all_leaves = [leave for leave in all_leaves if leave.get('leave_type') == parsed.leave_type]
+        
+        # 추가로 오늘 이후 날짜만 필터링 (안전장치)
+        today = date.today()
+        filtered_leaves = []
+        for leave in all_leaves:
+            start_date = leave.get('start_date')
+            if not start_date:
+                continue
+            # 문자열인 경우 date 객체로 변환
+            if isinstance(start_date, str):
+                try:
+                    start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                except (ValueError, TypeError):
+                    continue
+            # date 객체인 경우 직접 비교
+            if isinstance(start_date, date) and start_date >= today:
+                filtered_leaves.append(leave)
+        all_leaves = filtered_leaves
+        
         if not all_leaves:
-            return {"ok": False, "message": "취소 가능한 연차 신청이 없습니다."}
+            leave_type_text = parsed.leave_type if parsed.leave_type in ["연차", "반차"] else "연차/반차"
+            return {"ok": False, "message": f"취소 가능한 {leave_type_text} 신청이 없습니다."}
         
         # 최근 순으로 정렬 (request_date 기준)
         all_leaves.sort(key=lambda x: x.get('request_date', ''), reverse=True)
@@ -902,14 +939,16 @@ async def _handle_cancel(
         context["cancel_candidates"] = all_leaves[:10]
         context["awaiting_slots"] = ["cancel_selection"]
         
-        message = "📋 취소 가능한 연차 신청 목록:\n\n"
+        # leave_type에 따라 메시지 변경
+        leave_type_text = parsed.leave_type if parsed.leave_type in ["연차", "반차"] else "연차/반차"
+        message = f"📋 취소 가능한 {leave_type_text} 신청 목록:\n\n"
         for idx, item in enumerate(all_leaves[:10], 1):
             status_text = "대기" if item.get('status') == '대기' else "승인"
             message += f"{idx}. {item.get('leave_type')} {item.get('total_days')}일 ({status_text})\n"
             message += f"   기간: {item.get('start_date')} ~ {item.get('end_date')}\n"
             message += f"   사유: {item.get('reason', '-')}\n\n"
         
-        message += "\n취소할 연차 번호를 입력해주세요. (예: 1)"
+        message += f"\n취소할 {leave_type_text} 번호를 입력해주세요. (예: 1)"
         
         return {"ok": False, "message": message}
     

@@ -95,8 +95,8 @@ def process_domain_node_result(
     workflow_in_progress = state.get("workflow_in_progress", False)
     workflow_type = state.get("workflow_type")
     current_step_index = state.get("current_workflow_step_index", 0)
-    workflow_steps = state.get("workflow_steps", [])
-    workflow_temp_data_state = state.get("workflow_temp_data", {})
+    workflow_steps = state.get("workflow_steps") or [] # ✅ None 방지
+    workflow_temp_data_state = state.get("workflow_temp_data") or {} # ✅ None 방지
     
     requires_input = result.get("requires_input", False)
     
@@ -113,30 +113,56 @@ def process_domain_node_result(
                 result["requires_input"] = True
                 print(f"✅ Recruitment 휴먼인더루프 진행 중: collection_step={collection_step}")
 
-    # 🔥 [효율적 개선] 워크플로우 상태 자동 보존 로직
-    # 워크플로우가 이미 진행 중이고, 도메인에서 HITL(사용자 입력 대기) 상태인 경우
-    # 도메인 마스터에서 명시적으로 False를 주었더라도 워크플로우 컨텍스트를 강제로 보존합니다.
-    if workflow_in_progress and requires_input:
-        # 단, 사용자가 명시적으로 취소/종료를 요청한 경우는 제외 (이미 마스터에서 False로 왔을 것)
-        # result에 workflow_in_progress가 명시적으로 False이고, 취소 메시지가 포함된 경우는 패스
-        is_explicit_cancel = result.get("workflow_in_progress") is False and any(k in str(result.get("final_response", "")).lower() for k in ["취소", "종료", "cancel", "stop"])
+    # 🔥 [워크플로우 상태 보존 강화]
+    # 결과에 workflow_temp_data가 없거나 비어있더라도, 기존 state에 데이터가 있다면 강제로 유지
+    if workflow_in_progress:
+        old_temp_data = state.get("workflow_temp_data", {}) or {}
+        new_temp_data = result.get("workflow_temp_data", {}) or {}
         
-        if not is_explicit_cancel:
-            print(f"🔄 [워크플로우 상태 보존] {domain_name} HITL 감지 - 워크플로우 상태 강제 유지")
-            result["workflow_in_progress"] = True
-            result["workflow_type"] = workflow_type
-            result["workflow_steps"] = workflow_steps
-            result["current_workflow_step_index"] = current_step_index
+        # 만약 결과(new_temp_data)에 특정 필드가 없는데 기존(old_temp_data)에 있다면 병합
+        # 단, result에서 명시적으로 {}를 반환한 경우는 초기화 의도로 간주 (취소 시)
+        if old_temp_data and not result.get("workflow_in_progress") is False:
+            merged_data = {**old_temp_data}
+            for k, v in new_temp_data.items():
+                if k in merged_data and isinstance(merged_data[k], dict) and isinstance(v, dict):
+                    merged_data[k] = {**merged_data[k], **v}
+                else:
+                    merged_data[k] = v
             
-            # workflow_temp_data 병합 및 유지
-            if "workflow_temp_data" in result:
-                merged_data = {**workflow_temp_data_state, **(result.get("workflow_temp_data", {}))}
-                result["workflow_temp_data"] = merged_data
-            else:
-                result["workflow_temp_data"] = workflow_temp_data_state
+            result["workflow_temp_data"] = merged_data
+            
+            # 디버깅: 어떤 데이터가 보존되었는지 출력
+            preserved_keys = [k for k in old_temp_data if k not in new_temp_data]
+            if preserved_keys:
+                print(f"🛡️ [워크플로우 데이터 보존] 다음 필드들이 보존되었습니다: {preserved_keys}")
 
     # 업데이트된 workflow_in_progress 값 사용
     workflow_in_progress = result.get("workflow_in_progress", workflow_in_progress)
+    
+    # 🔥 [중요] 워크플로우 관련 필수 정보(type, steps)가 result에 없으면 state에서 복구하여 유실 방지
+    if workflow_in_progress:
+        if "workflow_type" not in result or result.get("workflow_type") is None:
+            result["workflow_type"] = workflow_type or state.get("workflow_type")
+        if "workflow_steps" not in result or result.get("workflow_steps") is None:
+            result["workflow_steps"] = workflow_steps or state.get("workflow_steps")
+        if "current_workflow_step_index" not in result:
+            result["current_workflow_step_index"] = current_step_index or state.get("current_workflow_step_index", 0)
+
+    # 3. UI 플래그 초기화 및 설정 (결과에 없으면 False로 설정하여 이전 플래그 제거)
+    ui_flags = [
+        "requires_date_range_input",
+        "requires_interviewer_selection",
+        "requires_slot_selection",
+        "requires_duration_selection",
+        "show_document_update_ui"
+    ]
+    for flag in ui_flags:
+        if flag not in result:
+            result[flag] = False
+    
+    # 설정 데이터 초기화
+    if "interviewer_selection_config" not in result:
+        result["interviewer_selection_config"] = None
     
     if workflow_in_progress:
         # 워크플로우 진행 중일 때는 last_domain을 워크플로우 단계 정보로 설정
@@ -144,15 +170,24 @@ def process_domain_node_result(
         workflow_type = result.get("workflow_type", workflow_type)
         current_step_index = result.get("current_workflow_step_index", current_step_index)
         
-        # 워크플로우 타입을 영어로 변환 (사용자 요청 형식에 맞춤)
-        workflow_type_en = {
+        # 워크플로우 타입을 영어로 변환 (안전한 방식)
+        workflow_names = {
             "business_trip": "Apply for a business trip",
             "recruitment": "Recruitment process",
             "meeting_preparation": "Meeting preparation"
-        }.get(workflow_type, workflow_type.replace("_", " ").title())
+        }
+        
+        # workflow_type이 None인 경우 대비 방어 로직
+        if workflow_type and workflow_type in workflow_names:
+            workflow_type_en = workflow_names[workflow_type]
+        elif workflow_type:
+            workflow_type_en = str(workflow_type).replace("_", " ").title()
+        else:
+            workflow_type_en = "Workflow"
         
         # last_domain을 워크플로우 단계 정보로 설정 (예: "Apply for a business trip step1")
-        result["last_domain"] = f"{workflow_type_en} step{current_step_index + 1}"
+        display_step = (current_step_index or 0) + 1
+        result["last_domain"] = f"{workflow_type_en} step{display_step}"
         print(f"✅ 워크플로우 last_domain 설정: {result['last_domain']}")
     else:
         # 워크플로우가 아닐 때는 기본 도메인 사용
@@ -183,17 +218,26 @@ def process_domain_node_result(
         print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - result workflow_temp_data: {result.get('workflow_temp_data', {})}")
         
         # workflow_temp_data 유지 (result에 있으면 유지, 없으면 state에서 가져오기)
-        # result의 workflow_temp_data를 우선하되, state의 값도 병합하여 누락 방지
+        # result의 workflow_temp_data를 우선하되, state의 값도 병합하여 누락 방지 (시나리오 1 스타일)
         if "workflow_temp_data" in result:
             # result에 있으면 state의 값과 병합 (result 우선)
-            if "workflow_temp_data" in state:
-                merged_temp_data = {**(state.get("workflow_temp_data", {})), **(result.get("workflow_temp_data", {}))}
-                result["workflow_temp_data"] = merged_temp_data
-                print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - 병합된 workflow_temp_data: {merged_temp_data}")
+            old_data = state.get("workflow_temp_data", {}) or {}
+            new_data = result.get("workflow_temp_data", {}) or {}
+            
+            # 중첩된 구조(search_parameters 등)를 위해 주요 딕셔너리들은 병합 처리
+            merged_data = {**old_data}
+            for k, v in new_data.items():
+                if k in merged_data and isinstance(merged_data[k], dict) and isinstance(v, dict):
+                    merged_data[k] = {**merged_data[k], **v}
+                else:
+                    merged_data[k] = v
+            
+            result["workflow_temp_data"] = merged_data
+            print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - 병합된 workflow_temp_data: {list(merged_data.keys())}")
         else:
             # result에 없으면 state에서 가져오기
             result["workflow_temp_data"] = state.get("workflow_temp_data", {})
-            print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - state에서 가져온 workflow_temp_data: {result['workflow_temp_data']}")
+            print(f"🔍 [domain_node_handler] Step {current_step_index + 1} - state에서 가져온 workflow_temp_data: {list(result['workflow_temp_data'].keys()) if result['workflow_temp_data'] else '비어있음'}")
         
         # 사용자 입력이 필요한 경우 (HITL) - 다음 단계로 진행하지 않음
         if requires_input:

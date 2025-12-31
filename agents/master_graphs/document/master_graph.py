@@ -14,6 +14,7 @@ from agents.state import OrchestratorState
 from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
 from agents.master_graphs.document.generate.doc_generate_agent import doc_generate
+from agents.master_graphs.document.generate.recruitment_doc_service import RecruitmentDocService
 
 # LLM 관련 optional import
 try:
@@ -229,7 +230,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                 "document_context": {},    # 문서 컨텍스트 초기화
                 "requires_input": False
             }
-
+        
         # 워크플로우 모드 확인
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
@@ -311,11 +312,60 @@ class DocumentMasterGraph(BaseMasterGraph):
             document_title = title
             
         elif workflow_in_progress and workflow_type == "recruitment" and current_step_index == 3:
-            # recruitment 워크플로우: 면접 평가표 생성
-            template_name = "interview_evaluation_form"
-            document_title = "면접 평가표"
-            requirements = "선택된 후보자와 면접 일정을 바탕으로 면접 평가표를 작성해주세요."
-            print(f"✅ [워크플로우 모드] 면접 평가표 작성 단계 진입")
+            # recruitment 워크플로우: 면접 평가표 생성 (전용 서비스 사용)
+            print(f"🚀 [워크플로우 모드] 면접 평가표 전용 서비스 호출")
+            try:
+                final_html = await RecruitmentDocService.generate_interview_evaluation(state)
+                
+                # 대화 히스토리 업데이트
+                from agents.state import Message
+                from datetime import datetime as dt_now
+                
+                # 완성 메시지 구성
+                from agents.orchestrator_v3 import load_workflows_config
+                workflows = load_workflows_config()
+                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                completion_message = workflow_config.get("completion_message", "채용 워크플로우가 모두 완료되었습니다.")
+                
+                completion_text = f"**[워크플로우 완료]**\n{completion_message}\n\n✅ **채용 프로세스 모든 단계가 완료되었습니다.** 임시 데이터가 초기화됩니다."
+                
+                # HTML과 텍스트 사이에 구분자 삽입
+                response_content = final_html + "<!-- WORKFLOW_COMPLETION_SEPARATOR -->" + completion_text
+                
+                assistant_message: Message = {
+                    "role": "assistant",
+                    "content": response_content,
+                    "timestamp": dt_now.now().isoformat()
+                }
+                conversation_history = state.get("conversation_history", [])
+                conversation_history.append(assistant_message)
+                
+                return {
+                    "final_response": response_content,
+                    "document_content": final_html,
+                    "messages": ["면접 평가표가 생성되었습니다."],
+                    "workflow_in_progress": False,  # 워크플로우 종료
+                    "workflow_type": None,
+                    "workflow_steps": None,
+                    "current_workflow_step_index": None,
+                    "workflow_temp_data": {}, # 초기화
+                    "document_context": {
+                        "last_generated_html": final_html,
+                        "last_template_type": "interview_evaluation_form"
+                    },
+                    "conversation_history": conversation_history,
+                    "requires_input": False,
+                    "show_document_update_ui": False
+                }
+            except Exception as e:
+                print(f"❌ [RecruitmentDocService] 생성 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "final_response": f"❌ 면접 평가표 생성 중 오류가 발생했습니다: {str(e)}",
+                    "messages": ["면접 평가표 생성 실패"],
+                    "requires_input": True
+                }
         else:
             # 일반 모드
             if orchestrator_state.get("document_context") is None:
@@ -483,8 +533,8 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 단, 워크플로우 모드에서는 예시문을 출력하지 않음
         if not document_title and not requirements:
             # 워크플로우 모드에서는 템플릿 예시를 출력하지 않음
-            if workflow_in_progress and workflow_type == "business_trip":
-                print("📋 워크플로우 모드: 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
+            if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
+                print(f"📋 워크플로우 모드({workflow_type}): 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
                 # 워크플로우 모드에서는 여기 도달하지 않아야 함 (위에서 이미 처리됨)
                 # 하지만 안전을 위해 그냥 진행
             else:
@@ -520,7 +570,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             orchestrator_state["document_context"] = {}
         
         # ⚠️ 중요: workflow_temp_data를 orchestrator_state에 저장 (extractor_func에서 사용하기 위해)
-        if workflow_in_progress and workflow_type == "business_trip":
+        if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
             orchestrator_state["workflow_temp_data"] = workflow_temp_data
             print(f"✅ [워크플로우 모드] orchestrator_state에 workflow_temp_data 저장: {list(workflow_temp_data.keys())}")
             print(f"🔍 [워크플로우 모드] workflow_temp_data 상세:")
@@ -579,26 +629,6 @@ class DocumentMasterGraph(BaseMasterGraph):
         if result.get("ok") and document_content:
             final_response = document_content
             
-            # recruitment 워크플로우 완료 처리
-            if workflow_in_progress and workflow_type == "recruitment":
-                from agents.orchestrator_v3 import load_workflows_config
-                workflows = load_workflows_config()
-                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
-                completion_message = workflow_config.get("completion_message", "채용 워크플로우가 모두 완료되었습니다.")
-                
-                final_response = document_content + f"\n\n**[워크플로우 완료]**\n{completion_message}"
-                
-                return {
-                    "final_response": final_response,
-                    "messages": ["채용 워크플로우 완료"],
-                    "workflow_in_progress": False,
-                    "workflow_type": None,
-                    "workflow_steps": None,
-                    "current_workflow_step_index": None,
-                    "workflow_temp_data": {}, # 초기화
-                    "document_context": orchestrator_state["document_context"],
-                }
-
             # 출장/휴가 신청서인 경우 워크플로우 모드와 일반 요청 모드 모두 결재 진행 여부 확인
             is_approval_required = template_name in ["business_trip_request_form", "vacation_request_form"]
             
@@ -666,13 +696,6 @@ class DocumentMasterGraph(BaseMasterGraph):
             # 워크플로우 모드인 경우 workflow_temp_data도 포함
             if workflow_in_progress and workflow_type == "business_trip":
                 return_result["workflow_temp_data"] = workflow_temp_data
-        
-        # 🔥 추가: recruitment 워크플로우 완료 처리
-        if workflow_in_progress and workflow_type == "recruitment" and current_step_index == 3:
-            print(f"✅ [워크플로우 종료] 채용 프로세스 자동화 워크플로우가 완료되었습니다.")
-            return_result["workflow_in_progress"] = False  # 워크플로우 종료
-            return_result["workflow_temp_data"] = {}       # 임시 데이터 초기화
-            return_result["final_response"] = final_response + "\n\n✅ **채용 프로세스 모든 단계가 완료되었습니다.** 임시 데이터가 초기화됩니다."
         
         return return_result
     
@@ -971,12 +994,6 @@ class DocumentMasterGraph(BaseMasterGraph):
                 # 추가 템플릿별 매핑 규칙...
             }
             
-            if template_name == "interview_evaluation_form":
-                from field_extractors.interview_evaluation import extract_interview_evaluation_data
-                db_data = await extract_interview_evaluation_data(state)
-                print(f"✅ 면접 평가표 데이터 추출 완료: {db_data.get('candidate_name')}")
-                return db_data
-
             if template_name and template_name in data_mapping_rules:
                 rules = data_mapping_rules[template_name]
                 print(f"  → 테이블: {rules.get('tables', [])}")

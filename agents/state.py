@@ -39,6 +39,13 @@ class OrchestratorState(TypedDict):
     next_domain: Optional[str]  # 워크플로우의 다음 단계 도메인
     requires_input: Optional[bool]  # 사용자 입력 대기 여부 (Human-in-the-loop)
     
+    # UI Flags (Frontend Interaction)
+    requires_date_range_input: Optional[bool]  # 날짜 범위 입력 UI 필요 여부
+    requires_interviewer_selection: Optional[bool]  # 면접관 선택 UI 필요 여부
+    interviewer_selection_config: Optional[Dict[str, Any]]  # 면접관 선택 UI 설정
+    requires_slot_selection: Optional[bool]  # 슬롯 선택 UI 필요 여부
+    requires_duration_selection: Optional[bool]  # 시간 선택 UI 필요 여부
+    
     # Extracted Data (Entities)
     employee_id: Optional[int]
     employee_name: Optional[str]

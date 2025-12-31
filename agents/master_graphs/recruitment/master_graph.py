@@ -924,10 +924,12 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 
                 recruitment_context["search_parameters"] = search_params
                 
-                # 🔥 워크플로우 임시 데이터 실시간 업데이트
+                # 🔥 워크플로우 임시 데이터 실시간 업데이트 (시나리오 1 스타일)
                 workflow_temp_data = state.get("workflow_temp_data", {}) or {}
                 if state.get("workflow_in_progress"):
-                    workflow_temp_data["position"] = normalized_position
+                    if "search_parameters" not in workflow_temp_data:
+                        workflow_temp_data["search_parameters"] = {}
+                    workflow_temp_data["search_parameters"]["position"] = normalized_position
                 
                 return {
                     "recruitment_context": recruitment_context,
@@ -1071,10 +1073,12 @@ class RecruitmentMasterGraph(BaseMasterGraph):
             
             exp_str = " ".join(exp_info) if exp_info else "경력 정보"
             
-            # 🔥 워크플로우 임시 데이터 실시간 업데이트
+            # 🔥 워크플로우 임시 데이터 실시간 업데이트 (시나리오 1 스타일)
             workflow_temp_data = state.get("workflow_temp_data", {}) or {}
             if state.get("workflow_in_progress"):
-                workflow_temp_data["experience"] = exp_str
+                if "search_parameters" not in workflow_temp_data:
+                    workflow_temp_data["search_parameters"] = {}
+                workflow_temp_data["search_parameters"]["experience"] = exp_str
             
             # 자연스러운 AI 답변 형식
             response = f"네, {exp_str} 확인했습니다.\n\n**현재까지 수집된 정보:**\n- 포지션: {position_info}\n- 경력: {exp_str}\n\n마지막으로, 이 포지션에 필요한 기술 스택이 있다면 알려주세요. 없으시면 '없어' 또는 '필요없어'라고 답변해주시면 됩니다. (예: React, Node.js, Python, Java 등)"
@@ -1192,10 +1196,12 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         else:
             tech_stack_info = "기술 스택 없음"
         
-        # 🔥 워크플로우 임시 데이터 실시간 업데이트
+        # 🔥 워크플로우 임시 데이터 실시간 업데이트 (시나리오 1 스타일)
         workflow_temp_data = state.get("workflow_temp_data", {}) or {}
         if state.get("workflow_in_progress"):
-            workflow_temp_data["tech_stack"] = search_params.get("tech_stack", [])
+            if "search_parameters" not in workflow_temp_data:
+                workflow_temp_data["search_parameters"] = {}
+            workflow_temp_data["search_parameters"]["tech_stack"] = search_params.get("tech_stack", [])
         
         # 자연스러운 AI 답변 형식 - 최종 확인 및 검색 시작
         response = f"완벽합니다! 모든 정보를 수집했습니다.\n\n**검색 조건 요약:**\n- 포지션: {position_info}\n- 경력: {exp_str}\n- 기술 스택: {tech_stack_info}\n\n이제 위 조건에 맞는 인재를 검색해드리겠습니다. 잠시만 기다려주세요..."
@@ -1835,7 +1841,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "current_workflow_step_index": current_workflow_step_index,
                 "requires_input": True # 후보자 선택을 위해 입력 대기
             }
-
+        
         return {
             "final_response": response,
             "messages": [response],
@@ -1930,6 +1936,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "workflow_in_progress": state.get("workflow_in_progress", False), # 상태 유지
                 "workflow_type": state.get("workflow_type"),
                 "workflow_steps": state.get("workflow_steps"),
+                "requires_input": True, # 에러 발생 시 사용자 입력 대기 (재시도 등)
             }
         
         # recruitment_context 업데이트
@@ -1955,28 +1962,56 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                     break
             
             # 상세 정보 추출 (연락처, 이메일, 학력 등)
+            # structured_summary의 basic_info에서 우선적으로 정보를 가져옴
+            structured_summary = summary_data.get("structured_summary", {})
+            if not isinstance(structured_summary, dict):
+                structured_summary = {}
+            
+            basic_info = structured_summary.get("basic_info", {})
+            if not isinstance(basic_info, dict):
+                basic_info = {}
+            
+            print(f"📊 [Recruitment] 추출된 기본 정보: {basic_info}")
+            
             candidate_info = {
                 "resume_id": summary_data.get("resume_id"),
-                "name": summary_data.get("name"),
-                "position": summary_data.get("position"),
-                "experience": summary_data.get("experience"),
-                "email": selected_resume.get("email") or "info@company.com", # 기본값
-                "phone": selected_resume.get("phone") or "010-0000-0000", # 기본값
-                "education": selected_resume.get("education") or "학력 정보 없음",
+                "name": summary_data.get("name") or basic_info.get("name"),
+                "position": summary_data.get("position") or basic_info.get("position"),
+                "experience": summary_data.get("experience") or basic_info.get("experience"),
+                "email": basic_info.get("email") or selected_resume.get("email") or "이메일 정보 없음",
+                "phone": basic_info.get("phone") or selected_resume.get("phone") or "연락처 정보 없음",
+                "education": basic_info.get("education") or selected_resume.get("education") or "학력 정보 없음",
                 "skills": summary_data.get("skills", []),
+                "career_summary": structured_summary.get("career_summary", ""),
                 "summary": summary_data.get("summary", ""),
             }
             
             workflow_temp_data = state.get("workflow_temp_data", {}) or {}
+            # ⚠️ 새로운 딕셔너리로 복사하여 기존 정보 유실 방지
+            workflow_temp_data = {**workflow_temp_data}
             workflow_temp_data["selected_candidate"] = candidate_info
             
-            # 🔥 추가: 검색 조건(포지션, 경력, 기술스택)도 함께 저장
+            # 🔥 추가: 검색 조건(포지션, 경력, 기술스택)도 구조화된 형태로 저장/확인 (시나리오 1 스타일)
             search_params = recruitment_context.get("search_parameters", {})
-            workflow_temp_data["search_parameters"] = {
-                "position": search_params.get("position"),
-                "experience": f"{search_params.get('experience_type', '')} {search_params.get('experience_years', '')}년".strip(),
-                "tech_stack": search_params.get("tech_stack", [])
-            }
+            if "search_parameters" not in workflow_temp_data:
+                workflow_temp_data["search_parameters"] = {}
+            else:
+                # 기존 search_parameters 유지하면서 업데이트
+                workflow_temp_data["search_parameters"] = {**workflow_temp_data["search_parameters"]}
+            
+            # 이미 수집된 정보가 있으면 유지, 없으면 현재 컨텍스트에서 보완
+            if not workflow_temp_data["search_parameters"].get("position"):
+                workflow_temp_data["search_parameters"]["position"] = search_params.get("position")
+            
+            if not workflow_temp_data["search_parameters"].get("experience"):
+                exp_type = search_params.get('experience_type', '')
+                exp_years = search_params.get('experience_years', '')
+                workflow_temp_data["search_parameters"]["experience"] = f"{exp_type} {exp_years}년".strip()
+            
+            if not workflow_temp_data["search_parameters"].get("tech_stack"):
+                workflow_temp_data["search_parameters"]["tech_stack"] = search_params.get("tech_stack", [])
+            
+            print(f"✅ [Recruitment] workflow_temp_data 업데이트 완료 (후보자: {candidate_info['name']})")
             
             response = result.get("message", "이력서 요약을 완료했습니다.")
             response += "\n\n**[워크플로우]** 후보자를 선택하셨습니다. 이제 면접 일정을 잡기 위해 면접관 정보를 입력해주세요."
@@ -1991,8 +2026,9 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "workflow_type": workflow_type,
                 "current_workflow_step_index": 1, # 다음 단계로
                 "next_domain": "schedule", # 다음 도메인
-                "requires_input": False # ✅ 다음 도메인의 질문을 즉시 받기 위해 False로 변경
-            }
+                "requires_input": False, # ✅ 다음 도메인의 질문을 즉시 받기 위해 False로 변경
+                "query": "면접 일정" # ✅ 다음 도메인으로 넘어갈 때 쿼리 정규화 (전환 신호로만 사용)
+        }
         
         return {
             "final_response": result.get("message", "이력서 요약을 완료했습니다."),

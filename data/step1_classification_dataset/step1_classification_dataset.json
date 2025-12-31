@@ -6628,5 +6628,77 @@
     "is_workflow": false,
     "confidence": 0.95,
     "label": 0
+  },
+  {
+    "query": "csu1940@gmail.com한테 오늘 야근 부탁 메일 보내줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "csu1940@gmail.com에게 오늘 야근 부탁한다고 메일 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "csu1940@gmail.com한테 메일 보내줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "팀장님께 오늘 야근 협조 요청 메일 보내줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "인사팀에 야근 공지 메일 초안 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "야근 부탁 이메일 초안 써줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "csu1940@gmail.com으로 '오늘 야근 부탁' 메일 보내줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "오늘 야근 부탁하는 내용으로 메일 작성해줘 (수신: csu1940@gmail.com)",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "csu1940@gmail.com한테 오늘 야근 부탁 메일 보내주세요",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "야근 부탁 메일 초안 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "csu1940@gmail.com에게 야근 부탁 메일 보내줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
+  },
+  {
+    "query": "오늘 야근 부탁 이메일 작성해줘",
+    "is_workflow": false,
+    "confidence": 0.95,
+    "label": 0
   }
 ]

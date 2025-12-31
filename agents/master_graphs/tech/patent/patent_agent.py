@@ -902,7 +902,7 @@ async def patent_search(
                         ]
 
                         message_lines.append("")
-                        message_lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,3,5' 또는 '1 3 5'")
+                        message_lines.append("💡 자세히 보려면 번호를 입력하세요. 예: '1번', '1,3,5번' 또는 '1 3 5번'")
 
                         return {
                             "ok": True,
