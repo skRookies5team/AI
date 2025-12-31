@@ -25,6 +25,7 @@ def cleanup_previous_domain_info(
     """도메인 전환 시 이전 도메인 관련 정보를 정리합니다.
     
     document_path는 문서 도메인에서만 사용되므로, 다른 도메인으로 전환 시 제거해야 합니다.
+    단, 워크플로우 진행 중에는 document_path를 유지합니다 (문서 미리보기 지속 표시를 위해).
     
     Args:
         state: 오케스트레이터 상태
@@ -32,13 +33,22 @@ def cleanup_previous_domain_info(
         current_domain: 현재 도메인 이름
     """
     last_domain = state.get("last_domain")
+    workflow_in_progress = state.get("workflow_in_progress", False)
+    
     if last_domain and last_domain != current_domain:
-        # 도메인이 변경된 경우 이전 도메인 관련 정보 정리
-        result.pop("document_path", None)
-        result.pop("document_content", None)
-        state.pop("document_path", None)
-        state.pop("document_content", None)
-        print(f"🧹 [도메인 전환] {last_domain} → {current_domain}: 이전 도메인의 document_path 제거 완료")
+        # ✅ 워크플로우 진행 중이면 document_path 유지 (문서 미리보기 지속 표시를 위해)
+        if workflow_in_progress:
+            print(f"🔄 [도메인 전환] {last_domain} → {current_domain}: 워크플로우 진행 중이므로 document_path 유지")
+            # document_content는 제거 (메모리 절약)
+            result.pop("document_content", None)
+            state.pop("document_content", None)
+        else:
+            # 일반 모드: 도메인 변경 시 이전 도메인 관련 정보 정리
+            result.pop("document_path", None)
+            result.pop("document_content", None)
+            state.pop("document_path", None)
+            state.pop("document_content", None)
+            print(f"🧹 [도메인 전환] {last_domain} → {current_domain}: 이전 도메인의 document_path 제거 완료")
 
 
 

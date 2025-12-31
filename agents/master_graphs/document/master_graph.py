@@ -647,7 +647,8 @@ class DocumentMasterGraph(BaseMasterGraph):
                     step_complete_msg = f"\n\n✅ [Step {current_step_number} 완료] 출장 신청서가 생성되었습니다."
                     # 결재 진행 여부 확인 메시지 추가
                     approval_message = "\n\n결재를 진행하시겠습니까?"  # + buttons_html (프론트에서 React 버튼으로 표시)
-                    final_response = document_content + step_complete_msg + approval_message
+                    # ✅ 워크플로우 모드: document_content 제거 - HTML은 document_path로만 접근, 텍스트 메시지만 반환
+                    final_response = step_complete_msg + approval_message
                     # workflow_temp_data 업데이트
                     workflow_temp_data["description"] = workflow_temp_data.get("description")
                 else:
