@@ -48,7 +48,7 @@ _load_env_file()
 LOGGER = logging.getLogger(__name__)
 
 # OPENAI_MODEL 환경 변수 가져오기 (기본값 제공)
-OPENAI_MODEL = os.getenv("OPENAI_MODEL") or os.getenv("OPENAI_MODEL_NAME") or "gpt-4o-mini"
+OPENAI_MODEL = os.getenv("OPENAI_MODEL")
 
 
 def _get_int_env(key: str, default: int) -> int:
