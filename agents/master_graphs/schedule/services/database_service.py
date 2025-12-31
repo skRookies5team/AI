@@ -1023,9 +1023,206 @@ class DatabaseService:
             result = await session.execute(text(sql), {"gcal_event_id": gcal_event_id})
             return result.rowcount > 0
 
-    # ------------------------------------------------------------------
-    # 출장 관련
-    # ------------------------------------------------------------------
+    async def get_room_reservations_by_date(
+        self,
+        target_date: date
+    ) -> List[Dict[str, Any]]:
+        """특정 날짜의 모든 회의실 예약 조회 (회의실 정보 및 예약자 포함) - 최적화됨."""
+        # 날짜 범위 계산 (인덱스 활용을 위해 BETWEEN 사용)
+        from datetime import datetime, timedelta
+        start_datetime = datetime.combine(target_date, datetime.min.time())
+        end_datetime = datetime.combine(target_date, datetime.max.time())
+        
+        sql = """
+        SELECT 
+            mrr.id,
+            mrr.meeting_room_id as room_id,
+            mr.name as room_name,
+            mr.floor,
+            mrr.start_time,
+            mrr.end_time,
+            mrr.title,
+            e.name as applicant_name,
+            mrr.participants,
+            mrr.description
+        FROM meeting_room_reservation mrr
+        INNER JOIN meeting_room mr ON mrr.meeting_room_id = mr.id
+        LEFT JOIN employee e ON mrr.employee_id = e.employee_id
+        WHERE mrr.start_time BETWEEN :start_dt AND :end_dt
+        AND mrr.status IN ('CONFIRMED', 'PENDING')
+        ORDER BY mrr.start_time ASC
+        """
+        
+        async with self._session() as session:
+            result = await session.execute(
+                text(sql),
+                {"start_dt": start_datetime, "end_dt": end_datetime}
+            )
+            return [dict(row) for row in result.mappings().all()]
+    async def get_all_schedules_for_calendar(
+        self,
+        employee_id: int,
+        start_date: datetime,
+        end_date: datetime
+    ) -> List[Dict[str, Any]]:
+        """캘린더용 통합 일정 조회 (연차, 회의, 출장, 면접 등).
+        
+        Google Calendar API 의존성을 제거하고 DB 데이터를 직접 조회하여 병합합니다.
+        
+        Returns:
+            통합된 일정 리스트 (날짜순 정렬)
+        """
+        # 1. 연차/반차 (승인, 대기, 확정)
+        # 2. 회의실 예약 (CONFIRMED, PENDING)
+        # 3. 출장 (active, approved, pending) - status가 컬럼에 있는지 확인 필요 (없으면 조건 제외)
+        # 4. 일반/면접 일정 (schedule 테이블)
+        
+        # 날짜 포맷팅 (YYYY-MM-DD)
+        # start_date, end_date는 datetime 객체
+        
+        # 먼저 business_trip 테이블에 status 컬럼이 있는지 확인 (없으면 제외)
+        # 여기서는 안전하게 status 컬럼이 존재한다고 가정하거나 단순화
+        
+        # JSON_CONTAINS를 위한 employee_id (문자열 아님, JSON 숫자)
+        emp_id_json = json.dumps(employee_id)
+        
+        sql = """
+        SELECT * FROM (
+            -- 1. 연차/반차
+            SELECT 
+                CONCAT('leave_', id) as id,
+                start_date as date,
+                CONCAT(leave_type, CASE WHEN reason IS NOT NULL AND reason != '' 
+                    THEN CONCAT(' - ', LEFT(reason, 20)) ELSE '' END) as title,
+                'leave' as schedule_type,
+                CAST(CONCAT(start_date, ' 00:00:00') AS DATETIME) as start_time,
+                CAST(CONCAT(end_date, ' 23:59:59') AS DATETIME) as end_time,
+                NULL as location,
+                NULL as meeting_room_name,
+                status,
+                reason as description
+            FROM leave_request
+            WHERE employee_id = :employee_id
+              AND start_date <= :end_date_date
+              AND end_date >= :start_date_date
+              AND status IN ('approved', '승인', 'pending', '대기', 'confirmed', '확정')
+
+            UNION ALL
+
+            -- 2. 회의실 예약
+            SELECT 
+                CONCAT('room_', mrr.id) as id,
+                DATE(mrr.start_time) as date,
+                mrr.title,
+                'meeting_room' as schedule_type,
+                mrr.start_time,
+                mrr.end_time,
+                CONCAT(mr.name, ' (', mr.floor, '층)') as location,
+                mr.name as meeting_room_name,
+                mrr.status,
+                mrr.description
+            FROM meeting_room_reservation mrr
+            JOIN meeting_room mr ON mrr.meeting_room_id = mr.id
+            WHERE mrr.employee_id = :employee_id
+              AND mrr.start_time < :end_date
+              AND mrr.end_time > :start_date
+              AND mrr.status IN ('CONFIRMED', 'PENDING')
+
+            UNION ALL
+
+            -- 3. 출장
+            SELECT 
+                CONCAT('trip_', trip_id) as id,
+                DATE(start_time) as date,
+                trip_title as title,
+                'business_trip' as schedule_type,
+                start_time,
+                end_time,
+                destination as location,
+                NULL as meeting_room_name,
+                'active' as status,
+                trip_purpose as description
+            FROM business_trip
+            WHERE employee_id = :employee_id
+              AND start_time <= :end_date
+              AND end_time >= :start_date
+
+            UNION ALL
+
+            -- 4. 일반 스케줄 (schedule 테이블)
+            -- (1) 일반 일정: interviewer_ids IS NULL AND employee_id 매칭
+            SELECT 
+                CONCAT('sched_', schedule_id) as id,
+                DATE(start_time) as date,
+                title,
+                schedule_type,
+                start_time,
+                end_time,
+                location,
+                NULL as meeting_room_name,
+                status,
+                description
+            FROM schedule
+            WHERE employee_id = :employee_id
+              AND start_time <= :end_date
+              AND end_time >= :start_date
+              AND interviewer_ids IS NULL
+              AND status IN ('active', '활성')
+              
+            UNION ALL
+            
+            -- (2) 면접 일정: JSON_CONTAINS(interviewer_ids)
+            SELECT 
+                CONCAT('interview_', schedule_id) as id,
+                DATE(start_time) as date,
+                title,
+                'interview' as schedule_type,
+                start_time,
+                end_time,
+                location,
+                NULL as meeting_room_name,
+                status,
+                description
+            FROM schedule
+            WHERE schedule_type = 'interview'
+              AND start_time <= :end_date
+              AND end_time >= :start_date
+              AND status IN ('active', '활성')
+              AND interviewer_ids IS NOT NULL
+              AND JSON_CONTAINS(interviewer_ids, :emp_id_json)
+        ) AS unified_schedule
+        ORDER BY start_time ASC
+        """
+        
+        params = {
+            "employee_id": employee_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "start_date_date": start_date.date(),
+            "end_date_date": end_date.date(),
+            "emp_id_json": emp_id_json
+        }
+
+        async with self._session() as session:
+            try:
+                result = await session.execute(text(sql), params)
+                rows = [dict(row) for row in result.mappings().all()]
+                
+                # datetime 객체를 ISO 문자열로 변환 (JSON 직렬화 위해)
+                for row in rows:
+                    if isinstance(row.get("date"), date):
+                        row["date"] = row["date"].isoformat()
+                    if isinstance(row.get("start_time"), datetime):
+                        row["start_time"] = row["start_time"].isoformat()
+                    if isinstance(row.get("end_time"), datetime):
+                        row["end_time"] = row["end_time"].isoformat()
+                
+                return rows
+            except SQLAlchemyError as e:
+                print(f"❌ 통합 일정 조회 중 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                return []
 
     async def create_business_trip_request(
         self,
