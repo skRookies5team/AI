@@ -888,6 +888,10 @@ async def chat_stream_endpoint(
 
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
+                if show_document_update_ui is None:
+                    show_document_update_ui = False
+                else:
+                    show_document_update_ui = bool(show_document_update_ui)
                 
                 # 면접 일정 조정 관련 플래그 확인
                 # 1순위: final_state 최상위 레벨 (schedule_nodes.py에서 직접 반환)

@@ -959,13 +959,7 @@ async def ask_search_source_with_db_result(state: OrchestratorState) -> Dict[str
     )
     
     if is_new_search_request:
-        # 새로운 검색 요청이므로 첫 선택 질문 표시
-        # 사용자 입력을 기다려야 하므로 generate_response로 이동
-        response_msg = (
-            "사내 서버에 관련 정보가 있는데 어디서 검색하시겠습니까?\n\n"
-            "1. 사내 서버에서 검색 (빠른 답변)\n"
-            "2. 웹에서 검색 (최신 정보)"
-        )
+        response_msg = get_article_prompt('ask_search_source', 'question')
         article_ctx["response"] = response_msg
         article_ctx["next_action"] = "generate_response"  # 사용자 입력 대기
         # 디버그: intent 변경 전후 로깅
@@ -1060,12 +1054,7 @@ async def ask_search_source_with_db_result(state: OrchestratorState) -> Dict[str
                 article_ctx["next_action"] = "rag_answer"
                 article_ctx["ask_source_retry_count"] = 0  # 리셋
             else:
-                # 명확하지 않으면 다시 질문
-                response_msg = (
-                    "사내 서버에 관련 정보가 있는데 어디서 검색하시겠습니까?\n"
-                    "1. 사내 서버에서 검색 (빠른 답변)\n"
-                    "2. 웹에서 검색 (최신 정보)"
-                )
+                response_msg = get_article_prompt('ask_search_source', 'question')
                 article_ctx["response"] = response_msg
                 article_ctx["next_action"] = "ask_search_source_with_db"
                 article_ctx["ask_source_retry_count"] = retry_count + 1
