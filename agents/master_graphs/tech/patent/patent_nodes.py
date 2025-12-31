@@ -219,7 +219,7 @@ def ask_search_mode_node(state: PatentSearchState) -> PatentSearchState:
         set_original_search_keyword(session_id, user_query, orchestrator_state)
         LOGGER.info("검색어 저장: session_id=%s, normalized_keyword=%s, user_query=%s", session_id, normalized_keyword, user_query)
 
-    state["progress_status"] = "❓ 검색 방식을 선택해주세요:\n1. 서버 기반 검색 (빠르지만 제한적)\n2. 웹 검색 (느리지만 광범위)\n\n'1' 또는 '서버', '2' 또는 '웹'으로 답변해주세요.\n\n서버 기반 검색을 선택하면 벡터DB에서 먼저 검색하고, 결과가 없으면 자동으로 웹 검색으로 전환됩니다."
+    state["progress_status"] = "❓ 검색 방식을 선택해주세요:\n1. 서버 기반 검색 (빠르지만 제한적)\n2. 웹 검색 (느리지만 광범위)\n\n'1번' 또는 '서버', '2번' 또는 '웹'으로 답변해주세요.\n\n서버 기반 검색을 선택하면 벡터DB에서 먼저 검색하고, 결과가 없으면 자동으로 웹 검색으로 전환됩니다."
     state["next_action"] = "end"
     return state
 
