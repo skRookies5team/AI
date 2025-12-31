@@ -24,13 +24,15 @@ LOCAL_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
 
 async def parse_korean_date_with_llm(
     query: str, 
-    current_datetime: Optional[datetime] = None
+    current_datetime: Optional[datetime] = None,
+    allow_past_dates: bool = False
 ) -> Tuple[Optional[datetime], Optional[datetime], bool]:
     """한국어 날짜 표현을 파싱하여 datetime 객체와 정밀도 여부 반환.
     
     Args:
         query: 사용자 쿼리 (예: "내일 오후 2시", "다음주 월요일", "이번 달")
         current_datetime: 현재 시간 (orchestrator에서 전달, 없으면 datetime.now() 사용)
+        allow_past_dates: 과거 날짜 허용 여부 (조회는 True, 생성/예약/취소는 False)
         
     Returns:
         (시작 datetime, 종료 datetime, is_precise) 튜플
@@ -40,11 +42,30 @@ async def parse_korean_date_with_llm(
     if current_datetime is None:
         now = datetime.now(LOCAL_TIMEZONE)
     else:
-        # timezone 정보가 없으면 추가
-        if current_datetime.tzinfo is None:
-            now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+        # 문자열인 경우 datetime으로 변환 (state에서 문자열로 전달될 수 있음)
+        if isinstance(current_datetime, str):
+            try:
+                current_datetime = datetime.fromisoformat(current_datetime.replace('Z', '+00:00'))
+            except Exception as e:
+                print(f"⚠️ current_datetime 문자열 파싱 실패: {e}, datetime.now() 사용")
+                now = datetime.now(LOCAL_TIMEZONE)
+            else:
+                # timezone 정보가 없으면 추가
+                if current_datetime.tzinfo is None:
+                    now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+                else:
+                    now = current_datetime.astimezone(LOCAL_TIMEZONE)
+        elif isinstance(current_datetime, datetime):
+            # datetime 객체인 경우
+            # timezone 정보가 없으면 추가
+            if current_datetime.tzinfo is None:
+                now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+            else:
+                now = current_datetime.astimezone(LOCAL_TIMEZONE)
         else:
-            now = current_datetime.astimezone(LOCAL_TIMEZONE)
+            # 예상치 못한 타입
+            print(f"⚠️ current_datetime 타입 오류: {type(current_datetime)}, datetime.now() 사용")
+            now = datetime.now(LOCAL_TIMEZONE)
     
     if not LLM_AVAILABLE:
         return _fallback_date_parsing(query, current_datetime=now)
@@ -98,6 +119,7 @@ async def parse_korean_date_with_llm(
                 today_str=today_str,
                 today_weekday=today_weekday,
                 now_year=now.year,
+                next_year=now.year + 1,  # ✅ 다음 연도 계산
                 now_month=now.month,
                 next_monday_str=next_monday_str,
                 next_sunday_str=next_sunday_str,  # ✅ 다음주 일요일 추가
@@ -195,10 +217,16 @@ async def parse_korean_date_with_llm(
                     
                     # 과거 날짜만 거부 (연도 변경은 허용 - 예: 12월 말에 "다음주"는 다음 해 1월)
                     # 연도가 바뀌는 경우는 정상 (예: 2025-12-29에 "다음주" → 2026-01-05)
+                    
                     if days_diff < 0:
-                        print(f"⚠️ LLM이 과거 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일)")
-                        print(f"⚠️ 날짜 정보가 불확실하므로 None 반환하여 재요청")
-                        return None, None, False  # 재요청을 위해 None 반환
+                        # allow_past_dates가 True면 과거 날짜 허용 (조회용)
+                        if allow_past_dates:
+                            print(f"ℹ️ 과거 날짜 허용 (조회 요청): {start_date.date()}")
+                        else:
+                            # 생성/예약/취소용: 주 단위 표현이어도 과거 날짜는 절대 허용하지 않음
+                            print(f"⚠️ LLM이 과거 날짜를 반환함: {start_date.date()} (오늘: {now.date()}, 차이: {days_diff}일)")
+                            print(f"⚠️ 날짜 정보가 불확실하므로 None 반환하여 재요청")
+                            return None, None, False  # 재요청을 위해 None 반환
                     
                     # 연도가 바뀌는 경우는 허용하되, 너무 먼 미래는 경고만 출력
                     if start_date.year != now.year:
@@ -240,11 +268,30 @@ def _fallback_date_parsing(
     if current_datetime is None:
         now = datetime.now(LOCAL_TIMEZONE)
     else:
-        # timezone 정보가 없으면 추가
-        if current_datetime.tzinfo is None:
-            now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+        # 문자열인 경우 datetime으로 변환 (state에서 문자열로 전달될 수 있음)
+        if isinstance(current_datetime, str):
+            try:
+                current_datetime = datetime.fromisoformat(current_datetime.replace('Z', '+00:00'))
+            except Exception as e:
+                print(f"⚠️ current_datetime 문자열 파싱 실패: {e}, datetime.now() 사용")
+                now = datetime.now(LOCAL_TIMEZONE)
+            else:
+                # timezone 정보가 없으면 추가
+                if current_datetime.tzinfo is None:
+                    now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+                else:
+                    now = current_datetime.astimezone(LOCAL_TIMEZONE)
+        elif isinstance(current_datetime, datetime):
+            # datetime 객체인 경우
+            # timezone 정보가 없으면 추가
+            if current_datetime.tzinfo is None:
+                now = current_datetime.replace(tzinfo=LOCAL_TIMEZONE)
+            else:
+                now = current_datetime.astimezone(LOCAL_TIMEZONE)
         else:
-            now = current_datetime.astimezone(LOCAL_TIMEZONE)
+            # 예상치 못한 타입
+            print(f"⚠️ current_datetime 타입 오류: {type(current_datetime)}, datetime.now() 사용")
+            now = datetime.now(LOCAL_TIMEZONE)
     
     # 오늘
     if "오늘" in query:

@@ -179,7 +179,7 @@ workflows:
   
   recruitment:
     name: "채용 프로세스 자동화"
-    description: "채용 프로세스 자동화 - 이력서 검색, 문서 생성, 일정 조정, 이메일 발송을 자동으로 처리합니다."
+    description: "지원자 검색부터 면접 일정, 안내 메일 발송, 평가표 생성까지 자동으로 처리합니다."
     
     detection_prompt: |
       사용자 질의를 분석하여 다음을 판단하세요:
@@ -192,80 +192,65 @@ workflows:
       - 이력서 검색, 면접 일정 조정, 합격/불합격 통지 등 실행 동사 사용
       - 예: "이력서 검색하고 면접 일정 잡아줘", "채용 프로세스 진행해줘"
       
-      **워크플로우가 아닌 예시:**
-      - "채용 규정 알려줘" → 정보 질문
-      - "이력서 보여줘" → 조회 요청
-      
       사용자 질의: "{query}"
       
       위 기준에 따라 판단하여 JSON 형식으로 응답하세요.
       workflow_type은 "recruitment" 또는 None으로 설정하세요.
     
-    detection_keywords:
-      - "채용"
-      - "이력서"
-      - "면접"
-      - "채용 프로세스"
-      - "채용 진행"
-    
     steps:
       - domain: "recruitment"
-        step_name: "이력서 검색 및 필터링"
-        description: "조건에 맞는 이력서 검색 및 필터링"
+        step_name: "이력서 검색 및 선택"
+        description: "포지션/경력/기술스택으로 검색 → 후보자 1명 선택 (휴먼 인 더 루프)"
         intent: "search"
-        action: "search_resume"
+        action: "search_and_select"
         required_data:
-          - "position"  # 채용 포지션
-          - "skills"  # 필수 스킬
+          - "position"
+          - "experience"
+          - "tech_stack"
         output_data:
-          - "resume_list"
-          - "workflow_temp_data"
+          - "selected_candidate" # 후보자 1명의 상세 정보 (이름, 연락처, 이메일 등)
         human_in_loop:
-          - "검색 조건 확인"
-          - "검색 결과 확인 및 선택"
+          - "후보자 카드 중 한 명 선택"
+      
+      - domain: "schedule"
+        step_name: "면접 일정 및 면접관 설정"
+        description: "면접관 정보 입력 → 면접 날짜 추천 및 확정 (휴먼 인 더 루프)"
+        intent: "interview"
+        action: "setup_interview"
+        required_data:
+          - "selected_candidate"
+        output_data:
+          - "interviewers" # 면접관 리스트
+          - "interview_date" # 확정된 면접 날짜/시간
+        human_in_loop:
+          - "면접관 정보(이름, 부서, 직급) 입력"
+          - "가능한 날짜 중 하나 선택"
+      
+      - domain: "email"
+        step_name: "면접 안내 메일 발송"
+        description: "지원자에게 면접 일정 및 장소 안내 메일 초안 생성 및 발송 (휴먼 인 더 루프)"
+        intent: "compose"
+        action: "send_interview_guide"
+        required_data:
+          - "selected_candidate"
+          - "interview_date"
+        output_data:
+          - "email_sent_status"
+        human_in_loop:
+          - "메일 초안 확인 및 수정/발송"
       
       - domain: "document"
-        step_name: "면접 평가서 작성"
-        description: "선택된 이력서 기반 면접 평가서 작성"
+        step_name: "면접 평가표 생성"
+        description: "선택된 후보자 정보와 면접관 정보를 포함한 면접 평가표 생성"
         intent: "generate"
         action: "generate_document"
         template_name: "interview_evaluation_form"
         required_data:
-          - "workflow_temp_data"
+          - "selected_candidate"
+          - "interviewers"
+          - "interview_date"
         output_data:
           - "document_path"
-          - "workflow_temp_data"
-        human_in_loop:
-          - "평가서 내용 확인 및 수정"
-      
-      - domain: "schedule"
-        step_name: "면접 일정 조정"
-        description: "면접 일정 조정 및 캘린더 등록"
-        intent: "schedule"
-        action: "schedule_interview"
-        required_data:
-          - "workflow_temp_data"
-        output_data:
-          - "schedule_id"
-          - "workflow_temp_data"
-        human_in_loop:
-          - "면접 일정 확인 및 승인"
-      
-      - domain: "email"
-        step_name: "면접 안내 이메일 발송"
-        description: "면접 일정 안내 이메일 발송"
-        intent: "compose"
-        action: "compose_interview_email"
-        required_data:
-          - "workflow_temp_data"
-        output_data:
-          - "email_sent"
-    
-    step_completion_messages:
-      recruitment_search: "이력서 검색이 완료되었습니다."
-      document_generate: "면접 평가서가 생성되었습니다."
-      schedule_schedule: "면접 일정이 조정되었습니다."
-      email_compose: "면접 안내 이메일이 발송되었습니다."
     
     completion_message: |
       채용 프로세스 자동화 작업이 완료되었습니다!

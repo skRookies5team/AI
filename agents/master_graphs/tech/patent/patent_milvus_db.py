@@ -522,6 +522,57 @@ def check_vector_db(query: str, limit: int = 5, max_distance: float = 0.8, filte
         return []
 
 
+def check_patent_exists(app_no: str, keyword: Optional[str] = None) -> bool:
+    """특허가 이미 Milvus DB에 존재하는지 확인합니다."""
+    if not MILVUS_AVAILABLE:
+        return False
+    
+    try:
+        _initialize_milvus()
+        
+        if keyword:
+            collection_name = get_collection_name(keyword)
+            try:
+                collection = Collection(collection_name)
+                collection.load()
+                
+                res = collection.query(
+                    expr=f"app_no == '{app_no}'",
+                    output_fields=["id"],
+                    limit=1
+                )
+                if len(res) > 0:
+                    LOGGER.info(f"\n[MilvusDB] ⏩ 중복 발견: 특허 '{app_no}'가 컬렉션 '{collection_name}'에 이미 존재합니다.\n")
+                    return True
+            except Exception as e:
+                LOGGER.warning(f"컬렉션 '{collection_name}' 중복 체크 실패: {e}")
+        
+        # 키워드가 없거나 해당 컬렉션에 없으면 모든 특허 컬렉션 검색
+        all_collections = utility.list_collections()
+        patent_collections = [col for col in all_collections if col.startswith("patents_embeddings_")]
+        
+        for collection_name in patent_collections:
+            try:
+                collection = Collection(collection_name)
+                collection.load()
+                res = collection.query(
+                    expr=f"app_no == '{app_no}'",
+                    output_fields=["id"],
+                    limit=1
+                )
+                if len(res) > 0:
+                    LOGGER.info(f"\n[MilvusDB] ⏩ 중복 발견: 특허 '{app_no}'가 컬렉션 '{collection_name}'에 이미 존재합니다.\n")
+                    return True
+            except Exception as e:
+                LOGGER.warning(f"컬렉션 '{collection_name}' 중복 체크 실패: {e}")
+                continue
+                
+        return False
+    except Exception as e:
+        LOGGER.error(f"MilvusDB 중복 체크 중 오류: {e}")
+        return False
+
+
 def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Path, patent_keyword: Optional[str] = None) -> int:
     """특허 텍스트를 임베딩하고 분야별 컬렉션에 저장.
 
@@ -556,6 +607,12 @@ def embed_and_store_patent(app_no: str, title: str, abstract: str, text_path: Pa
             keyword = extract_keyword_from_text(combined_text)
             patent_keyword = f"특허_{keyword}"
             LOGGER.info(f"[embed_and_store_patent] 제목/초록에서 키워드 추출: '{keyword}'")
+
+        # 중복 체크
+        if check_patent_exists(app_no, keyword=keyword):
+            return 0
+
+        LOGGER.info(f"\n[MilvusDB] 📥 신규 특허 저장: '{title[:30]}...' (출원번호: {app_no})\n")
 
         # 키워드는 이미 정규화되어 있으므로 바로 컬렉션 이름 생성
         collection_name = get_collection_name(keyword)

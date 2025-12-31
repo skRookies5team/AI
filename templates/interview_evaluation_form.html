@@ -528,25 +528,11 @@
                 </div>
                 <div class="info-row">
                     <label class="info-label">경력</label>
-                    <select class="info-select" id="experience">
-                        <option value="">선택</option>
-                        <option value="신입">신입</option>
-                        <option value="1-3년">1-3년</option>
-                        <option value="3-5년">3-5년</option>
-                        <option value="5-10년">5-10년</option>
-                        <option value="10년 이상">10년 이상</option>
-                    </select>
+                    <input type="text" class="info-input" id="experience" placeholder="경력">
                 </div>
                 <div class="info-row">
                     <label class="info-label">학력</label>
-                    <select class="info-select" id="education">
-                        <option value="">선택</option>
-                        <option value="고졸">고졸</option>
-                        <option value="전문대졸">전문대졸</option>
-                        <option value="대졸">대졸</option>
-                        <option value="석사">석사</option>
-                        <option value="박사">박사</option>
-                    </select>
+                    <input type="text" class="info-input" id="education" placeholder="학력">
                 </div>
             </div>
         </div>
@@ -614,19 +600,8 @@
 
         <div class="interviewer-section">
             <h2 class="section-title">면접관 정보</h2>
-            <div class="interviewer-grid">
-                <div class="info-row">
-                    <label class="info-label">면접관 성명</label>
-                    <input type="text" class="info-input" id="interviewerName" placeholder="면접관 성명">
-                </div>
-                <div class="info-row">
-                    <label class="info-label">소속 부서</label>
-                    <input type="text" class="info-input" id="interviewerDepartment" placeholder="소속 부서">
-                </div>
-                <div class="info-row">
-                    <label class="info-label">직급</label>
-                    <input type="text" class="info-input" id="interviewerPosition" placeholder="직급">
-                </div>
+            <div id="interviewerContainer" class="interviewer-grid">
+                <!-- 면접관 정보가 동적으로 추가됩니다 -->
             </div>
         </div>
 
@@ -849,10 +824,60 @@
             document.body.removeChild(link);
         }
 
+        // 면접관 정보 동적 생성
+        function initializeInterviewers(interviewerData) {
+            const container = document.getElementById('interviewerContainer');
+
+            if (!interviewerData || interviewerData.length === 0) {
+                // 면접관 데이터가 없으면 기본 1개 필드 생성
+                container.innerHTML = `
+                    <div class="info-row">
+                        <label class="info-label">면접관 성명</label>
+                        <input type="text" class="info-input" id="interviewerName" placeholder="면접관 성명">
+                    </div>
+                    <div class="info-row">
+                        <label class="info-label">소속 부서</label>
+                        <input type="text" class="info-input" id="interviewerDepartment" placeholder="소속 부서">
+                    </div>
+                    <div class="info-row">
+                        <label class="info-label">직급</label>
+                        <input type="text" class="info-input" id="interviewerPosition" placeholder="직급">
+                    </div>
+                `;
+                return;
+            }
+
+            // 면접관 데이터로 동적 생성
+            let html = '';
+            interviewerData.forEach((interviewer, index) => {
+                const suffix = interviewerData.length > 1 ? ` ${index + 1}` : '';
+                html += `
+                    <div class="info-row">
+                        <label class="info-label">면접관 성명${suffix}</label>
+                        <input type="text" class="info-input" id="interviewerName${index}" value="${interviewer.name || ''}" placeholder="면접관 성명">
+                    </div>
+                    <div class="info-row">
+                        <label class="info-label">소속 부서${suffix}</label>
+                        <input type="text" class="info-input" id="interviewerDepartment${index}" value="${interviewer.dept || ''}" placeholder="소속 부서">
+                    </div>
+                    <div class="info-row">
+                        <label class="info-label">직급${suffix}</label>
+                        <input type="text" class="info-input" id="interviewerPosition${index}" value="${interviewer.position || ''}" placeholder="직급">
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
         // 페이지 로드 시 초기화
         window.addEventListener('DOMContentLoaded', () => {
             setDefaultDate();
             initializeTable();
+
+            // 전역 변수에서 면접관 데이터 가져오기 (서버에서 전달받은 데이터)
+            const interviewerData = window.interviewerData || [];
+            initializeInterviewers(interviewerData);
         });
     </script>
 </body>

@@ -282,19 +282,13 @@ def analyze_query(state: GraphState, collection: Collection, embedding_model) ->
     # 질문에서 상대적 날짜 계산
     calculated_date = _calculate_relative_date(question, current_date, weekday_names, date_format)
     
-    # 검색 쿼리 생성: 계산된 날짜가 있으면 검색 쿼리에 명시적으로 포함
+    # ✅ 검색 쿼리는 원본 질문을 그대로 사용 (날짜 정보 추가하지 않음)
+    # 날짜 정보는 프롬프트에서만 사용하여 LLM이 해당 날짜의 식단을 찾도록 지시
+    # Milvus 데이터는 "오늘 식단", "식단" 같은 자연스러운 표현으로 검색하는 것이 더 효과적
+    # "31일 오늘 식단 알려줘" 같은 부자연스러운 쿼리는 검색 성능을 저하시킬 수 있음
     search_query = question
     if calculated_date:
-        # 날짜를 검색 쿼리에 추가 (예: "15일 식단")
-        try:
-            from datetime import datetime
-            parsed_date = datetime.strptime(calculated_date, date_format)
-            day_only = f"{parsed_date.day}일"  # "15일"
-            search_query = f"{day_only} {question}"
-            print(f"✅ 검색 쿼리에 날짜 추가: '{question}' → '{search_query}' (계산된 날짜: {calculated_date})")
-        except Exception as e:
-            print(f"⚠️ 날짜 파싱 실패, 원본 질문 사용: {e}")
-            search_query = question
+        print(f"ℹ️ 날짜 정보 계산됨: {calculated_date} (검색 쿼리는 원본 유지: '{search_query}')")
 
     query_embedding = embedding_model.embed(search_query)
     query_keywords = extract_keywords(search_query)

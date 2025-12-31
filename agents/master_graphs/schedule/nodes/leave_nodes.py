@@ -106,7 +106,8 @@ async def process_leave_request(state: OrchestratorState) -> Dict[str, Any]:
     # 8. ParsedIntent 생성
     parsed = await _parse_leave_intent(
         query, employee_id, user_id, normalized_action, 
-        leave_context, awaiting_slots_ctx, slot_decision, slot_state_payload
+        leave_context, awaiting_slots_ctx, slot_decision, slot_state_payload,
+        current_datetime=state.get("current_datetime")
     )
     
     # 9. slot_decision 적용
@@ -137,6 +138,9 @@ async def process_leave_request(state: OrchestratorState) -> Dict[str, Any]:
             initial_prompt = _build_initial_application_prompt(initial_missing)
             slot_state_ctx.setdefault("intent", parsed.action)
             slot_state_ctx.setdefault("slots", {})
+            # leave_type을 slots에 저장 (반차 정보 유지)
+            if parsed.leave_type:
+                slot_state_ctx["slots"]["leave_type"] = parsed.leave_type
             slot_state_ctx["missing_slots"] = initial_missing
             leave_context["slot_state"] = slot_state_ctx
             leave_context["awaiting_slots"] = initial_missing
@@ -150,8 +154,8 @@ async def process_leave_request(state: OrchestratorState) -> Dict[str, Any]:
                 "schedule_context": state["schedule_context"],
             }
     
-    # 10. followup이 있으면 즉시 반환
-    if followup_question:
+    # 10. followup이 있으면 즉시 반환 (단, 취소/수정은 제외 - 목록 표시를 위해)
+    if followup_question and parsed.action not in ["취소", "수정"]:
         leave_context["last_question"] = followup_question
         state["last_domain"] = "schedule"
         state["domain"] = "schedule"
@@ -393,7 +397,8 @@ async def _parse_leave_intent(
     context: Dict[str, Any],
     awaiting_slots: Optional[List[str]],
     slot_decision: Optional[LeaveSlotDecision],
-    slot_state_payload: Dict[str, Any]
+    slot_state_payload: Dict[str, Any],
+    current_datetime: Optional[datetime] = None
 ) -> ParsedLeaveIntent:
     """쿼리에서 연차 의도 파싱."""
     # 1. 기존 slots에서 정보 추출
@@ -403,17 +408,25 @@ async def _parse_leave_intent(
     entities = await extract_leave_entities(query)
     
     # 3. 날짜 파싱
+    # ✅ 다른 노드들(meeting_room_nodes, schedule_nodes)처럼 slot_decision.filled_slots를 신뢰하지 않고
+    # 직접 parse_korean_date_with_llm을 호출하여 정확한 날짜 파싱
     start_date_str = existing_slots.get("start_date")
     end_date_str = existing_slots.get("end_date")
     total_days = existing_slots.get("total_days")
     
-    if action == "신청" and not awaiting_slots:
-        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
+    # 날짜가 없으면 항상 parse_korean_date_with_llm으로 파싱 (slot_decision.filled_slots 무시)
+    if action == "신청" and (not start_date_str or not end_date_str):
+        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(
+            query, 
+            current_datetime=current_datetime,
+            allow_past_dates=False
+        )
         
         if start_date_obj:
             start_date_str = start_date_obj.strftime("%Y-%m-%d")
             # 반차가 아닌 경우 end_date가 없으면 None으로 설정 (missing에 추가되도록)
-            leave_type = entities.get("leave_type") or existing_slots.get("leave_type", "연차")
+            # existing_slots를 우선 확인하여 이전 컨텍스트의 leave_type 유지
+            leave_type = existing_slots.get("leave_type") or entities.get("leave_type") or "연차"
             if leave_type == "반차":
                 # 반차는 end_date를 start_date와 같게 설정
                 end_date_str = start_date_str
@@ -434,13 +447,21 @@ async def _parse_leave_intent(
     if awaiting_slots and ("cancel_selection" in awaiting_slots or "update_selection" in awaiting_slots):
         selection_index = _extract_selection_index(query)
     
+    # 5. 최종 leave_type 결정 (existing_slots 우선)
+    final_leave_type = existing_slots.get("leave_type") or entities.get("leave_type") or "연차"
+    
+    # 6. total_days 최종 결정 (반차는 무조건 0.5)
+    final_total_days = total_days or entities.get("total_days")
+    if final_leave_type == "반차":
+        final_total_days = 0.5
+    
     return ParsedLeaveIntent(
         action=action,
-        leave_type=entities.get("leave_type", existing_slots.get("leave_type", "연차")),
+        leave_type=final_leave_type,
         employee_id=employee_id,
         start_date=start_date_str,
         end_date=end_date_str,
-        total_days=total_days or entities.get("total_days"),
+        total_days=final_total_days,
         reason=entities.get("reason") or existing_slots.get("reason", "개인 사정"),
         request_id=selection_index,
     )
@@ -506,43 +527,154 @@ async def _handle_apply(
                     "message": f"❌ 잔여 연차가 부족합니다.\n현재 잔여: {remaining}일, 필요: {total_days}일"
                 }
         
-        # 2. Google Calendar 일정 충돌 체크
+        # 2. 데이터베이스 일정 충돌 체크
         try:
-            # 날짜 문자열을 datetime으로 변환
-            start_date_obj = datetime.strptime(parsed.start_date, "%Y-%m-%d")
-            end_date_obj = datetime.strptime(parsed.end_date, "%Y-%m-%d")
-            
-            # 하루 종일 이벤트로 체크하기 위해 종료일에 +1일
-            check_end = end_date_obj + timedelta(days=1)
-            
-            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
-            start_aware = start_date_obj.replace(tzinfo=local_tz)
-            end_aware = check_end.replace(tzinfo=local_tz)
-            
-            # Google Calendar에서 해당 기간의 일정 조회
-            from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
-            try:
-                events = await scheduler.get_events(
-                    user_id=user_id,
-                    start_date=start_aware.astimezone(ZoneInfo("UTC")).strftime('%Y-%m-%dT%H:%M:%S') + "Z",
-                    end_date=end_aware.astimezone(ZoneInfo("UTC")).strftime('%Y-%m-%dT%H:%M:%S') + "Z"
+            # 날짜가 없으면 충돌 체크 생략
+            if not parsed.start_date or not parsed.end_date:
+                print(f"⚠️ 날짜 정보가 없어 일정 충돌 체크 생략: start_date={parsed.start_date}, end_date={parsed.end_date}")
+            else:
+                from datetime import date as date_type
+                
+                # 날짜 문자열을 date 객체로 변환
+                start_date_obj = date_type.fromisoformat(parsed.start_date)
+                end_date_obj = date_type.fromisoformat(parsed.end_date)
+                
+                conflicts = []
+                
+                # 1. 연차/반차 중복 체크 (leave_request 테이블)
+                existing_leaves = await scheduler.db.get_leave_list(
+                    employee_id=parsed.employee_id,
+                    status=None,  # 모든 상태 확인
+                    include_past=True
                 )
                 
-                if events:
-                    # 일정이 있으면 경고 메시지
-                    conflict_titles = [e.get('title', '제목 없음') for e in events[:3]]
-                    conflict_msg = "\n".join(f"- {title}" for title in conflict_titles)
+                for leave in existing_leaves:
+                    if leave.get('status') in ['대기', '승인']:
+                        existing_start = leave.get('start_date')
+                        existing_end = leave.get('end_date')
+                        
+                        if existing_start and existing_end:
+                            existing_start_date = existing_start if isinstance(existing_start, date_type) else date_type.fromisoformat(str(existing_start))
+                            existing_end_date = existing_end if isinstance(existing_end, date_type) else date_type.fromisoformat(str(existing_end))
+                            
+                            # 날짜 범위가 겹치는지 확인
+                            if not (end_date_obj < existing_start_date or start_date_obj > existing_end_date):
+                                conflicts.append(f"{leave.get('leave_type', '연차')} ({existing_start_date} ~ {existing_end_date})")
+                
+                # 2. 출장 일정 충돌 체크 (business_trip 테이블)
+                business_trips = await scheduler.db.get_business_trip_list(
+                    employee_id=parsed.employee_id,
+                    include_past=True
+                )
+                
+                for trip in business_trips:
+                    if trip.get('status') in ['대기', '승인']:
+                        trip_start = trip.get('start_time')
+                        trip_end = trip.get('end_time')
+                        
+                        if trip_start and trip_end:
+                            # datetime을 date로 변환
+                            if isinstance(trip_start, datetime):
+                                trip_start_date = trip_start.date()
+                            else:
+                                trip_start_date = date_type.fromisoformat(str(trip_start).split()[0])
+                            
+                            if isinstance(trip_end, datetime):
+                                trip_end_date = trip_end.date()
+                            else:
+                                trip_end_date = date_type.fromisoformat(str(trip_end).split()[0])
+                            
+                            # 날짜 범위가 겹치는지 확인
+                            if not (end_date_obj < trip_start_date or start_date_obj > trip_end_date):
+                                trip_title = trip.get('trip_title', '출장')
+                                conflicts.append(f"{trip_title} ({trip_start_date} ~ {trip_end_date})")
+                
+                # 3. 일반 일정 충돌 체크 (schedule 테이블 - leave 제외)
+                # 종료일 다음날 00:00:00으로 변환 (해당 날짜 포함)
+                end_datetime = datetime.combine(end_date_obj, datetime.max.time())
+                start_datetime = datetime.combine(start_date_obj, datetime.min.time())
+                
+                schedules = await scheduler.db.get_schedules(
+                    employee_id=parsed.employee_id,
+                    start_date=start_datetime,
+                    end_date=end_datetime
+                )
+                
+                for schedule_item in schedules:
+                    # leave 타입은 제외 (이미 위에서 체크함)
+                    if schedule_item.get('schedule_type') == 'leave':
+                        continue
+                    
+                    schedule_start = schedule_item.get('start_time')
+                    schedule_end = schedule_item.get('end_time')
+                    
+                    if schedule_start and schedule_end:
+                        # datetime을 date로 변환
+                        if isinstance(schedule_start, datetime):
+                            schedule_start_date = schedule_start.date()
+                        else:
+                            schedule_start_date = date_type.fromisoformat(str(schedule_start).split()[0])
+                        
+                        if isinstance(schedule_end, datetime):
+                            schedule_end_date = schedule_end.date()
+                        else:
+                            schedule_end_date = date_type.fromisoformat(str(schedule_end).split()[0])
+                        
+                        # 날짜 범위가 겹치는지 확인
+                        if not (end_date_obj < schedule_start_date or start_date_obj > schedule_end_date):
+                            schedule_title = schedule_item.get('title', '일정')
+                            conflicts.append(f"{schedule_title} ({schedule_start_date} ~ {schedule_end_date})")
+                
+                # 4. 회의실 예약 충돌 체크 (meeting_room_reservation 테이블)
+                room_reservations = await scheduler.db.get_room_reservations_by_user(
+                    employee_id=parsed.employee_id,
+                    include_past=True,
+                    limit=1000  # 충분히 큰 값
+                )
+                
+                for reservation in room_reservations:
+                    if reservation.get('status') in ['PENDING', 'CONFIRMED']:
+                        res_start = reservation.get('start_time')
+                        res_end = reservation.get('end_time')
+                        
+                        if res_start and res_end:
+                            # datetime을 date로 변환
+                            if isinstance(res_start, datetime):
+                                res_start_date = res_start.date()
+                            else:
+                                res_start_date = date_type.fromisoformat(str(res_start).split()[0])
+                            
+                            if isinstance(res_end, datetime):
+                                res_end_date = res_end.date()
+                            else:
+                                res_end_date = date_type.fromisoformat(str(res_end).split()[0])
+                            
+                            # 날짜 범위가 겹치는지 확인
+                            if not (end_date_obj < res_start_date or start_date_obj > res_end_date):
+                                res_title = reservation.get('title', '회의실 예약')
+                                conflicts.append(f"{res_title} ({res_start_date} ~ {res_end_date})")
+                
+                # 충돌이 있으면 에러 반환
+                if conflicts:
+                    conflict_msg = "\n".join(f"- {title}" for title in conflicts[:5])  # 최대 5개만 표시
                     return {
                         "ok": False,
                         "message": f"❌ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n일정이 있는 날에는 연차를 신청할 수 없습니다."
                     }
-            except GoogleAuthRequired as auth_error:
-                # 인증 필요 시 경고 후 진행
-                print(f"⚠️ Google Calendar 인증 필요 (일정 충돌 체크 생략): {auth_error}")
+                    
         except Exception as date_err:
             print(f"⚠️ 일정 충돌 체크 실패 (진행): {date_err}")
+            import traceback
+            print(traceback.format_exc())
         
-        # 3. 연차 신청
+        # 3. 연차 신청 전 날짜 확인
+        if not parsed.start_date or not parsed.end_date:
+            return {
+                "ok": False,
+                "message": "❌ 연차 신청을 위해서는 시작일과 종료일이 필요합니다. 날짜를 알려주세요."
+            }
+        
+        # 4. 연차 신청
         leave_data = {
             'employee_id': parsed.employee_id,
             'leave_type': parsed.leave_type,
@@ -553,12 +685,20 @@ async def _handle_apply(
             'status': '대기',
         }
         
-        result = await scheduler.create_leave_request(
-            user_id=user_id,
-            leave_data=leave_data
-        )
+        print(f"[연차 신청] DB 저장 시작: employee_id={parsed.employee_id}, start_date={parsed.start_date}, end_date={parsed.end_date}, total_days={total_days}")
+        try:
+            leave_request_result = await scheduler.create_leave_request(
+                user_id=user_id,
+                leave_data=leave_data
+            )
+            print(f"[연차 신청] DB 저장 성공: request_id={leave_request_result.get('request_id')}")
+        except Exception as e:
+            print(f"❌ [연차 신청] DB 저장 실패: {e}")
+            import traceback
+            print(f"❌ [연차 신청] 트레이스백: {traceback.format_exc()}")
+            raise  # 예외를 다시 던져서 상위에서 처리하도록
         
-        # 4. Google Calendar에 연차 일정 등록
+        # 5. Google Calendar에 연차 일정 등록
         try:
             from zoneinfo import ZoneInfo
             from agents.master_graphs.schedule.services.google_calendar_service import GoogleAuthRequired
@@ -566,19 +706,18 @@ async def _handle_apply(
             start_date_obj = datetime.strptime(parsed.start_date, "%Y-%m-%d")
             end_date_obj = datetime.strptime(parsed.end_date, "%Y-%m-%d")
             
-            local_tz = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Seoul"))
-            # 종료일 포함 (하루 종일 이벤트)
-            start_aware = start_date_obj.replace(tzinfo=local_tz)
-            end_aware = (end_date_obj + timedelta(days=1)).replace(tzinfo=local_tz)
+            # 하루 종일 이벤트: Google Calendar는 종료일을 포함하지 않으므로 +1일
+            end_date_for_calendar = (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
             
             event_data = {
                 "title": f"{parsed.leave_type}",
                 "description": f"사유: {parsed.reason}",
-                "start_time": start_aware.isoformat(),
-                "end_time": end_aware.isoformat(),
+                "start_time": parsed.start_date,  # YYYY-MM-DD 형식
+                "end_time": end_date_for_calendar,  # YYYY-MM-DD 형식 (종료일 +1일)
                 "schedule_type": "leave",
                 "employee_id": parsed.employee_id,
             }
+            print(f"[연차 신청] Google Calendar 이벤트 데이터: start_date={parsed.start_date}, end_date={end_date_for_calendar}")
             
             created_event = await scheduler.create_event(
                 user_id=user_id,
@@ -586,13 +725,28 @@ async def _handle_apply(
             )
             
             if created_event:
-                print(f"✅ 연차 일정이 Google Calendar에 등록되었습니다: {created_event.get('gcal_event', {}).get('id')}")
+                gcal_event_id = created_event.get('gcal_event', {}).get('id')
+                print(f"✅ 연차 일정이 Google Calendar에 등록되었습니다: {gcal_event_id}")
+                
+                # ✅ event_metadata에 reference_id 저장 (leave_request.id)
+                if gcal_event_id and leave_request_result.get('request_id'):
+                    try:
+                        await scheduler.db.save_event_metadata({
+                            "gcal_event_id": gcal_event_id,
+                            "user_id": user_id,
+                            "schedule_type": "leave",
+                            "reference_id": leave_request_result.get('request_id'),  # ✅ leave_request.id 저장
+                            "created_at": datetime.now(),
+                        })
+                        print(f"✅ event_metadata에 reference_id 저장 완료: {leave_request_result.get('request_id')}")
+                    except Exception as e:
+                        print(f"⚠️ event_metadata에 reference_id 저장 실패: {e}")
         except GoogleAuthRequired as auth_error:
             print(f"⚠️ Google Calendar 인증 필요 (연차는 DB에 저장됨): {auth_error}")
         except Exception as e:
             print(f"⚠️ Google Calendar 등록 실패 (연차는 DB에 저장됨): {e}")
         
-        # 5. 잔여 연차 차감 (승인된 것으로 간주)
+        # 6. 잔여 연차 차감 (승인된 것으로 간주)
         if parsed.leave_type in ["연차", "반차"]:
             new_remaining = remaining - total_days
             current_used = balance.get('used_days', 0)
@@ -612,30 +766,33 @@ async def _handle_apply(
             WHERE employee_id = :employee_id AND year = :year
             """
             
-            async with scheduler.db._session() as session:
-                await session.execute(
-                    text(update_sql),
-                    {
-                        "employee_id": parsed.employee_id,
-                        "year": balance.get('year', datetime.now().year),
-                        "used_days": new_used,
-                        "remaining_days": new_remaining,
-                    }
-                )
-                await session.commit()
+            balance_year = balance.get('year', datetime.now().year)
+            update_params = {
+                "employee_id": parsed.employee_id,
+                "year": balance_year,
+                "used_days": new_used,
+                "remaining_days": new_remaining,
+            }
+            
+            print(f"[연차 차감] UPDATE 실행: employee_id={parsed.employee_id}, year={balance_year}, used_days={new_used}, remaining_days={new_remaining}")
+            
+            async with scheduler.db._session(transactional=True) as session:
+                update_result = await session.execute(text(update_sql), update_params)
+                rows_affected = update_result.rowcount
+                print(f"[연차 차감] UPDATE 성공: rows_affected={rows_affected}")
             
             print(f"[연차 차감 완료] employee_id={parsed.employee_id}, used={new_used}, remaining={new_remaining}")
             
             return {
                 "ok": True,
                 "message": f"✅ {parsed.leave_type} 신청이 완료되었습니다!\n\n기간: {parsed.start_date} ~ {parsed.end_date}\n사용 일수: {total_days}일\n잔여 연차: {new_remaining}일",
-                "request_id": result.get('request_id'),
+                "request_id": leave_request_result.get('request_id'),
             }
         else:
             return {
                 "ok": True,
-                "message": result.get('message', f'✅ {parsed.leave_type} 신청이 완료되었습니다.'),
-                "request_id": result.get('request_id'),
+                "message": leave_request_result.get('message', f'✅ {parsed.leave_type} 신청이 완료되었습니다.'),
+                "request_id": leave_request_result.get('request_id'),
             }
     
     except Exception as e:
@@ -729,27 +886,52 @@ async def _handle_cancel(
         
         return {"ok": False, "message": "올바른 번호를 선택해주세요."}
     
-    # 후보 목록 조회 (대기 + 승인된 연차 모두 조회)
+    # 후보 목록 조회 (대기 + 승인된 연차만 조회, 미래 날짜만)
     try:
-        # 대기 중인 연차 조회
+        from datetime import date
+        
+        # 대기 중인 연차 조회 (미래 날짜만)
         pending_leaves = await scheduler.db.get_leave_list(
             employee_id=parsed.employee_id,
             status='대기',
-            include_past=False
+            include_past=False  # ✅ 미래 날짜만 조회
         )
         
-        # 승인된 연차도 조회 (취소 가능)
+        # 승인된 연차도 조회 (취소 가능, 미래 날짜만)
         approved_leaves = await scheduler.db.get_leave_list(
             employee_id=parsed.employee_id,
             status='승인',
-            include_past=False
+            include_past=False  # ✅ 미래 날짜만 조회
         )
         
         # 두 목록 합치기
         all_leaves = pending_leaves + approved_leaves
         
+        # leave_type 필터링 (연차 취소해줘 → 연차만, 반차 취소해줘 → 반차만)
+        if parsed.leave_type in ["연차", "반차"]:
+            all_leaves = [leave for leave in all_leaves if leave.get('leave_type') == parsed.leave_type]
+        
+        # 추가로 오늘 이후 날짜만 필터링 (안전장치)
+        today = date.today()
+        filtered_leaves = []
+        for leave in all_leaves:
+            start_date = leave.get('start_date')
+            if not start_date:
+                continue
+            # 문자열인 경우 date 객체로 변환
+            if isinstance(start_date, str):
+                try:
+                    start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                except (ValueError, TypeError):
+                    continue
+            # date 객체인 경우 직접 비교
+            if isinstance(start_date, date) and start_date >= today:
+                filtered_leaves.append(leave)
+        all_leaves = filtered_leaves
+        
         if not all_leaves:
-            return {"ok": False, "message": "취소 가능한 연차 신청이 없습니다."}
+            leave_type_text = parsed.leave_type if parsed.leave_type in ["연차", "반차"] else "연차/반차"
+            return {"ok": False, "message": f"취소 가능한 {leave_type_text} 신청이 없습니다."}
         
         # 최근 순으로 정렬 (request_date 기준)
         all_leaves.sort(key=lambda x: x.get('request_date', ''), reverse=True)
@@ -757,14 +939,16 @@ async def _handle_cancel(
         context["cancel_candidates"] = all_leaves[:10]
         context["awaiting_slots"] = ["cancel_selection"]
         
-        message = "📋 취소 가능한 연차 신청 목록:\n\n"
+        # leave_type에 따라 메시지 변경
+        leave_type_text = parsed.leave_type if parsed.leave_type in ["연차", "반차"] else "연차/반차"
+        message = f"📋 취소 가능한 {leave_type_text} 신청 목록:\n\n"
         for idx, item in enumerate(all_leaves[:10], 1):
             status_text = "대기" if item.get('status') == '대기' else "승인"
             message += f"{idx}. {item.get('leave_type')} {item.get('total_days')}일 ({status_text})\n"
             message += f"   기간: {item.get('start_date')} ~ {item.get('end_date')}\n"
             message += f"   사유: {item.get('reason', '-')}\n\n"
         
-        message += "\n취소할 연차 번호를 입력해주세요. (예: 1)"
+        message += f"\n취소할 {leave_type_text} 번호를 입력해주세요. (예: 1)"
         
         return {"ok": False, "message": message}
     
@@ -786,7 +970,7 @@ async def _handle_update(
         
         # LLM으로 수정 내용 파싱
         entities = await extract_leave_entities(parsed.reason)  # reason에 query가 들어있음
-        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""))
+        start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""), allow_past_dates=False)
         
         update_data = {}
         

@@ -14,6 +14,7 @@ from agents.state import OrchestratorState
 from agents.llm_router import classify_intent_with_llm
 from agents.master_graphs.base import BaseMasterGraph
 from agents.master_graphs.document.generate.doc_generate_agent import doc_generate
+from agents.master_graphs.document.generate.recruitment_doc_service import RecruitmentDocService
 
 # LLM 관련 optional import
 try:
@@ -81,7 +82,19 @@ class DocumentMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
         
-        # 0단계: 결재 진행 요청 확인 (최우선 처리)
+        # 0단계: 워크플로우 감지 및 결재 진행 요청 확인 (최우선 처리)
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        workflow_type = state.get("workflow_type")
+        current_workflow_step_index = state.get("current_workflow_step_index", 0)
+
+        # recruitment 워크플로우의 평가표 생성 단계인 경우
+        if workflow_in_progress and workflow_type == "recruitment" and current_workflow_step_index == 3:
+            print(f"✅ 워크플로우 모드 감지: {workflow_type} (Step 3) → generate로 자동 라우팅")
+            return {
+                "intent": "generate",
+                "template_name": "interview_evaluation_form",
+            }
+
         document_context = state.get("document_context", {})
         proceed_keywords = ["진행", "예", "네", "yes", "ok", "확인", "계속"]
         is_proceed = any(kw in query for kw in proceed_keywords)
@@ -202,6 +215,22 @@ class DocumentMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         orchestrator_state = state  # orchestrator_state는 state와 동일
         
+        # ⚠️ 취소/종료 요청 처리 (최우선)
+        cancel_keywords = ["취소", "종료", "그만", "stop", "cancel"]
+        if any(k == query.strip() for k in cancel_keywords):
+            print(f"🛑 [Document] 워크플로우 취소 요청 감지: {query}")
+            return {
+                "final_response": "워크플로우가 취소되었습니다. 모든 임시 데이터가 초기화됩니다.",
+                "messages": ["워크플로우 취소"],
+                "workflow_in_progress": False,
+                "workflow_type": None,
+                "workflow_steps": None,
+                "current_workflow_step_index": None,
+                "workflow_temp_data": {},  # 임시 데이터 초기화
+                "document_context": {},    # 문서 컨텍스트 초기화
+                "requires_input": False
+            }
+        
         # 워크플로우 모드 확인
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
@@ -209,12 +238,17 @@ class DocumentMasterGraph(BaseMasterGraph):
         current_step_index = state.get("current_workflow_step_index", 0)
         current_step_number = current_step_index + 1
         
+        # 템플릿명 초기화 (State에서 먼저 가져옴)
+        template_name = state.get("template_name")
+        
         # 디버깅: Step에서 받은 workflow_temp_data 확인
         print(f"🔍 [Step {current_step_number}] state에서 받은 workflow_temp_data: {workflow_temp_data}")
-        print(f"🔍 [Step {current_step_number}] workflow_temp_data keys: {list(workflow_temp_data.keys())}")
         
         # 워크플로우 모드이고 business_trip 워크플로우인 경우
         if workflow_in_progress and workflow_type == "business_trip":
+            # 템플릿명 설정
+            template_name = "business_trip_request_form"
+            
             # workflow_temp_data에서 필요한 정보 확인
             start_time_str = workflow_temp_data.get("start_time")
             end_time_str = workflow_temp_data.get("end_time")
@@ -223,21 +257,14 @@ class DocumentMasterGraph(BaseMasterGraph):
             
             # query에서 정보 추출 시도 (LLM 사용) - 기존 값이 없거나 불완전한 경우
             if query and query.strip() and (not description or not destination):
-                print(f"🔍 [Step {current_step_number}] LLM 추출 시도 - query: '{query.strip()}', 현재 description: '{description}', 현재 destination: '{destination}'")
+                print(f"🔍 [Step {current_step_number}] LLM 추출 시도 - query: '{query.strip()}'")
                 try:
                     from agents.structured_output import extract_structured_output, BusinessTripInfo
                     from agents.master_graphs.document.document_utils import get_business_trip_info_extraction_prompt
                     
-                    # 프롬프트 로드
                     extraction_prompt_template = get_business_trip_info_extraction_prompt()
-                    print(f"🔍 [Step {current_step_number}] 프롬프트 로드 완료: {len(extraction_prompt_template) if extraction_prompt_template else 0}자")
-                    
                     if extraction_prompt_template:
-                        # .format() 대신 .replace() 사용 (JSON 예시의 중괄호와 충돌 방지)
                         extraction_prompt = extraction_prompt_template.replace("{query}", query.strip())
-                        print(f"🔍 [Step {current_step_number}] LLM 호출 시작... (query: '{query.strip()}')")
-                        
-                        # LLM으로 추출
                         extracted_info = await extract_structured_output(
                             query=query.strip(),
                             model_class=BusinessTripInfo,
@@ -245,44 +272,22 @@ class DocumentMasterGraph(BaseMasterGraph):
                             temperature=0.0
                         )
                         
-                        print(f"🔍 [Step {current_step_number}] LLM 응답 수신: description='{extracted_info.description}', destination='{extracted_info.destination}'")
-                        
-                        # 추출된 정보로 업데이트 (기존 값이 없을 때만)
                         if extracted_info.description and not description:
                             description = extracted_info.description
                             workflow_temp_data["description"] = description
-                            print(f"✅ [Step {current_step_number}] LLM으로 description 추출: '{description}'")
                         if extracted_info.destination and not destination:
                             destination = extracted_info.destination
                             workflow_temp_data["destination"] = destination
-                            print(f"✅ [Step {current_step_number}] LLM으로 destination 추출: '{destination}'")
-                    else:
-                        print(f"⚠️ [Step {current_step_number}] 프롬프트가 비어있습니다.")
                 except Exception as e:
-                    import traceback
-                    error_detail = traceback.format_exc()
                     print(f"⚠️ [Step {current_step_number}] LLM 추출 실패: {e}")
-                    print(f"⚠️ [Step {current_step_number}] 에러 상세 (처음 800자):\n{error_detail[:800]}")
-                    print(f"⚠️ [Step {current_step_number}] 기존 로직 사용")
-            
-            # 디버깅: 각 필드 확인
-            print(f"🔍 [Step {current_step_number}] start_time_str: {start_time_str}")
-            print(f"🔍 [Step {current_step_number}] end_time_str: {end_time_str}")
-            print(f"🔍 [Step {current_step_number}] destination: {destination}")
-            print(f"🔍 [Step {current_step_number}] description: {description}")
             
             # 필요한 값들 확인 및 누락된 값 수집
             missing_fields = []
-            if not start_time_str:
-                missing_fields.append("출장 시작일")
-            if not end_time_str:
-                missing_fields.append("출장 종료일")
-            if not description or len(description.strip()) < 3:
-                missing_fields.append("출장 사유")
-            if not destination or len(destination.strip()) < 1:
-                missing_fields.append("출장지")
+            if not start_time_str: missing_fields.append("출장 시작일")
+            if not end_time_str: missing_fields.append("출장 종료일")
+            if not description or len(description.strip()) < 3: missing_fields.append("출장 사유")
+            if not destination or len(destination.strip()) < 1: missing_fields.append("출장지")
             
-            # 누락된 값이 있으면 HITL로 요청
             if missing_fields:
                 buttons_html = """
 <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -301,65 +306,70 @@ class DocumentMasterGraph(BaseMasterGraph):
                     "requires_input": True,
                 }
             
-            # workflow_temp_data에 description과 destination 저장
-            if description:
-                workflow_temp_data["description"] = description
-            if destination:
-                workflow_temp_data["destination"] = destination
-            
-            # 템플릿명 설정 (출장 신청서)
-            template_name = "business_trip_request_form"
-            
-            # ⚠️ 중요: state에 template_name 설정 (결재 진행 버튼 표시를 위해)
-            state["template_name"] = template_name
-            
             title = workflow_temp_data.get("title", "출장")
-            description = workflow_temp_data.get("description", "")
-            
-            # 출장 사유 구성: title과 description을 조합
-            # title: description 형식 (예: "제주도 출장: 거래처 미팅")
-            if title and description:
-                trip_reason = f"{title}: {description}"
-            elif title:
-                trip_reason = title
-            elif description:
-                trip_reason = description
-            else:
-                trip_reason = "출장"
-            
-            # 요구사항 구성
-            requirements = f"출장 기간: {start_time_str} ~ {end_time_str}\n"
-            if destination:
-                requirements += f"목적지: {destination}\n"
-            requirements += f"출장 사유: {trip_reason}\n"
-            requirements += f"제목: {title}"
-            
+            trip_reason = f"{title}: {description}" if title and description else (description or title or "출장")
+            requirements = f"출장 기간: {start_time_str} ~ {end_time_str}\n목적지: {destination}\n출장 사유: {trip_reason}\n제목: {title}"
             document_title = title
             
-            # ⚠️ document_title이 없거나 기본값이면 workflow_temp_data에서 가져오기
-            if not document_title or document_title == "출장":
-                document_title = workflow_temp_data.get("title", "출장 신청서")
-                print(f"🔍 [워크플로우 모드] document_title 재설정: {document_title}")
-            
-            # ⚠️ document_title이 여전히 없으면 기본값 설정
-            if not document_title:
-                document_title = "출장 신청서"
-                print(f"⚠️ [워크플로우 모드] document_title이 없어 기본값 사용: {document_title}")
-            
-            print(f"✅ [워크플로우 모드] 출장 신청서 작성: {title}")
-            print(f"   기간: {start_time_str} ~ {end_time_str}")
-            print(f"   목적지: {destination}")
-            print(f"   사유: {trip_reason}")
-            print(f"   document_title: {document_title}")
-            print(f"   template_name: {template_name}")
+        elif workflow_in_progress and workflow_type == "recruitment" and current_step_index == 3:
+            # recruitment 워크플로우: 면접 평가표 생성 (전용 서비스 사용)
+            print(f"🚀 [워크플로우 모드] 면접 평가표 전용 서비스 호출")
+            try:
+                final_html = await RecruitmentDocService.generate_interview_evaluation(state)
+                
+                # 대화 히스토리 업데이트
+                from agents.state import Message
+                from datetime import datetime as dt_now
+                
+                # 완성 메시지 구성
+                from agents.orchestrator_v3 import load_workflows_config
+                workflows = load_workflows_config()
+                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                completion_message = workflow_config.get("completion_message", "채용 워크플로우가 모두 완료되었습니다.")
+                
+                completion_text = f"**[워크플로우 완료]**\n{completion_message}\n\n✅ **채용 프로세스 모든 단계가 완료되었습니다.** 임시 데이터가 초기화됩니다."
+                
+                # HTML과 텍스트 사이에 구분자 삽입
+                response_content = final_html + "<!-- WORKFLOW_COMPLETION_SEPARATOR -->" + completion_text
+                
+                assistant_message: Message = {
+                    "role": "assistant",
+                    "content": response_content,
+                    "timestamp": dt_now.now().isoformat()
+                }
+                conversation_history = state.get("conversation_history", [])
+                conversation_history.append(assistant_message)
+                
+                return {
+                    "final_response": response_content,
+                    "document_content": final_html,
+                    "messages": ["면접 평가표가 생성되었습니다."],
+                    "workflow_in_progress": False,  # 워크플로우 종료
+                    "workflow_type": None,
+                    "workflow_steps": None,
+                    "current_workflow_step_index": None,
+                    "workflow_temp_data": {}, # 초기화
+                    "document_context": {
+                        "last_generated_html": final_html,
+                        "last_template_type": "interview_evaluation_form"
+                    },
+                    "conversation_history": conversation_history,
+                    "requires_input": False,
+                    "show_document_update_ui": False
+                }
+            except Exception as e:
+                print(f"❌ [RecruitmentDocService] 생성 실패: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "final_response": f"❌ 면접 평가표 생성 중 오류가 발생했습니다: {str(e)}",
+                    "messages": ["면접 평가표 생성 실패"],
+                    "requires_input": True
+                }
         else:
-            # 일반 모드 (기존 로직)
-            # Redis 기반 컨텍스트 초기화
+            # 일반 모드
             if orchestrator_state.get("document_context") is None:
                 orchestrator_state["document_context"] = {}
-            
-            # State에서 템플릿명 가져오기 (route_intent에서 이미 매핑됨)
-            template_name = state.get("template_name")
             
             document_title = None
             requirements = None
@@ -523,8 +533,8 @@ class DocumentMasterGraph(BaseMasterGraph):
         # 단, 워크플로우 모드에서는 예시문을 출력하지 않음
         if not document_title and not requirements:
             # 워크플로우 모드에서는 템플릿 예시를 출력하지 않음
-            if workflow_in_progress and workflow_type == "business_trip":
-                print("📋 워크플로우 모드: 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
+            if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
+                print(f"📋 워크플로우 모드({workflow_type}): 템플릿 예시 출력 건너뜀 (이미 필요한 정보 확인 완료)")
                 # 워크플로우 모드에서는 여기 도달하지 않아야 함 (위에서 이미 처리됨)
                 # 하지만 안전을 위해 그냥 진행
             else:
@@ -553,14 +563,14 @@ class DocumentMasterGraph(BaseMasterGraph):
                 }
         
         # DB 데이터 매핑을 위한 정보 추출
-        db_data = await self._fetch_db_data_for_template(template_name, query, requirements)
+        db_data = await self._fetch_db_data_for_template(template_name, query, requirements, state)
         
         # Redis 기반 컨텍스트 초기화
         if orchestrator_state.get("document_context") is None:
             orchestrator_state["document_context"] = {}
         
         # ⚠️ 중요: workflow_temp_data를 orchestrator_state에 저장 (extractor_func에서 사용하기 위해)
-        if workflow_in_progress and workflow_type == "business_trip":
+        if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
             orchestrator_state["workflow_temp_data"] = workflow_temp_data
             print(f"✅ [워크플로우 모드] orchestrator_state에 workflow_temp_data 저장: {list(workflow_temp_data.keys())}")
             print(f"🔍 [워크플로우 모드] workflow_temp_data 상세:")
@@ -620,37 +630,33 @@ class DocumentMasterGraph(BaseMasterGraph):
             final_response = document_content
             
             # 출장/휴가 신청서인 경우 워크플로우 모드와 일반 요청 모드 모두 결재 진행 여부 확인
-            template_name = state.get("template_name")
             is_approval_required = template_name in ["business_trip_request_form", "vacation_request_form"]
             
             if is_approval_required:
                 buttons_html = """
 <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
     <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
-        ✅ 진행
+        ✅ 결재 진행
     </button>
     <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
         ❌ 취소
     </button>
 </div>
 """
+                doc_type = "출장 신청서" if template_name == "business_trip_request_form" else "휴가 신청서"
                 
                 # 워크플로우 모드: 문서 작성 후 결재 진행 여부 확인
                 if workflow_in_progress and workflow_type == "business_trip":
-                    # ⚠️ 수정: description 조건 제거 - 항상 결재 진행 버튼 표시
                     # 현재 단계 번호 계산
                     current_step_index = state.get("current_workflow_step_index", 0)
                     current_step_number = current_step_index + 1
                     # Step 완료 메시지 추가
-                    step_complete_msg = f"\n\n✅ [Step {current_step_number} 완료] 출장 신청서가 생성되었습니다."
+                    step_complete_msg = f"\n\n✅ [Step {current_step_number} 완료] {doc_type} 생성이 완료되었습니다."
                     # 결재 진행 여부 확인 메시지 추가
-                    approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
+                    approval_message = "\n\n내용을 확인하신 후 결재를 진행하시겠습니까?" + buttons_html
                     final_response = document_content + step_complete_msg + approval_message
-                    # workflow_temp_data 업데이트
-                    workflow_temp_data["description"] = workflow_temp_data.get("description")
                 else:
                     # 일반 요청 모드: 출장/휴가 신청서인 경우 결재 진행 여부 확인
-                    doc_type = "출장 신청서" if template_name == "business_trip_request_form" else "휴가 신청서"
                     complete_msg = f"\n\n✅ {doc_type}가 생성되었습니다."
                     approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
                     final_response = document_content + complete_msg + approval_message
@@ -678,20 +684,18 @@ class DocumentMasterGraph(BaseMasterGraph):
             "document_context": orchestrator_state["document_context"],  # Redis 컨텍스트 반환 (HTML 포함)
         }
         
-        # 워크플로우 모드: workflow_temp_data 반환
-        if workflow_in_progress and workflow_type == "business_trip":
-            return_result["workflow_temp_data"] = workflow_temp_data
-            return_result["requires_input"] = True  # 결재 진행 여부 확인을 위한 플래그
-        
-        # 일반 요청 모드: 출장/휴가 신청서인 경우 결재 진행 여부 확인을 위한 플래그
-        template_name = state.get("template_name")
-        if template_name in ["business_trip_request_form", "vacation_request_form"]:
+        # 결재가 필요한 경우 상태 업데이트
+        if is_approval_required:
             return_result["requires_input"] = True  # 결재 진행 여부 확인을 위한 플래그
             # document_context에 결재 대기 상태 저장
             if orchestrator_state.get("document_context") is None:
                 orchestrator_state["document_context"] = {}
             orchestrator_state["document_context"]["approval_pending"] = True
             orchestrator_state["document_context"]["template_name"] = template_name
+            
+            # 워크플로우 모드인 경우 workflow_temp_data도 포함
+            if workflow_in_progress and workflow_type == "business_trip":
+                return_result["workflow_temp_data"] = workflow_temp_data
         
         return return_result
     
@@ -944,7 +948,8 @@ class DocumentMasterGraph(BaseMasterGraph):
         self, 
         template_name: Optional[str], 
         query: str, 
-        requirements: Optional[str]
+        requirements: Optional[str],
+        state: OrchestratorState
     ) -> Dict[str, Any]:
         """템플릿에 필요한 DB 데이터를 조회합니다 (Data Binding).
         
