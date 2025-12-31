@@ -1841,7 +1841,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "current_workflow_step_index": current_workflow_step_index,
                 "requires_input": True # 후보자 선택을 위해 입력 대기
             }
-
+        
         return {
             "final_response": response,
             "messages": [response],
@@ -2028,7 +2028,7 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 "next_domain": "schedule", # 다음 도메인
                 "requires_input": False, # ✅ 다음 도메인의 질문을 즉시 받기 위해 False로 변경
                 "query": "면접 일정" # ✅ 다음 도메인으로 넘어갈 때 쿼리 정규화 (전환 신호로만 사용)
-            }
+        }
         
         return {
             "final_response": result.get("message", "이력서 요약을 완료했습니다."),

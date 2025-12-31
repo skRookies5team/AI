@@ -557,7 +557,7 @@ class SessionManager:
                     "document_context": state.get("document_context", existing_data.get("document_context", {})),
                     "recruitment_context": state.get("recruitment_context", existing_data.get("recruitment_context", {})),
                     "last_domain": state.get("last_domain", existing_data.get("last_domain")),  # last_domain 저장
-                    # ⚠️ 워크플로우 관련 필드 추가 (state에 실제 데이터가 있으면 state 값 사용, 없거나 None이면 existing_data 사용)
+                    # ⚠️ 워크플로우 관련 필드 추가 (기본값 설정)
                     "workflow_temp_data": (
                         state_wtd 
                         if (state_wtd := state.get("workflow_temp_data")) 
@@ -575,6 +575,19 @@ class SessionManager:
                     "updated_at": now,
                     "last_updated": now  # 호환성을 위해 유지
                 }
+                
+                # ✅ 워크플로우 완료 시(workflow_in_progress=False) 명시적으로 초기화하여 저장
+                workflow_in_progress = state.get("workflow_in_progress")
+                if workflow_in_progress is False:
+                    # 워크플로우 완료 시 모든 워크플로우 정보 초기화
+                    data["workflow_temp_data"] = {}
+                    data["workflow_type"] = None
+                    data["workflow_steps"] = []
+                    data["current_workflow_step_index"] = None
+                    data["workflow_completed_steps"] = []
+                    data["workflow_in_progress"] = False
+                    data["next_domain"] = None
+                    print(f"✅ [SessionManager] 워크플로우 완료 상태 저장: 모든 워크플로우 정보 초기화")
                 
                 # created_at은 기존 값 유지, 없으면 현재 시간
                 if "created_at" in existing_data:

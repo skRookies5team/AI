@@ -150,10 +150,11 @@ def process_domain_node_result(
 
     # 3. UI 플래그 초기화 및 설정 (결과에 없으면 False로 설정하여 이전 플래그 제거)
     ui_flags = [
-        "requires_date_range_input", 
-        "requires_interviewer_selection", 
+        "requires_date_range_input",
+        "requires_interviewer_selection",
         "requires_slot_selection",
-        "requires_duration_selection"
+        "requires_duration_selection",
+        "show_document_update_ui"
     ]
     for flag in ui_flags:
         if flag not in result:
@@ -185,7 +186,8 @@ def process_domain_node_result(
             workflow_type_en = "Workflow"
         
         # last_domain을 워크플로우 단계 정보로 설정 (예: "Apply for a business trip step1")
-        result["last_domain"] = f"{workflow_type_en} step{current_step_index + 1}"
+        display_step = (current_step_index or 0) + 1
+        result["last_domain"] = f"{workflow_type_en} step{display_step}"
         print(f"✅ 워크플로우 last_domain 설정: {result['last_domain']}")
     else:
         # 워크플로우가 아닐 때는 기본 도메인 사용

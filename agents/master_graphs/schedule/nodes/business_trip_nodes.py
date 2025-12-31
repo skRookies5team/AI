@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
+import re
 
 from agents.state import OrchestratorState
 from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
@@ -87,9 +88,10 @@ async def process_business_trip_request(state: OrchestratorState) -> Dict[str, A
             else:
                 # Step 1 (document) 또는 Step 3 (email)는 다른 도메인에서 처리
                 expected_domain = workflow_steps[current_workflow_step_index] if current_workflow_step_index < len(workflow_steps) else 'unknown'
+                display_step = (current_workflow_step_index or 0) + 1
                 return {
-                    "final_response": f"❌ 워크플로우 단계 오류: Step {current_workflow_step_index + 1}는 {expected_domain} 도메인에서 처리되어야 합니다.",
-                    "messages": [f"워크플로우 단계 오류: Step {current_workflow_step_index + 1}"],
+                    "final_response": f"❌ 워크플로우 단계 오류: Step {display_step}는 {expected_domain} 도메인에서 처리되어야 합니다.",
+                    "messages": [f"워크플로우 단계 오류: Step {display_step}"],
                     "schedule_context": state.get("schedule_context", {}),
                 }
     
@@ -991,6 +993,19 @@ async def _handle_workflow_step1_check_conflicts(
             query, 
             current_datetime=current_datetime  # orchestrator의 현재 시간 전달
         )
+        
+        # ✅ 날짜가 파싱되었지만 is_precise가 false인 경우, 실제로 명확한 날짜 범위 표현인지 재평가
+        if start_date_obj and not is_precise:
+            query_lower = query.lower()
+            # 구체적인 월/일이 포함된 패턴 확인 (예: "1월 5일", "12월 29일")
+            month_day_pattern = re.compile(r'\d+월\s*\d+일')
+            # 연도가 포함된 날짜 패턴 확인 (예: "2026-01-05", "2025-12-29")
+            year_month_day_pattern = re.compile(r'\d{4}-\d{2}-\d{2}')
+            
+            if month_day_pattern.search(query_lower) or year_month_day_pattern.search(query_lower):
+                # 명확한 날짜 범위 표현이면 is_precise를 true로 재평가
+                print(f"✅ 명확한 날짜 범위 표현 감지: '{query}' → is_precise를 true로 재평가")
+                is_precise = True
         
         # ✅ 고도화 로직: 날짜가 모호하거나 없는 경우 처리
         if not start_date_obj or not is_precise:

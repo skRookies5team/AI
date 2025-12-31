@@ -3620,6 +3620,11 @@
                                     finalResult = data;
                                     hideStatusMessage();
                                     
+                                    // ✅ 새로운 응답 처리 시작 시 항상 이전 UI 초기화
+                                    if (typeof hideDocumentUpdateUI === 'function') {
+                                        hideDocumentUpdateUI();
+                                    }
+                                    
                                     // 세션 ID 업데이트 및 히스토리 새로고침
                                     if (data.session_id) {
                                         const isNewSession = data.session_id !== currentSessionId;
@@ -3695,8 +3700,9 @@
                                         // ✅ UI가 이미 메시지를 포함하므로 addBotMessage 제거
                                     }
                                     // 문서 업데이트 UI 표시 요청 (최우선 처리)
-                                    else if (shouldShowDocumentUpdateUI || 
-                                        (lastDomain === 'document' && botMessage && 
+                                    // 명시적으로 false가 오면 키워드 체크 무시
+                                    else if (data.show_document_update_ui === true || 
+                                        (data.show_document_update_ui !== false && lastDomain === 'document' && botMessage && 
                                          (botMessage.includes('업데이트') || botMessage.includes('📤') || 
                                           botMessage.includes('파일을 선택')))) {
                                         console.log('✅ 문서 업데이트 UI 표시');
@@ -3726,8 +3732,24 @@
                                     }
                                     // HTML 문서가 생성된 경우 채팅창에 표시 (예시문이 아닐 때만)
                                     else if (documentPath || (botMessage && (botMessage.includes('<!DOCTYPE') || botMessage.includes('<html') || botMessage.length > 5000))) {
-                                        console.log('✅ HTML 문서 표시');
-                                        await addHTMLDocumentToChat(botMessage, documentPath);
+                                        // HTML 문서와 일반 메시지가 섞여 있는 경우 분리 처리
+                                        if (botMessage && botMessage.includes('<!-- WORKFLOW_COMPLETION_SEPARATOR -->')) {
+                                            console.log('✅ 문서와 완료 메시지 분리 처리');
+                                            const parts = botMessage.split('<!-- WORKFLOW_COMPLETION_SEPARATOR -->');
+                                            const htmlPart = parts[0];
+                                            const textPart = parts[1];
+                                            
+                                            // 1. 먼저 HTML 문서 표시
+                                            await addHTMLDocumentToChat(htmlPart, documentPath);
+                                            
+                                            // 2. 약간의 지연 후 완료 메시지를 별도 말풍선으로 표시
+                                            setTimeout(() => {
+                                                addBotMessage(textPart, []);
+                                            }, 500);
+                                        } else {
+                                            console.log('✅ HTML 문서 표시');
+                                            await addHTMLDocumentToChat(botMessage, documentPath);
+                                        }
                                     } else if (botMessage.includes('문서') || botMessage.includes('작성') || botMessage.includes('계획서')) {
                                         addBotMessage(botMessage, ['자세히 알려주세요', '문서 작성 폼 열기']);
                                     } else {

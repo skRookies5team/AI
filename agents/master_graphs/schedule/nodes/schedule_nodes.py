@@ -1179,7 +1179,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 if not interview_context.get("date_range"):
                     interview_context["requires_date_range"] = True
                 state["schedule_context"]["interview"] = interview_context
-
+        
         # 🔥 새로운 면접 일정 요청인지 확인 (면접 키워드가 있고 기간이 없으면 초기화)
         interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
         is_new_request = any(keyword in query.lower() for keyword in interview_keywords)
@@ -1260,7 +1260,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         interview_context["selected_interviewers"] = selected_interviewers
                         state["schedule_context"]["interview"] = interview_context
                         print(f"✅ [면접 일정] DB에서 면접관 ID 매칭 성공: {selected_interviewers}")
-
+        
         # 쿼리에서 기간 추출 시도
         if (not start_date_str or not end_date_str) and query:
             # 쿼리가 JSON인 경우(면접관 선택 데이터)는 날짜 파싱 제외
@@ -1564,9 +1564,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         # ⚠️ 새로운 딕셔너리를 생성하여 기존 데이터가 유실되지 않도록 보장
                         workflow_temp_data = {**workflow_temp_data}
                         
-                        # 면접관 상세 정보 추출 (이름, 부서, 직급 등)
-                        # 여기서는 employee_id만 있으므로 간단히 저장하거나 DB에서 정보를 가져올 수 있음
-                        # 일단은 employee_id 리스트를 저장하고 다음 단계(Email)에서 상세 정보를 활용하도록 함
+                        # 면접관 상세 정보 추출
                         workflow_temp_data["interviewers"] = selected_interviewers
                         workflow_temp_data["interview_date"] = f"{slot_date} {slot_time}"
                         workflow_temp_data["interview_duration"] = duration_minutes
@@ -1575,7 +1573,6 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         
                         # 컨텍스트 초기화 (완료)
                         state["schedule_context"]["interview"] = {}
-                        
                         print(f"✅ [면접 일정] 워크플로우 임시 데이터 업데이트 완료: {list(workflow_temp_data.keys())}")
                         
                         return {
@@ -1589,27 +1586,27 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                             "next_domain": "email",
                             "requires_input": False # 메일 초안 생성을 위해 바로 진행
                         }
-
-                    # 컨텍스트 초기화 (완료)
-                    state["schedule_context"]["interview"] = {}
-                    
-                    return {
-                        "final_response": message,
-                        "messages": [message],
-                        "schedule_context": state["schedule_context"],
-                        "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
-                        "requires_date_range_input": False,
-                        "requires_interviewer_selection": False,
-                        "requires_duration_selection": False,
-                        "requires_slot_selection": False,
-                    }
+                    else:
+                        # 일반 면접 일정 생성 완료 (워크플로우가 아닌 경우)
+                        state["schedule_context"]["interview"] = {}
+                        
+                        return {
+                            "final_response": message,
+                            "messages": [message],
+                            "schedule_context": state["schedule_context"],
+                            "workflow_temp_data": state.get("workflow_temp_data", {}),
+                            "requires_date_range_input": False,
+                            "requires_interviewer_selection": False,
+                            "requires_duration_selection": False,
+                            "requires_slot_selection": False,
+                        }
                 else:
                     message = "면접 일정 생성에 실패했습니다. 다시 시도해주세요."
                     return {
                         "final_response": message,
                         "messages": [message],
                         "schedule_context": state["schedule_context"],
-                        "workflow_temp_data": state.get("workflow_temp_data", {}),  # ✅ 추가
+                        "workflow_temp_data": state.get("workflow_temp_data", {}),
                         "requires_date_range_input": True,
                         "requires_interviewer_selection": False,
                         "requires_duration_selection": False,
