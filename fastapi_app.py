@@ -275,6 +275,9 @@ class ChatResponse(BaseModel):
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
     requires_input: Optional[bool] = Field(default=False, description="사용자 입력 필요 여부 (예시문 표시 시)")
     last_domain: Optional[str] = Field(default=None, description="LLM 라우팅 시 결정된 도메인 (schedule, document, qa, email, tech)")
+    workflow_type: Optional[str] = Field(default=None, description="워크플로우 타입 (business_trip 등)")
+    workflow_in_progress: Optional[bool] = Field(default=False, description="워크플로우 진행 중 여부")
+    workflow_step_index: Optional[int] = Field(default=None, description="현재 워크플로우 단계 인덱스")
 
 
 class EmailReplyRequest(BaseModel):
@@ -1344,6 +1347,11 @@ async def chat_endpoint(
             if search_results:
                 rows = search_results
 
+        # 워크플로우 관련 필드 추출
+        workflow_type = final_state.get("workflow_type")
+        workflow_in_progress = final_state.get("workflow_in_progress", False)
+        workflow_step_index = final_state.get("current_workflow_step_index")
+
         return ChatResponse(
             ok=True,
             message=final_msg,
@@ -1354,6 +1362,9 @@ async def chat_endpoint(
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
             last_domain=last_domain,  # LLM 라우팅 시 결정된 도메인
+            workflow_type=workflow_type,  # 워크플로우 타입
+            workflow_in_progress=workflow_in_progress,  # 워크플로우 진행 중 여부
+            workflow_step_index=workflow_step_index,  # 현재 워크플로우 단계 인덱스
         )
 
     except Exception as exc:  # pragma: no cover

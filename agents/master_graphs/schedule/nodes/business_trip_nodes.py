@@ -1017,17 +1017,8 @@ async def _handle_workflow_step1_check_conflicts(
                 "- 다음주 월요일부터 수요일까지"
             )
             
-            # 사용자 종료 버튼
-            buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
-        ❌ 종료
-    </button>
-</div>
-"""
-            
             return {
-                "final_response": message + buttons_html,
+                "final_response": message,
                 "messages": [message],
                 "workflow_temp_data": workflow_temp_data,
                 "schedule_context": state.get("schedule_context", {}),
@@ -1095,17 +1086,10 @@ async def _handle_workflow_step1_check_conflicts(
     # 1. 시작일이 종료일보다 이전이어야 함
     # 2. 시작일이 과거 날짜가 아니어야 함 (현재 날짜보다 1일 이상 과거면 재요청)
     # 3. 날짜가 너무 오래된 경우 (예: 2023년) 재요청
-    buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
-        ❌ 종료
-    </button>
-</div>
-"""
     
     # 시작일이 종료일보다 이전이어야 함
     if start_time >= end_time:
-        question = f"출장 종료일({end_time.strftime('%Y-%m-%d')})이 시작일({start_time.strftime('%Y-%m-%d')})보다 이전이거나 같습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지" + buttons_html
+        question = f"출장 종료일({end_time.strftime('%Y-%m-%d')})이 시작일({start_time.strftime('%Y-%m-%d')})보다 이전이거나 같습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지"
         return {
             "final_response": question,
             "messages": [question],
@@ -1117,7 +1101,7 @@ async def _handle_workflow_step1_check_conflicts(
     # 시작일이 과거 날짜인지 확인 (현재 날짜보다 1일 이상 과거면 재요청)
     days_diff = (start_time.date() - now.date()).days
     if days_diff < -1:
-        question = f"출장 시작일({start_time.strftime('%Y-%m-%d')})이 과거 날짜입니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        question = f"출장 시작일({start_time.strftime('%Y-%m-%d')})이 과거 날짜입니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지"
         return {
             "final_response": question,
             "messages": [question],
@@ -1128,7 +1112,7 @@ async def _handle_workflow_step1_check_conflicts(
     
     # 날짜가 너무 오래된 경우 (2024년 이전이면 재요청)
     if start_time.year < 2024:
-        question = f"출장 날짜({start_time.strftime('%Y-%m-%d')})가 너무 오래되었습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지" + buttons_html
+        question = f"출장 날짜({start_time.strftime('%Y-%m-%d')})가 너무 오래되었습니다.\n\n정확한 출장 기간을 알려주세요.\n예: 12월 3일부터 5일까지, 다음주 월요일부터 수요일까지"
         return {
             "final_response": question,
             "messages": [question],
@@ -1247,24 +1231,12 @@ async def _handle_workflow_step1_check_conflicts(
         step_complete_msg = f"✅ [Step {current_step_number} 완료] 일정 조회가 완료되었습니다.\n\n"
         
         # 휴먼 인 더 루프: 출장 신청서 작성 진행 여부 확인
-        # 버튼 형태로 표시하기 위해 HTML 형식 사용
-        buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
-        ✅ 진행
-    </button>
-    <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
-        ❌ 취소
-    </button>
-</div>
-"""
-        
         if conflicting_events:
             conflict_titles = [e.get('title', '제목 없음') for e in conflicting_events[:3]]
             conflict_msg = "\n".join(f"- {title}" for title in conflict_titles)
-            message = step_complete_msg + f"⚠️ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n출장 신청서 작성을 계속하시겠습니까?" + buttons_html
+            message = step_complete_msg + f"⚠️ 해당 기간에 일정이 있습니다:\n{conflict_msg}\n\n출장 신청서 작성을 계속하시겠습니까?"
         else:
-            message = step_complete_msg + f"✅ 해당 기간에 일정 충돌이 없습니다.\n\n출장 기간: {start_aware.strftime('%Y-%m-%d %H:%M')} ~ {end_aware.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?" + buttons_html
+            message = step_complete_msg + f"✅ 해당 기간에 일정 충돌이 없습니다.\n\n출장 기간: {start_aware.strftime('%Y-%m-%d %H:%M')} ~ {end_aware.strftime('%Y-%m-%d %H:%M')}\n\n출장 신청서 작성을 진행하시겠습니까?"
         
         return {
             "final_response": message,
