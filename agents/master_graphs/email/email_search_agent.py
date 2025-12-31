@@ -1613,22 +1613,22 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 				"date": "",
 				"content": "",
 			}
-		try:
-			st2, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
-			
-			if st2 == "OK" and msg_data and msg_data[0]:
-				raw = _imap_join_bytes_from_msg_data(msg_data)
-				if not raw:
-					raise RuntimeError("RFC822 payload is empty")
-				msg = email_pkg.message_from_bytes(raw)
-				email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
-				email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
-				email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
-				text_body, html_body, _atts = _get_email_body_and_attachments(msg)
-				email_info["content"] = html_body or text_body or email_info["subject"]
-		except Exception as fetch_err:
-			logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
-			email_info["content"] = email_info["subject"]
+			try:
+				st2, msg_data = mail.uid("fetch", uid_str, "(RFC822)")
+				
+				if st2 == "OK" and msg_data and msg_data[0]:
+					raw = _imap_join_bytes_from_msg_data(msg_data)
+					if not raw:
+						raise RuntimeError("RFC822 payload is empty")
+					msg = email_pkg.message_from_bytes(raw)
+					email_info["subject"] = _decode_mime_header(msg.get("Subject", "")) or "(제목 없음)"
+					email_info["from"] = _decode_mime_header(msg.get("From", "")) or "(발신자 없음)"
+					email_info["date"] = _decode_header_value(msg.get("Date", "")) or ""
+					text_body, html_body, _atts = _get_email_body_and_attachments(msg)
+					email_info["content"] = html_body or text_body or email_info["subject"]
+			except Exception as fetch_err:
+				logger.error(f"[EMAIL CHECK][{session_id}] 본문 fetch 실패 (uid={uid_str}): {fetch_err}")
+				email_info["content"] = email_info["subject"]
 
 			email_data[str(idx)] = email_info
 

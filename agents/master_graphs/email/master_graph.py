@@ -723,7 +723,7 @@ class EmailMasterGraph(BaseMasterGraph):
             message = (
                 step_complete_msg
                 + "📧 **팀원 알림 이메일 초안**\n\n"
-                + f"**제목:** {absence_subject}\n\n"
+                + f"**제목:** {draft_subject}\n\n"
                 + f"**수신자:** {to_email}\n\n"
                 + "이제 채팅으로 '발송/수정/취소'는 처리하지 않습니다.\n"
                 + "초안 카드의 **전송/수정/취소** 버튼을 사용해주세요."
@@ -739,7 +739,7 @@ class EmailMasterGraph(BaseMasterGraph):
                 "final_response": message,
                 "messages": [message],
                 "email_compose_context": email_compose_context,
-                "email_draft": {"to": to_email, "subject": absence_subject, "body": absence_body},
+                "email_draft": {"to": to_email, "subject": draft_subject, "body": draft_body},
                 "workflow_temp_data": workflow_temp_data,
                 "requires_input": True,
             }
