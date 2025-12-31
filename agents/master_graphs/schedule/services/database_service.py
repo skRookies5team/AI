@@ -188,10 +188,11 @@ class DatabaseService:
                     (interviewer_ids IS NULL AND employee_id = :employee_id)
                     OR
                     -- 면접 일정: interviewer_ids에 현재 사용자가 포함되어 있는지 확인
-                    (interviewer_ids IS NOT NULL AND JSON_CONTAINS(interviewer_ids, CAST(:employee_id AS JSON)))
+                    (interviewer_ids IS NOT NULL AND JSON_SEARCH(interviewer_ids, 'one', :employee_id_json) IS NOT NULL)
                 )
             """)
             params["employee_id"] = employee_id
+            params["employee_id_json"] = str(employee_id)  # JSON_SEARCH를 위해 문자열로 변환
         if start_date is not None:
             clauses.append("start_time >= :start_time")
             params["start_time"] = start_date
@@ -334,18 +335,20 @@ class DatabaseService:
 
         meeting_room_id = metadata.get("meeting_room_id")
         schedule_type = metadata.get("schedule_type")
+        reference_id = metadata.get("reference_id")  # ✅ reference_id 추가
         created_at = metadata.get("created_at") or datetime.utcnow()
         updated_at = datetime.utcnow()
 
         await self._ensure_event_metadata_table()
 
         sql = """
-        INSERT INTO event_metadata (gcal_event_id, user_id, meeting_room_id, schedule_type, created_at, updated_at)
-        VALUES (:gcal_event_id, :user_id, :meeting_room_id, :schedule_type, :created_at, :updated_at)
+        INSERT INTO event_metadata (gcal_event_id, user_id, meeting_room_id, schedule_type, reference_id, created_at, updated_at)
+        VALUES (:gcal_event_id, :user_id, :meeting_room_id, :schedule_type, :reference_id, :created_at, :updated_at)
         ON DUPLICATE KEY UPDATE
             user_id = VALUES(user_id),
             meeting_room_id = VALUES(meeting_room_id),
             schedule_type = VALUES(schedule_type),
+            reference_id = VALUES(reference_id),  -- ✅ reference_id 업데이트 추가
             updated_at = VALUES(updated_at);
         """
 
@@ -358,6 +361,7 @@ class DatabaseService:
                         "user_id": str(user_id),
                         "meeting_room_id": meeting_room_id,
                         "schedule_type": schedule_type,
+                        "reference_id": reference_id,  # ✅ reference_id 추가
                         "created_at": created_at,
                         "updated_at": updated_at,
                     },
@@ -425,6 +429,8 @@ class DatabaseService:
 
     async def create_leave(self, leave_data: Dict[str, Any]) -> int:
         """연차 신청을 `leave_request` 테이블에 생성한다."""
+        print(f"[create_leave] 시작: employee_id={leave_data.get('employee_id')}, start_date={leave_data.get('start_date')}, end_date={leave_data.get('end_date')}")
+        
         request_id = leave_data.get("request_id") or datetime.utcnow().strftime("LR%Y%m%d%H%M%S")
         insert_sql = """
         INSERT INTO leave_request (
@@ -469,16 +475,26 @@ class DatabaseService:
             "reason": leave_data.get("reason"),
         }
 
-        async with self._session(transactional=True) as session:
-            result = await session.execute(text(insert_sql), payload)
-            inserted_id = result.lastrowid
+        print(f"[create_leave] INSERT 실행: payload={payload}")
+        
+        try:
+            async with self._session(transactional=True) as session:
+                result = await session.execute(text(insert_sql), payload)
+                inserted_id = result.lastrowid
+                print(f"[create_leave] INSERT 성공: inserted_id={inserted_id}, request_id={request_id}")
 
-        await self._update_leave_pending_days(
-            employee_id=leave_data["employee_id"],
-            delta=payload["total_days"] if payload["status"] == "대기" else 0.0,
-        )
+            await self._update_leave_pending_days(
+                employee_id=leave_data["employee_id"],
+                delta=payload["total_days"] if payload["status"] == "대기" else 0.0,
+            )
+            print(f"[create_leave] 연차 차감 완료")
 
-        return int(inserted_id)
+            return int(inserted_id)
+        except Exception as e:
+            print(f"❌ [create_leave] INSERT 실패: {e}")
+            import traceback
+            print(f"❌ [create_leave] 트레이스백: {traceback.format_exc()}")
+            raise
 
     async def _update_leave_pending_days(self, employee_id: int, delta: float) -> None:
         """pending_days 및 remaining_days를 갱신한다."""
@@ -511,19 +527,19 @@ class DatabaseService:
         include_past: bool = True
     ) -> List[Dict[str, Any]]:
         """`leave_request` 테이블에서 신청 내역을 조회한다."""
-        clauses = ["employee_id = :employee_id"]
+        clauses = ["lr.employee_id = :employee_id"]
         params: Dict[str, Any] = {"employee_id": employee_id}
         
         if leave_type:
-            clauses.append("leave_type = :leave_type")
+            clauses.append("lr.leave_type = :leave_type")
             params["leave_type"] = leave_type
         
         if status:
-            clauses.append("status = :status")
+            clauses.append("lr.status = :status")
             params["status"] = status
         
         if not include_past:
-            clauses.append("start_date >= CURDATE()")
+            clauses.append("lr.start_date >= CURDATE()")
 
         where_sql = " AND ".join(clauses)
         sql = f"""
@@ -541,12 +557,10 @@ class DatabaseService:
             lr.reason,
             lr.created_at,
             lr.updated_at,
-            s.gcal_event_id
+            em.gcal_event_id
         FROM leave_request lr
-        LEFT JOIN schedule s ON s.employee_id = lr.employee_id 
-            AND s.schedule_type = 'leave'
-            AND DATE(s.start_time) = lr.start_date
-            AND DATE(s.end_time) = lr.end_date
+        LEFT JOIN event_metadata em ON em.schedule_type = 'leave'
+            AND em.reference_id = lr.id  -- ✅ reference_id로 매칭
         WHERE {where_sql}
         ORDER BY lr.request_date DESC, lr.id DESC;
         """
