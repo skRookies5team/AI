@@ -1241,16 +1241,85 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                 }
 
     # ============================================
-    # 1단계: 워크플로우 vs 일반 요청 분류
+    # 슬롯 진행 중 체크 (워크플로우 분류 전에 확인)
+    # ⚠️ 중요: workflow_in_progress가 False일 때만 체크
+    # 워크플로우 진행 중이면 965번 라인에서 이미 처리되므로 여기 도달 안 함
     # ============================================
-    print("--- [Orchestrator] 1단계: 워크플로우 vs 일반 요청 분류 ---")
-    step_start = time.time()
-    request_classification_result = await classify_request_type(query)
-    step_elapsed = (time.time() - step_start) * 1000
-    _routing_logger.info(f"[1단계 분류] {step_elapsed:.2f}ms")
+    is_workflow_request = False
+    classification_confidence = 0.0
     
-    is_workflow_request = request_classification_result.get("is_workflow_request", False)
-    classification_confidence = request_classification_result.get("confidence", 0.0)
+    if not workflow_in_progress:
+        schedule_context = state.get("schedule_context", {})
+        
+        # 모든 스케줄 관련 서브컨텍스트 확인
+        sub_contexts = {
+            "schedule": schedule_context.get("schedule", {}),
+            "meeting": schedule_context.get("meeting", {}),
+            "leave": schedule_context.get("leave", {}),
+            "business_trip": schedule_context.get("business_trip", {}),
+            "interview": schedule_context.get("interview", {})
+        }
+        
+        is_slot_in_progress = False
+        active_sub_contexts = []
+        
+        for sub_key, sub_context in sub_contexts.items():
+            if not sub_context:
+                continue
+            
+            # 방법 1: awaiting_slots 확인 (가장 확실한 방법)
+            awaiting_slots = sub_context.get("awaiting_slots", [])
+            if awaiting_slots and len(awaiting_slots) > 0:
+                is_slot_in_progress = True
+                active_sub_contexts.append(f"{sub_key}:awaiting_slots={awaiting_slots}")
+                continue
+            
+            # 방법 2: slot_state.missing_slots 확인 (보조 방법)
+            slot_state = sub_context.get("slot_state", {})
+            missing_slots = slot_state.get("missing_slots", [])
+            if missing_slots and len(missing_slots) > 0:
+                is_slot_in_progress = True
+                active_sub_contexts.append(f"{sub_key}:missing_slots={missing_slots}")
+        
+        if is_slot_in_progress:
+            print(f"✅ 슬롯 진행 중 감지: {', '.join(active_sub_contexts)}")
+            print(f"   → 워크플로우 분류 스킵, schedule 도메인으로 강제 라우팅")
+            _routing_logger.info(f"[슬롯 진행 중] schedule 도메인으로 강제 라우팅 (요청: {query[:50]})")
+            
+            # last_domain이 schedule이면 무조건 schedule로 라우팅
+            if last_domain == "schedule":
+                return {
+                    "domain": "schedule",
+                    "conversation_history": [user_message],
+                    **current_date_info
+                }
+            
+            # 슬롯 진행 중이면 워크플로우 분류 스킵 (일반 요청으로 처리)
+            # is_workflow_request와 classification_confidence는 이미 False, 0.0으로 설정됨
+        else:
+            # 슬롯 진행 중이 아니면 정상적으로 워크플로우 분류 진행
+            # ============================================
+            # 1단계: 워크플로우 vs 일반 요청 분류
+            # ============================================
+            print("--- [Orchestrator] 1단계: 워크플로우 vs 일반 요청 분류 ---")
+            step_start = time.time()
+            request_classification_result = await classify_request_type(query)
+            step_elapsed = (time.time() - step_start) * 1000
+            _routing_logger.info(f"[1단계 분류] {step_elapsed:.2f}ms")
+            
+            is_workflow_request = request_classification_result.get("is_workflow_request", False)
+            classification_confidence = request_classification_result.get("confidence", 0.0)
+    else:
+        # 워크플로우 진행 중이면 슬롯 체크 건너뛰고 정상적으로 워크플로우 분류 진행
+        # (하지만 965번 라인에서 이미 워크플로우 처리로 들어가므로 여기 도달 안 함)
+        print("--- [Orchestrator] 1단계: 워크플로우 vs 일반 요청 분류 ---")
+        step_start = time.time()
+        request_classification_result = await classify_request_type(query)
+        step_elapsed = (time.time() - step_start) * 1000
+        _routing_logger.info(f"[1단계 분류] {step_elapsed:.2f}ms")
+        
+        is_workflow_request = request_classification_result.get("is_workflow_request", False)
+        classification_confidence = request_classification_result.get("confidence", 0.0)
     
     # ============================================
     # 2단계: 분류 결과에 따라 라우팅
