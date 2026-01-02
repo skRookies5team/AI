@@ -1460,6 +1460,109 @@ async def sync_emails_to_redis(
 # Email reception detection
 # =========================
 
+def _strip_html_for_summary(text: str) -> str:
+	"""요약 입력용: HTML/공백 정리."""
+	if not text:
+		return ""
+	text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+	text = re.sub(r"</p\s*>", "\n\n", text, flags=re.IGNORECASE)
+	text = re.sub(r"</div\s*>", "\n", text, flags=re.IGNORECASE)
+	text = re.sub(r"<[^>]+>", " ", text)
+	text = re.sub(r"[ \t]{2,}", " ", text)
+	text = re.sub(r"\n{3,}", "\n\n", text)
+	return text.strip()
+
+
+def _fallback_two_lines(text: str) -> Tuple[str, str]:
+	"""OPENAI_API_KEY가 없거나 LLM 실패 시 2줄 fallback."""
+	cleaned = _strip_html_for_summary(text)
+	if not cleaned:
+		return "(요약 없음)", ""
+	lines = [ln.strip() for ln in cleaned.splitlines() if ln.strip()]
+	if not lines:
+		one = re.sub(r"\s+", " ", cleaned).strip()
+		return (one[:90] if one else "(요약 없음)"), ""
+	if len(lines) == 1:
+		return lines[0][:90], ""
+	return lines[0][:90], lines[1][:90]
+
+
+async def _summarize_email_data_two_lines(
+	email_data: Dict[str, Dict[str, str]], max_items: int = 10
+) -> Dict[str, Dict[str, str]]:
+	"""email_data(인덱스->메일)에서 2줄 요약 생성.
+
+	Returns:
+		{ "1": {"line1": "...", "line2": "..."}, ... }
+	"""
+	items: List[Dict[str, str]] = []
+	for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
+		if len(items) >= max_items:
+			break
+		info = email_data.get(k) or {}
+		subject = str(info.get("subject") or "(제목 없음)").strip()[:120]
+		content = str(info.get("content") or "")
+		excerpt = _strip_html_for_summary(content)[:2500]
+		items.append({"index": str(k), "subject": subject, "excerpt": excerpt})
+
+	if not items:
+		return {}
+
+	api_key = _get_env("OPENAI_API_KEY")
+	if not api_key:
+		by_idx: Dict[str, Dict[str, str]] = {}
+		for it in items:
+			l1, l2 = _fallback_two_lines(it.get("excerpt", ""))
+			by_idx[it["index"]] = {"line1": l1, "line2": l2}
+		return by_idx
+
+	llm = ChatOpenAI(model=_get_env("OPENAI_MODEL", "gpt-4o-mini"), temperature=0, api_key=api_key)
+	prompt = ChatPromptTemplate.from_messages(
+		[
+			(
+				"system",
+				"너는 이메일 요약기다. 각 메일을 2줄로 요약해라.\n"
+				"- 한국어\n"
+				"- 인사말/맺음말/서명/회사정보/AI 자동 안내 문구는 제외\n"
+				"- 각 메일 요약은 정확히 2줄(줄바꿈 포함)\n"
+				"- 출력은 반드시 JSON 배열만: "
+				'[{{"index":"1","line1":"...","line2":"..."}}]',  # ✅ 이스케이프
+			),
+			("user", "다음 이메일들을 각각 요약해줘:\n\n{items_json}"),
+		]
+	)
+
+	chain = prompt | llm
+	resp = await chain.ainvoke({"items_json": json.dumps(items, ensure_ascii=False)})
+
+	by_idx: Dict[str, Dict[str, str]] = {}
+	try:
+		raw = (resp.content or "").strip()
+		raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw).strip()
+		arr = json.loads(raw)
+		if isinstance(arr, list):
+			for row in arr:
+				if not isinstance(row, dict):
+					continue
+				idx = str(row.get("index", "")).strip()
+				l1 = str(row.get("line1", "")).strip()
+				l2 = str(row.get("line2", "")).strip()
+				if idx:
+					by_idx[idx] = {"line1": l1, "line2": l2}
+	except Exception:
+		by_idx = {}
+
+	# 누락된 항목은 fallback으로 채움
+	for it in items:
+		idx = it["index"]
+		got = by_idx.get(idx) or {"line1": "", "line2": ""}
+		if not got.get("line1"):
+			l1, l2 = _fallback_two_lines(it.get("excerpt", ""))
+			by_idx[idx] = {"line1": l1, "line2": l2}
+
+	return by_idx
+
+
 # 세션별 백그라운드 이메일 체커(중복 실행 방지)
 _ACTIVE_EMAIL_CHECKERS: Dict[str, asyncio.Task] = {}
 
@@ -1636,11 +1739,18 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 			# employee 단위 알림(영속+실시간): session_id -> employee_id 매핑 사용
 			emp_id = _EMAIL_CHECKER_ACTIVE_SESSIONS.get(session_id)
 			if emp_id:
+				# LLM 2줄 요약(알림 preview용)
+				summaries_by_index = await _summarize_email_data_two_lines(email_data, max_items=10)
 				# UI 친화 payload: uid 리스트 + 요약 아이템
 				uids = list(imap_recent[: len(email_data)]) if isinstance(imap_recent, list) else []
 				items = []
 				for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
 					it = email_data.get(k) or {}
+					content = it.get("content", "")
+					summ = summaries_by_index.get(str(k)) or {}
+					line1 = (summ.get("line1") or "").strip()
+					line2 = (summ.get("line2") or "").strip()
+					preview = (line1 + ("\n" + line2 if line2 else "")).strip()
 					items.append(
 						{
 							"index": str(k),
@@ -1648,6 +1758,8 @@ async def _check_and_publish_new_emails_for_session(session_id: str, recent_limi
 							"subject": it.get("subject", ""),
 							"from": it.get("from", ""),
 							"date": it.get("date", ""),
+							"preview": preview or "(요약 없음)",  # LLM 2줄 요약
+							"body_text": content,  # 전문
 						}
 					)
 				await publish_employee_notification(
@@ -1882,11 +1994,18 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 			# employee 단위 알림(영속+실시간): session_id -> employee_id 매핑 사용
 			emp_id = _EMAIL_CHECKER_ACTIVE_SESSIONS.get(session_id)
 			if emp_id:
+				# LLM 2줄 요약(알림 preview용)
+				summaries_by_index = await _summarize_email_data_two_lines(email_data, max_items=10)
 				items = []
 				for k in sorted(email_data.keys(), key=lambda x: int(x) if str(x).isdigit() else 10**9):
 					it = email_data.get(k) or {}
 					_idx = int(k) if str(k).isdigit() else None
 					uid = new_uids[_idx - 1] if (_idx and 0 <= _idx - 1 < len(new_uids)) else None
+					content = it.get("content", "")
+					summ = summaries_by_index.get(str(k)) or {}
+					line1 = (summ.get("line1") or "").strip()
+					line2 = (summ.get("line2") or "").strip()
+					preview = (line1 + ("\n" + line2 if line2 else "")).strip()
 					items.append(
 						{
 							"index": str(k),
@@ -1894,6 +2013,8 @@ async def _background_email_checker_for_session(session_id: str, employee_id: in
 							"subject": it.get("subject", ""),
 							"from": it.get("from", ""),
 							"date": it.get("date", ""),
+							"preview": preview or "(요약 없음)",  # LLM 2줄 요약
+							"body_text": content,  # 전문
 						}
 					)
 				await publish_employee_notification(
