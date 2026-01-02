@@ -76,15 +76,48 @@ class GoogleCalendarService:
         if session_manager:
             cached_tokens = await session_manager.get_google_tokens(user_id)
             if cached_tokens and cached_tokens.get("access_token"):
-                # Redis에 캐시된 access_token 사용 (refresh_token은 DB에서만 관리)
-                return Credentials(
-                    token=cached_tokens["access_token"],
-                    refresh_token=None,  # Redis에는 저장하지 않음 (DB에서만 관리)
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    scopes=self.SCOPES,
-                )
+                # Redis에 캐시된 access_token 사용
+                # refresh_token은 DB에서 가져와야 갱신 가능
+                access_token = cached_tokens["access_token"]
+                expiry_str = cached_tokens.get("expiry")
+                
+                # access_token이 만료되었는지 확인
+                from datetime import datetime, timezone
+                is_expired = False
+                if expiry_str:
+                    try:
+                        expiry = datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
+                        if expiry < datetime.now(timezone.utc):
+                            is_expired = True
+                            print(f"⚠️ Redis 캐시된 access_token 만료됨 (expiry={expiry_str})")
+                    except Exception as e:
+                        # expiry 파싱 실패 시 만료된 것으로 간주
+                        print(f"⚠️ expiry 파싱 실패: {e}, 만료된 것으로 간주")
+                        is_expired = True
+                
+                # 만료되지 않았으면 캐시된 토큰 사용 (하지만 refresh_token은 포함해야 갱신 가능)
+                if not is_expired:
+                    # DB에서 refresh_token 가져오기 (갱신을 위해 필요)
+                    refresh_token = None
+                    if employee_id is not None:
+                        credentials_data = await token_service.get_google_credentials(employee_id)
+                        if credentials_data:
+                            refresh_token = credentials_data.get("refresh_token")
+                            # 해당 사원의 레코드에 client_id/client_secret이 있으면 우선 사용
+                            if credentials_data.get("client_id") and credentials_data.get("client_secret"):
+                                client_id = credentials_data["client_id"]
+                                client_secret = credentials_data["client_secret"]
+                    
+                    return Credentials(
+                        token=access_token,
+                        refresh_token=refresh_token,  # DB에서 가져온 refresh_token 포함
+                        token_uri="https://oauth2.googleapis.com/token",
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        scopes=self.SCOPES,
+                    )
+                # 만료되었으면 아래 로직으로 갱신 진행
+                print(f"🔄 Redis 캐시된 access_token 만료됨, DB에서 refresh_token으로 갱신 진행")
         
         # 2️⃣ DB에서 refresh_token 조회
         if employee_id is not None:
@@ -117,7 +150,7 @@ class GoogleCalendarService:
                     # 토큰 갱신 실패 시 재인증 필요
                     raise GoogleAuthRequired(user_id, self._build_auth_url(user_id))
                 
-                # 4️⃣ 갱신된 access_token을 Redis에 캐시 (1시간) - refresh_token은 DB에만 저장
+                # 4️⃣ 갱신된 access_token을 Redis에 캐시 (1년) - refresh_token은 DB에만 저장
                 if session_manager and credentials.token:
                     await session_manager.save_google_tokens(
                         user_id,
@@ -126,7 +159,7 @@ class GoogleCalendarService:
                             # refresh_token은 DB에만 저장 (보안)
                             "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
                         },
-                        ttl=3600,  # 1시간
+                        ttl=31536000,  # 1년 (31536000초)
                     )
                 
                 # 5️⃣ DB의 last_used_at 업데이트
@@ -203,8 +236,9 @@ class GoogleCalendarService:
                 {
                     'title': '일정 제목',
                     'description': '설명',
-                    'start_time': '2024-12-10T10:00:00',
-                    'end_time': '2024-12-10T11:00:00',
+                    'start_time': '2024-12-10T10:00:00' 또는 '2024-12-10' (하루 종일 이벤트),
+                    'end_time': '2024-12-10T11:00:00' 또는 '2024-12-11' (하루 종일 이벤트),
+                    'schedule_type': 'leave' (연차는 하루 종일 이벤트),
                     'attendees': ['user1@example.com', 'user2@example.com'],
                     'location': '회의실 A'
                 }
@@ -216,18 +250,51 @@ class GoogleCalendarService:
         """
         service = await self._get_service(user_id)
         try:
-            event = {
-                'summary': event_data.get('title', '제목 없음'),
-                'description': event_data.get('description', ''),
-                'start': {
-                    'dateTime': event_data['start_time'],
-                    'timeZone': 'Asia/Seoul',
-                },
-                'end': {
-                    'dateTime': event_data['end_time'],
-                    'timeZone': 'Asia/Seoul',
-                },
-            }
+            schedule_type = event_data.get('schedule_type', 'general')
+            
+            # 연차는 하루 종일 이벤트로 생성 (date 형식 사용)
+            if schedule_type == 'leave':
+                # start_time과 end_time에서 날짜만 추출 (YYYY-MM-DD 형식)
+                start_time = event_data.get('start_time', '')
+                end_time = event_data.get('end_time', '')
+                
+                # ISO 형식에서 날짜만 추출 (예: "2026-01-05T00:00:00+09:00" -> "2026-01-05")
+                if 'T' in start_time:
+                    start_date = start_time.split('T')[0]
+                else:
+                    start_date = start_time
+                
+                if 'T' in end_time:
+                    end_date = end_time.split('T')[0]
+                else:
+                    end_date = end_time
+                
+                event = {
+                    'summary': event_data.get('title', '제목 없음'),
+                    'description': event_data.get('description', ''),
+                    'start': {
+                        'date': start_date,
+                    },
+                    'end': {
+                        'date': end_date,  # Google Calendar는 종료일을 포함하지 않으므로 +1일 해야 함
+                    },
+                }
+                print(f"📅 [Google Calendar] 하루 종일 이벤트 생성: {start_date} ~ {end_date}")
+            else:
+                # 일반 이벤트 (dateTime 형식 사용)
+                event = {
+                    'summary': event_data.get('title', '제목 없음'),
+                    'description': event_data.get('description', ''),
+                    'start': {
+                        'dateTime': event_data['start_time'],
+                        'timeZone': 'Asia/Seoul',
+                    },
+                    'end': {
+                        'dateTime': event_data['end_time'],
+                        'timeZone': 'Asia/Seoul',
+                    },
+                }
+            
             if event_data.get('location'):
                 event['location'] = event_data['location']
             if event_data.get('attendees'):

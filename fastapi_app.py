@@ -1878,7 +1878,7 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
     if not db_success:
         raise HTTPException(status_code=500, detail="토큰 DB 저장에 실패했습니다.")
     
-    # ✅ 2. Redis에 access_token 캐시 (1시간) - refresh_token은 DB에만 저장
+    # ✅ 2. Redis에 access_token 캐시 (1년) - refresh_token은 DB에만 저장
     session_manager = await get_session_manager()
     if session_manager:
         await session_manager.save_google_tokens(
@@ -1888,9 +1888,9 @@ async def google_oauth_callback(code: str = Query(...), state: str = Query(...))
                 # refresh_token은 DB에만 저장 (보안)
                 "expiry": credentials.expiry.isoformat() if credentials.expiry else None,
             },
-            ttl=3600,  # 1시간
+            ttl=31536000,  # 1년 (31536000초)
         )
-        print(f"✅ Redis에 access_token 캐시 저장 완료 (user_id={user_id}, ttl=3600초)")
+        print(f"✅ Redis에 access_token 캐시 저장 완료 (user_id={user_id}, ttl=31536000초=1년)")
 
     success_html = """
     <html>
@@ -2399,7 +2399,7 @@ async def get_my_events(
     start_date: str = Query(..., description="시작일 (ISO 8601, 예: 2024-12-01T00:00:00Z)"),
     end_date: str = Query(..., description="종료일 (ISO 8601)")
 ):
-    """내 일정 조회 (Google Calendar + DB 메타데이터 병합).
+    """내 일정 조회 (통합 DB 조회).
     
     Args:
         employee_id: 사원 번호
@@ -2407,19 +2407,24 @@ async def get_my_events(
         end_date: 종료일 (ISO 8601)
         
     Returns:
-        병합된 일정 목록
+        통합된 일정 목록
     """
     try:
-        from agents.master_graphs.schedule.services.hybrid_scheduler import HybridScheduler
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        from datetime import datetime
         
-        scheduler = HybridScheduler()
-        user_id = str(employee_id)
+        # ISO 문자열을 datetime 객체로 변환 (타임존 처리 주의, 여기서는 단순화)
+        # 예: 2024-12-01T00:00:00Z -> 2024-12-01 00:00:00
+        start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
         
-        # HybridScheduler.get_events 사용 (Google Calendar + DB 병합)
-        events = await scheduler.get_events(
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date
+        db_service = DatabaseService()
+        
+        # DatabaseService.get_all_schedules_for_calendar 사용
+        events = await db_service.get_all_schedules_for_calendar(
+            employee_id=employee_id,
+            start_date=start_dt,
+            end_date=end_dt
         )
         
         return {
@@ -2626,6 +2631,58 @@ async def test_schedule_endpoint(
 
 
 # ===== 회의실 조회 REST API 엔드포인트 =====
+
+@app.get("/api/meeting-rooms/schedule")
+async def get_meeting_room_schedule(
+    date: str = Query(..., description="날짜 (YYYY-MM-DD)"),
+    floor: Optional[int] = Query(None, description="층수")
+):
+    """회의실 예약 현황 조회 (시간표용) - 최적화: 예약 데이터만 반환."""
+    try:
+        from agents.master_graphs.schedule.services.database_service import DatabaseService
+        from datetime import datetime
+        
+        db_service = DatabaseService()
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        
+        # 예약 목록 조회 (해당 날짜) - 회의실 목록은 프론트엔드 하드코딩 사용
+        reservations = await db_service.get_room_reservations_by_date(target_date)
+        
+        # 예약 데이터 포맷팅
+        formatted_reservations = []
+        for res in reservations:
+            # 층 필터가 있으면 해당 층 예약만 포함
+            if floor and res.get("floor") != floor:
+                continue
+                
+            formatted_reservations.append({
+                "id": str(res.get("id")),
+                "room_id": res.get("room_id"),
+                "room_name": res.get("room_name"),
+                "floor": res.get("floor"),
+                "start_time": res.get("start_time").strftime("%H:%M") if res.get("start_time") else "",
+                "end_time": res.get("end_time").strftime("%H:%M") if res.get("end_time") else "",
+                "title": res.get("title", "예약"),
+                "applicant": res.get("applicant_name"),
+                "attendees": res.get("participants", "").split(",") if res.get("participants") else [],
+                "description": res.get("description")
+            })
+            
+        return {
+            "ok": True,
+            "date": date,
+            "floor": floor,
+            "reservations": formatted_reservations
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "message": f"회의실 스케줄 조회 실패: {str(e)}",
+            "rooms": [],
+            "reservations": []
+        }
 
 @app.get("/api/meeting-rooms")
 async def get_meeting_rooms(

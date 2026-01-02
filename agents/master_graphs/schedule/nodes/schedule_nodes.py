@@ -83,9 +83,19 @@ async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
     schedule_context = state.get("schedule_context") or {}
     interview_context = schedule_context.get("interview") or {}
     
+    # 일정 삭제/수정 선택 플로우 중인지 확인 (면접 키워드 체크 전에 확인)
+    schedule_subcontext = schedule_context.get("schedule") or {}
+    awaiting_slots = schedule_subcontext.get("awaiting_slots") or []
+    delete_candidates = schedule_subcontext.get("delete_candidates") or []
+    update_candidates = schedule_subcontext.get("update_candidates") or []
+    
+    # 일정 삭제/수정 선택 플로우 중이면 면접 키워드 체크 건너뛰기
+    is_delete_selection = "delete_selection" in awaiting_slots or bool(delete_candidates)
+    is_update_selection = "update_selection" in awaiting_slots or bool(update_candidates)
+    
     # 면접 컨텍스트 확인 (더 강화된 체크)
     has_interview_context = bool(interview_context)
-    if has_interview_context:
+    if has_interview_context and not is_delete_selection and not is_update_selection:
         # 면접 컨텍스트가 있으면 면접 처리로 이어가기
         print(f"[Schedule Node] 면접 컨텍스트 감지: 기간 입력 또는 면접관 선택 단계, query='{query}'")
         print(f"[Schedule Node] 면접 컨텍스트 내용: {interview_context}")
@@ -96,7 +106,7 @@ async def process_schedule_request(state: OrchestratorState) -> Dict[str, Any]:
     # 3. 면접 관련 키워드가 없지만, 이전 대화에서 면접 일정 조정이 시작되었을 수 있음
     # conversation_history에서 확인
     conversation_history = state.get("conversation_history", [])
-    if conversation_history:
+    if conversation_history and not is_delete_selection and not is_update_selection:
         # 최근 대화에서 면접 관련 키워드 확인
         recent_messages = conversation_history[-5:]  # 최근 5개 메시지 확인
         for msg in recent_messages:
@@ -593,7 +603,7 @@ async def _parse_schedule_intent(
     if not awaiting_slots or action in ["생성", "삭제", "조회"]:
         # 기간 입력 대기 중이거나 아직 기간이 없으면 파싱 시도
         if action == "삭제" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
-            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query, allow_past_dates=False)
             if start_date_obj:
                 start_time = start_date_obj
                 # 삭제는 기간이 필요하므로 end_time 기본값 설정
@@ -602,7 +612,7 @@ async def _parse_schedule_intent(
                 elif not end_time:
                     end_time = start_date_obj + timedelta(days=7)  # 기본 7일
         elif action == "조회" and awaiting_set and ("start_time" in awaiting_set or "end_time" in awaiting_set):
-            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query, allow_past_dates=True)
             if start_date_obj:
                 start_time = start_date_obj
                 # 조회도 기간이 필요하므로 end_time 기본값 설정
@@ -611,7 +621,7 @@ async def _parse_schedule_intent(
                 elif not end_time:
                     end_time = start_date_obj + timedelta(days=7)  # 기본 7일
         elif action == "생성" or not awaiting_slots:
-            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query)
+            start_date_obj, end_date_obj, _ = await parse_korean_date_with_llm(query, allow_past_dates=False)
             if start_date_obj:
                 start_time = start_date_obj
                 end_time = end_date_obj or (start_date_obj + timedelta(hours=1))
@@ -919,7 +929,7 @@ async def _handle_update(
         event_id = selected.get('gcal_event_id')
         
         entities = await extract_schedule_entities(context.get("last_update_query", ""))
-        start_date, end_date, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""))
+        start_date, end_date, _ = await parse_korean_date_with_llm(context.get("last_update_query", ""), allow_past_dates=False)
         
         update_data = {}
         
@@ -1179,7 +1189,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 if not interview_context.get("date_range"):
                     interview_context["requires_date_range"] = True
                 state["schedule_context"]["interview"] = interview_context
-        
+
         # 🔥 새로운 면접 일정 요청인지 확인 (면접 키워드가 있고 기간이 없으면 초기화)
         interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
         is_new_request = any(keyword in query.lower() for keyword in interview_keywords)
@@ -1209,7 +1219,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 try:
                     parsed_data = json.loads(json_str)
                     print(f"[면접 일정] JSON 추출 성공: {json_str[:50]}...")
-                    
+
                     if isinstance(parsed_data, list):
                         selected_interviewers = [item.get("employee_id") if isinstance(item, dict) else item for item in parsed_data]
                     elif isinstance(parsed_data, dict):
@@ -1245,7 +1255,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                     # 이름 기반으로 employee_id 조회 시도
                     db = DatabaseService()
                     found_ids = []
-                    
+
                     async with db._session() as session:
                         for inv in interviewer_info["interviewers"]:
                             name = inv.get("name")
@@ -1276,7 +1286,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         current_dt = None
                 else:
                     current_dt = None
-                
+
                 parsed_start, parsed_end, _ = await parse_korean_date_with_llm(query, current_datetime=current_dt)
                 if parsed_start and parsed_end:
                     start_date_str = parsed_start.isoformat()
@@ -1291,7 +1301,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 print(f"[면접 일정] JSON 데이터 감지 - 기간 파싱 건너뜀")
 
         # 2단계: 필수 정보 누락 확인 및 요청
-        
+
         # (A) 면접관 정보가 없는 경우
         if not selected_interviewers:
             if workflow_in_progress and workflow_type == "recruitment":
@@ -1309,10 +1319,10 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 }
             else:
                 message = "면접관을 선택하거나 이름을 입력해주세요."
-            
+
             interview_context["requires_date_range"] = True
             state["schedule_context"]["interview"] = interview_context
-            
+
             return {
                 "final_response": message,
                 "messages": [message],
@@ -1335,10 +1345,10 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                 )
             else:
                 message = "면접 가능한 기간을 알려주세요. (예: 다음 주, 12월 20일부터 25일까지)"
-            
+
             interview_context["requires_date_range"] = True
             state["schedule_context"]["interview"] = interview_context
-            
+
             return {
                 "final_response": message,
                 "messages": [message],
@@ -1563,7 +1573,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         workflow_temp_data = state.get("workflow_temp_data", {}) or {}
                         # ⚠️ 새로운 딕셔너리를 생성하여 기존 데이터가 유실되지 않도록 보장
                         workflow_temp_data = {**workflow_temp_data}
-                        
+
                         # 면접관 상세 정보 추출
                         workflow_temp_data["interviewers"] = selected_interviewers
                         workflow_temp_data["interview_date"] = f"{slot_date} {slot_time}"
@@ -1574,7 +1584,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                         # 컨텍스트 초기화 (완료)
                         state["schedule_context"]["interview"] = {}
                         print(f"✅ [면접 일정] 워크플로우 임시 데이터 업데이트 완료: {list(workflow_temp_data.keys())}")
-                        
+
                         return {
                             "final_response": message,
                             "messages": [message],
@@ -1589,7 +1599,7 @@ async def process_interview_scheduling(state: OrchestratorState) -> Dict[str, An
                     else:
                         # 일반 면접 일정 생성 완료 (워크플로우가 아닌 경우)
                         state["schedule_context"]["interview"] = {}
-                        
+
                         return {
                             "final_response": message,
                             "messages": [message],

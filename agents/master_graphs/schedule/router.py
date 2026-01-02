@@ -49,6 +49,20 @@ async def determine_schedule_intent(state: OrchestratorState) -> str:
 
     schedule_context = state.get("schedule_context") or {}
 
+    # 연차/반차 흐름 유지
+    leave_context = schedule_context.get("leave") or {}
+    leave_awaiting_slots = leave_context.get("awaiting_slots") or []
+    leave_slot_state = leave_context.get("slot_state") or {}
+    leave_intent = leave_slot_state.get("intent")
+    
+    if leave_awaiting_slots:
+        print("✅ 연차/반차 슬롯 질의 응답 진행 중 - leave로 라우팅")
+        return "leave"
+    
+    if leave_intent in ["신청", "조회", "취소", "수정"]:
+        print(f"✅ 연차/반차 작업 진행 중 (intent: {leave_intent}) - leave로 라우팅")
+        return "leave"
+
     # 면접 우선 라우팅
     interview_keywords = ["면접", "면접관", "면접 일정", "면접 일정 조정", "면접일정", "면접일정잡아줘"]
     if any(keyword in query for keyword in interview_keywords):

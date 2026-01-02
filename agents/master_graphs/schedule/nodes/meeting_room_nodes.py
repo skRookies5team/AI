@@ -321,11 +321,17 @@ async def process_meeting_room_request(state: OrchestratorState) -> Dict[str, An
                 "messages": [initial_prompt],
                 "schedule_context": state["schedule_context"],
             }
-    # 조회(추천)는 필수 정보가 아니면 followup 생성하지 않음
+    # 조회/추천 처리: slot_decision.should_ask를 확인하여 필요한 정보 요청
     if parsed.action == "조회":
-        followup_question = None
-        meeting_context.pop("awaiting_slots", None)
-        meeting_context.pop("last_question", None)
+        # 슬롯 매니저가 추가 정보를 요청하면 followup_question 유지
+        if slot_decision and slot_decision.should_ask and followup_question:
+            # followup_question을 유지하고 다음 턴에서 사용자 입력 대기
+            pass  # followup_question은 이미 _apply_slot_decision에서 설정됨
+        else:
+            # 추가 정보가 필요 없으면 followup_question 제거하고 추천 실행
+            followup_question = None
+            meeting_context.pop("awaiting_slots", None)
+            meeting_context.pop("last_question", None)
 
     if followup_question:
         meeting_context["last_query"] = query
@@ -871,8 +877,10 @@ async def _parse_meeting_intent(
         if not text:
             return None, None, False
         if text not in parse_cache:
-            start, end, success = await parse_korean_date_with_llm(text)
-            parse_cache[text] = (start, end, success)
+            # 조회는 과거 날짜 허용, 나머지는 거부
+            allow_past = (action == "조회")
+            start, end, is_precise = await parse_korean_date_with_llm(text, allow_past_dates=allow_past)
+            parse_cache[text] = (start, end, is_precise)
         return parse_cache[text]
 
     entities = await extract_meeting_room_entities(query)
@@ -1581,8 +1589,9 @@ async def _resolve_end_time_from_response(
         if not text:
             return None, None, False
         if text not in parse_cache:
-            start, end, success = await parse_korean_date_with_llm(text)
-            parse_cache[text] = (start, end, success)
+            # 종료 시간 추론은 예약/생성용이므로 과거 날짜 거부
+            start, end, is_precise = await parse_korean_date_with_llm(text, allow_past_dates=False)
+            parse_cache[text] = (start, end, is_precise)
         return parse_cache[text]
 
     start_time = _ensure_aware(start_time) if start_time else None
@@ -1998,11 +2007,11 @@ def _apply_slot_decision(
 
     merged_slots: Dict[str, Any] = dict(slot_state_payload.get("slots") or {})
     
-    # 추천 후 회의실 선택 시 slot_state의 시간 정보를 먼저 가져오기 (우선순위 높음)
+    # 추천 후 회의실 선택 시 slot_state의 시간/인원/화상회의 정보를 먼저 가져오기 (우선순위 높음)
     if meeting_context.get("recommended_rooms") and parsed.action == "예약":
         slot_state_ctx = meeting_context.get("slot_state") or {}
         context_slots = slot_state_ctx.get("slots") or {}
-        # 시간/인원 정보를 slot_state에서 가져와서 merged_slots에 우선 반영
+        # 시간/인원/화상회의 정보를 slot_state에서 가져와서 merged_slots에 우선 반영
         if context_slots.get("start_time"):
             merged_slots["start_time"] = context_slots["start_time"]
             print(f"[시간 정보 유지] start_time을 slot_state에서 가져옴: {context_slots.get('start_time')}")
@@ -2012,7 +2021,11 @@ def _apply_slot_decision(
         if context_slots.get("participants"):
             merged_slots["participants"] = context_slots["participants"]
             print(f"[인원 정보 유지] participants를 slot_state에서 가져옴: {context_slots.get('participants')}")
-    
+        # requires_video는 선택사항이지만 추천에서 받았으면 유지
+        if context_slots.get("requires_video") is not None:
+            merged_slots["requires_video"] = context_slots["requires_video"]
+            print(f"[화상회의 정보 유지] requires_video를 slot_state에서 가져옴: {context_slots.get('requires_video')}")
+
     for key, value in (slot_decision.filled_slots or {}).items():
         normalized = _normalize_slot_value(key, value)
         if normalized is not None:
@@ -2027,15 +2040,19 @@ def _apply_slot_decision(
     if parsed.title and parsed.title.strip():
         merged_slots["title"] = parsed.title.strip()
         print(f"[제목 확인] parsed.title={parsed.title}, merged_slots['title']={merged_slots.get('title')}")
+    # parsed.description이 있으면 확실히 merged_slots에 반영
+    if parsed.description and parsed.description.strip():
+        merged_slots["description"] = parsed.description.strip()
+        print(f"[안건 확인] parsed.description={parsed.description}, merged_slots['description']={merged_slots.get('description')}")
 
     # 슬롯이 채워진 경우 missing_slots 재계산
     recalculated_missing = []
     for slot_name in (slot_decision.missing_slots or []):
-        # 추천 후 회의실 선택 시 시간/인원 정보는 이미 있으므로 제거
+        # 추천 후 회의실 선택 시 시간/인원/화상회의 정보는 이미 있으므로 제거
         if meeting_context.get("recommended_rooms") and parsed.action == "예약":
-            if slot_name in ["start_time", "end_time", "participants"]:
-                if merged_slots.get(slot_name):
-                    print(f"[시간/인원 정보 유지] {slot_name}이 이미 있으므로 missing에서 제거")
+            if slot_name in ["start_time", "end_time", "participants", "requires_video"]:
+                if merged_slots.get(slot_name) is not None:
+                    print(f"[추천 정보 유지] {slot_name}이 이미 있으므로 missing에서 제거")
                     continue
         if slot_name not in merged_slots or merged_slots[slot_name] is None:
             recalculated_missing.append(slot_name)
@@ -2044,13 +2061,17 @@ def _apply_slot_decision(
         elif slot_name == "description" and not str(merged_slots.get("description") or "").strip():
             recalculated_missing.append(slot_name)
     
-    # 제목이 채워졌는지 최종 확인 (awaiting_slots에 title이 있었고, parsed.title이 있으면 제목이 채워진 것)
+    # 제목과 안건이 채워졌는지 최종 확인
     awaiting_slots = meeting_context.get("awaiting_slots") or []
     if "title" in awaiting_slots and parsed.title and parsed.title.strip():
         # 제목이 채워졌으므로 recalculated_missing에서 title 제거
         recalculated_missing = [slot for slot in recalculated_missing if slot != "title"]
         print(f"[제목 채움 확인] title이 채워져서 missing에서 제거: {recalculated_missing}")
-    
+    if "description" in awaiting_slots and parsed.description and parsed.description.strip():
+        # 안건이 채워졌으므로 recalculated_missing에서 description 제거
+        recalculated_missing = [slot for slot in recalculated_missing if slot != "description"]
+        print(f"[안건 채움 확인] description이 채워져서 missing에서 제거: {recalculated_missing}")
+
     meeting_context["slot_state"] = {
         "intent": parsed.action,
         "slots": merged_slots,
@@ -2091,6 +2112,28 @@ def _apply_slot_decision(
 
     # recalculated_missing이 비어있으면 추가 질문 없음
     if recalculated_missing and slot_decision.should_ask:
+        # 추천 후 예약 전환 시: title과 description을 한번에 물어봄
+        if meeting_context.get("recommended_rooms") and parsed.action == "예약":
+            # merged_slots를 기반으로 실제 missing 확인
+            actual_missing = []
+            if not (merged_slots.get("title") or "").strip():
+                actual_missing.append("title")
+            if not (merged_slots.get("description") or "").strip():
+                actual_missing.append("description")
+
+            if actual_missing:
+                slot_descriptions = [
+                    RESERVATION_SLOT_DESCRIPTIONS.get(slot, slot)
+                    for slot in actual_missing
+                ]
+                combined_question = "다음 정보를 알려주세요:\n" + "\n".join(
+                    f"- {desc}" for desc in slot_descriptions
+                )
+                meeting_context["awaiting_slots"] = actual_missing
+                meeting_context["last_question"] = combined_question
+                print(f"[추천 후 예약] 복합 질문 생성: missing={actual_missing}, question={combined_question}")
+                return combined_question
+
         # 여러 슬롯이 누락되었으면 한 번에 물어봄
         if len(recalculated_missing) > 1:
             slot_descriptions = [
