@@ -235,7 +235,9 @@ class DocumentMasterGraph(BaseMasterGraph):
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
-        current_step_index = state.get("current_workflow_step_index", 0)
+        current_step_index = state.get("current_workflow_step_index")
+        if current_step_index is None:
+            current_step_index = 0
         current_step_number = current_step_index + 1
         
         # 템플릿명 초기화 (State에서 먼저 가져옴)
@@ -728,7 +730,7 @@ class DocumentMasterGraph(BaseMasterGraph):
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
         workflow_steps = state.get("workflow_steps", [])
-        current_step_index = state.get("current_workflow_step_index", 0)
+        current_step_index = state.get("current_workflow_step_index") or 0
         workflow_temp_data = state.get("workflow_temp_data", {})
         
         # 현재 날짜 정보

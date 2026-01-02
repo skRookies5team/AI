@@ -341,27 +341,17 @@
                 <div class="stat-label">총 직원 수</div>
                 <div class="stat-value" id="totalEmployees">0</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-label">재직 중</div>
-                <div class="stat-value" id="activeEmployees">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">정규직</div>
-                <div class="stat-value" id="regularEmployees">0</div>
-            </div>
         </div>
 
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
-                        <th rowspan="2" class="name-header">이름</th>
-                        <th rowspan="2">직원별 상태<br>(재직)</th>
-                        <th rowspan="2">직급</th>
-                        <th rowspan="2">계약형태<br>(정규, 비정규, 인턴)</th>
-                    </tr>
-                    <tr class="sub-header-row">
-                        <!-- 하위 헤더는 이름 컬럼에만 있음 -->
+                        <th class="name-header">이름</th>
+                        <th>부서</th>
+                        <th>직급</th>
+                        <th>직무</th>
+                        <th>이메일</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -404,41 +394,27 @@
             const tbody = document.getElementById('tableBody');
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td class="name-cell">
-                    <div class="name-input-group">
-                        <input type="text" placeholder="국문 이름" class="korean-name">
-                        <input type="text" placeholder="English Name" class="english-name">
-                    </div>
+                <td>
+                    <input type="text" placeholder="이름" class="name-input">
                 </td>
                 <td>
-                    <select class="status-select">
-                        <option value="">선택</option>
-                        <option value="재직">재직</option>
-                        <option value="휴직">휴직</option>
-                        <option value="퇴직">퇴직</option>
-                        <option value="퇴사예정">퇴사예정</option>
-                    </select>
+                    <input type="text" placeholder="부서" class="dept-input">
                 </td>
                 <td>
-                    <input type="text" placeholder="예: 대리, 과장, 차장" class="position-input">
+                    <input type="text" placeholder="직급" class="position-input">
                 </td>
                 <td>
-                    <select class="contract-select">
-                        <option value="">선택</option>
-                        <option value="정규">정규</option>
-                        <option value="비정규">비정규</option>
-                        <option value="인턴">인턴</option>
-                        <option value="계약직">계약직</option>
-                    </select>
+                    <input type="text" placeholder="직무" class="duty-input">
+                </td>
+                <td>
+                    <input type="text" placeholder="이메일" class="email-input">
                 </td>
             `;
             tbody.appendChild(row);
             
             // 통계 업데이트 이벤트 리스너 추가
-            const statusSelect = row.querySelector('.status-select');
-            const contractSelect = row.querySelector('.contract-select');
-            statusSelect.addEventListener('change', calculateStats);
-            contractSelect.addEventListener('change', calculateStats);
+            const inputs = row.querySelectorAll('input');
+            inputs.forEach(input => input.addEventListener('input', calculateStats));
         }
 
         // 마지막 행 삭제
@@ -453,25 +429,16 @@
         // 통계 계산
         function calculateStats() {
             const rows = document.querySelectorAll('#tableBody tr');
-            let total = rows.length;
-            let active = 0;
-            let regular = 0;
-
+            let total = 0;
+            
             rows.forEach(row => {
-                const status = row.querySelector('.status-select')?.value || '';
-                const contract = row.querySelector('.contract-select')?.value || '';
-                
-                if (status === '재직') {
-                    active++;
-                }
-                if (contract === '정규') {
-                    regular++;
+                const name = row.querySelector('.name-input')?.value || '';
+                if (name.trim() !== '') {
+                    total++;
                 }
             });
 
             document.getElementById('totalEmployees').textContent = total;
-            document.getElementById('activeEmployees').textContent = active;
-            document.getElementById('regularEmployees').textContent = regular;
         }
 
         // 인쇄
@@ -482,16 +449,19 @@
         // 데이터 내보내기 (CSV)
         function exportData() {
             const rows = document.querySelectorAll('#tableBody tr');
-            let csv = '국문이름,영문이름,직원상태,직급,계약형태\n';
+            let csv = '이름,부서,직급,직무,이메일\n';
             
             rows.forEach(row => {
-                const koreanName = row.querySelector('.korean-name')?.value || '';
-                const englishName = row.querySelector('.english-name')?.value || '';
-                const status = row.querySelector('.status-select')?.value || '';
+                const name = row.querySelector('.name-input')?.value || '';
+                const dept = row.querySelector('.dept-input')?.value || '';
                 const position = row.querySelector('.position-input')?.value || '';
-                const contract = row.querySelector('.contract-select')?.value || '';
+                const duty = row.querySelector('.duty-input')?.value || '';
+                const email = row.querySelector('.email-input')?.value || '';
                 
-                csv += `"${koreanName}","${englishName}","${status}","${position}","${contract}"\n`;
+                // 빈 행 제외
+                if (name || dept || position || duty || email) {
+                    csv += `"${name}","${dept}","${position}","${duty}","${email}"\n`;
+                }
             });
 
             const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });

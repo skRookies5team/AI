@@ -20,9 +20,9 @@ def extract_work_performance_review_fields(
     # 1. departmentName 추출
     if 'departmentName' not in field_values or not field_values.get('departmentName') or (isinstance(field_values.get('departmentName'), str) and not field_values.get('departmentName').strip()):
         dept_patterns = [
-            r'부서명[:\s]+([^\n]+)',
-            r'부서[:\s]+([^\n]+)',
-            r'소속\s+부서[:\s]+([^\n]+)',
+            r'부서명[:\s]+([^,\n]+)',
+            r'부서[:\s]+([^,\n]+)',
+            r'소속\s+부서[:\s]+([^,\n]+)',
         ]
         for pattern in dept_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)
@@ -36,8 +36,8 @@ def extract_work_performance_review_fields(
     # 2. codeNumber 추출
     if 'codeNumber' not in field_values or not field_values.get('codeNumber') or (isinstance(field_values.get('codeNumber'), str) and not field_values.get('codeNumber').strip()):
         code_patterns = [
-            r'코드번호[:\s]+([^\n]+)',
-            r'코드[:\s]+([^\n]+)',
+            r'코드번호[:\s]+([^,\n]+)',
+            r'코드[:\s]+([^,\n]+)',
         ]
         for pattern in code_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)
@@ -118,8 +118,8 @@ def extract_work_performance_review_fields(
     # 4. 업무명 추출
     if 'workName' not in field_values or not field_values.get('workName') or (isinstance(field_values.get('workName'), str) and not field_values.get('workName').strip()):
         work_patterns = [
-            r'업무명[:\s]+([^\n]+)',
-            r'평가\s+업무[:\s]+([^\n]+)',
+            r'업무명[:\s]+([^,\n]+)',
+            r'평가\s+업무[:\s]+([^,\n]+)',
         ]
         for pattern in work_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)
@@ -131,8 +131,8 @@ def extract_work_performance_review_fields(
     # 5. 작성자명 추출
     if 'authorName' not in field_values or not field_values.get('authorName') or (isinstance(field_values.get('authorName'), str) and not field_values.get('authorName').strip()):
         author_patterns = [
-            r'작성자명[:\s]+([^\n]+)',
-            r'작성자[:\s]+([^\n]+)',
+            r'작성자명[:\s]+([^,\n]+)',
+            r'작성자[:\s]+([^,\n]+)',
         ]
         for pattern in author_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)
@@ -144,9 +144,9 @@ def extract_work_performance_review_fields(
     # 6. 담당 부서장명 추출
     if 'departmentHeadName' not in field_values or not field_values.get('departmentHeadName') or (isinstance(field_values.get('departmentHeadName'), str) and not field_values.get('departmentHeadName').strip()):
         head_patterns = [
-            r'담당\s+부서장명[:\s]+([^\n]+)',
-            r'부서장명[:\s]+([^\n]+)',
-            r'부서장[:\s]+([^\n]+)',
+            r'담당\s+부서장명[:\s]+([^,\n]+)',
+            r'부서장명[:\s]+([^,\n]+)',
+            r'부서장[:\s]+([^,\n]+)',
         ]
         for pattern in head_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)
@@ -158,8 +158,8 @@ def extract_work_performance_review_fields(
     # 7. 주평가대상 추출
     if 'evaluationTarget' not in field_values or not field_values.get('evaluationTarget') or (isinstance(field_values.get('evaluationTarget'), str) and not field_values.get('evaluationTarget').strip()):
         target_patterns = [
-            r'주평가대상[:\s]+([^\n]+)',
-            r'평가대상[:\s]+([^\n]+)',
+            r'주평가대상[:\s]+([^,\n]+)',
+            r'평가대상[:\s]+([^,\n]+)',
         ]
         for pattern in target_patterns:
             match = re.search(pattern, requirements, re.IGNORECASE)

@@ -673,6 +673,8 @@ def get_domain_classification_prompt(context: str = "", last_domain: Optional[st
             "recruitment": "채용"
         }
         domain_name = domain_names.get(last_domain, last_domain)
+        
+        # 기본 이전 도메인 정보
         previous_domain_info = f"""
 **중요: 이전 대화 도메인 정보**
 이전 대화에서 '{domain_name}' 도메인으로 작업을 수행했습니다.
@@ -680,6 +682,23 @@ def get_domain_classification_prompt(context: str = "", last_domain: Optional[st
 **이전 도메인 고려 사항:**
 - 사용자의 현재 질의가 이전 도메인과 관련된 후속 질문일 가능성을 고려하세요.
 - 예: "1번", "2번", "더 찾아줘", "자세히", "요약해줘", "1번 자세히 알려줘" 같은 짧은 질의는 이전 도메인의 연속일 가능성이 높습니다.
+"""
+
+        # 도메인별 특화 지시사항 추가
+        if last_domain == 'document':
+             previous_domain_info += """
+- **특히 이전 도메인이 '문서 작성(document)'인 경우:**
+  - "진행", "결재", "결재 진행", "승인", "확인" 등의 표현은 문서 생성 후 결재 프로세스를 진행하라는 요청일 확률이 매우 높습니다.
+  - 이 경우 반드시 **document** 도메인으로 분류하세요. (schedule이 아님)
+"""
+        elif last_domain == 'schedule':
+             previous_domain_info += """
+- **특히 이전 도메인이 '일정 관리(schedule)'인 경우:**
+  - "진행", "확인", "예", "아니오", "취소" 등의 표현은 일정/예약 확인 또는 취소 단계일 확률이 높습니다.
+  - 이 경우 반드시 **schedule** 도메인으로 분류하세요.
+"""
+
+        previous_domain_info += """
 - 하지만 명시적으로 다른 도메인을 언급하면 새로운 요청으로 처리하세요.
 - 숫자로 시작하는 질문(예: "1번", "2번")은 이전 검색 결과의 상세 요청일 가능성이 매우 높습니다.
 
