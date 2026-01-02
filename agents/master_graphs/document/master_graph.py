@@ -429,6 +429,7 @@ class DocumentMasterGraph(BaseMasterGraph):
                     "document_path": document_path,  # ✅ 파일 경로 반환 (프론트엔드 표시용)
                     "document_title": document_title,  # ✅ 문서 제목 반환
                     "messages": ["면접 평가표가 생성되었습니다."],
+                    "search_results": [{"html": final_html}],  # ✅ 프론트엔드에서 rows로 사용
                     "workflow_in_progress": False,  # 워크플로우 종료
                     "workflow_type": None,
                     "workflow_steps": None,
@@ -769,6 +770,7 @@ class DocumentMasterGraph(BaseMasterGraph):
             "final_response": final_response,  # 생성된 HTML 문서 내용을 final_response에 설정
             "conversation_history": conversation_history,  # 업데이트된 대화 히스토리
             "document_context": orchestrator_state["document_context"],  # Redis 컨텍스트 반환 (HTML 포함)
+            "search_results": [{"html": document_content}] if document_content else [],  # ✅ 프론트엔드에서 rows로 사용
         }
         
         # 결재가 필요한 경우 상태 업데이트

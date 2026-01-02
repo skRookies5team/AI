@@ -1362,6 +1362,18 @@ async def chat_endpoint(
             search_results = final_state.get("search_results", [])
             if search_results:
                 rows = search_results
+        elif last_domain == "document":
+            # ✅ document 도메인: HTML을 rows에 담기 (인재추천과 동일한 패턴)
+            search_results = final_state.get("search_results", [])
+            if search_results:
+                rows = search_results
+                print(f"✅ document 도메인: search_results에서 {len(rows)}개 HTML 결과 추출")
+            else:
+                # search_results가 없으면 document_content에서 생성
+                document_content = final_state.get("document_content")
+                if document_content:
+                    rows = [{"html": document_content}]
+                    print(f"✅ document 도메인: document_content에서 HTML을 rows에 담기 (크기: {len(document_content):,} 문자)")
         elif last_domain == "qa":
             search_results = final_state.get("search_results", [])
             if search_results:
