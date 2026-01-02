@@ -1272,7 +1272,7 @@ def _build_room_list_message(
     # 예약 가능 여부에 따라 안내 메시지 추가
     if parsed and parsed.start_time and parsed.end_time:
         lines.append("")
-        lines.append("💡 어떤 회의실을 예약하시겠습니까?")
+        lines.append("💡 원하시는 회의실을 예약해드릴까요?")
         lines.append("예약하실 회의실 번호나 이름을 말씀해 주세요.")
     
     return "\n".join(lines)
@@ -2025,7 +2025,7 @@ def _apply_slot_decision(
         if context_slots.get("requires_video") is not None:
             merged_slots["requires_video"] = context_slots["requires_video"]
             print(f"[화상회의 정보 유지] requires_video를 slot_state에서 가져옴: {context_slots.get('requires_video')}")
-    
+
     for key, value in (slot_decision.filled_slots or {}).items():
         normalized = _normalize_slot_value(key, value)
         if normalized is not None:
@@ -2071,7 +2071,7 @@ def _apply_slot_decision(
         # 안건이 채워졌으므로 recalculated_missing에서 description 제거
         recalculated_missing = [slot for slot in recalculated_missing if slot != "description"]
         print(f"[안건 채움 확인] description이 채워져서 missing에서 제거: {recalculated_missing}")
-    
+
     meeting_context["slot_state"] = {
         "intent": parsed.action,
         "slots": merged_slots,
@@ -2120,7 +2120,7 @@ def _apply_slot_decision(
                 actual_missing.append("title")
             if not (merged_slots.get("description") or "").strip():
                 actual_missing.append("description")
-            
+
             if actual_missing:
                 slot_descriptions = [
                     RESERVATION_SLOT_DESCRIPTIONS.get(slot, slot)
@@ -2133,7 +2133,7 @@ def _apply_slot_decision(
                 meeting_context["last_question"] = combined_question
                 print(f"[추천 후 예약] 복합 질문 생성: missing={actual_missing}, question={combined_question}")
                 return combined_question
-        
+
         # 여러 슬롯이 누락되었으면 한 번에 물어봄
         if len(recalculated_missing) > 1:
             slot_descriptions = [

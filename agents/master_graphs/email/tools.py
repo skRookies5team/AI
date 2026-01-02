@@ -157,22 +157,9 @@ async def _email_compose_tool_impl(
             feedback=None
         )
         
-        # HTML 본문을 텍스트로 변환하여 미리보기 생성
-        import re
-        text_body = re.sub(r'<[^>]+>', '', body)
-        text_body = text_body.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-        body_preview = text_body[:500] + "..." if len(text_body) > 500 else text_body
-        
-        message = f"""이메일 초안이 생성되었습니다.
-
-📧 제목: {subject}
-📮 수신자: {to_email}
-
-📝 본문 미리보기:
-{body_preview}
-
-발송을 원하시면 '발송' 또는 '보내기'라고 말씀해주세요.
-수정을 원하시면 '수정: [수정 내용]' 형식으로 알려주세요."""
+        # NOTE: 프론트에서 email_draft 카드(UI)로 제목/수신자/본문을 보여주므로,
+        # Tool message에는 레거시 "본문 미리보기" 등을 포함하지 않습니다.
+        message = "이메일 초안이 생성되었습니다. 아래 초안 카드에서 전송/수정/취소를 진행해주세요."
         
         logger.info("[Email Compose Tool] 초안 생성 완료")
         

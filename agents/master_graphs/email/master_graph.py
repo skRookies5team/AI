@@ -310,11 +310,8 @@ class EmailMasterGraph(BaseMasterGraph):
         to_names = email_compose_context.get("to_names", [])
         pending_selection = email_compose_context.get("pending_recipient_selection", {})
 
-        # ✅ 작성 취소는 generate_reply로 보내서 state 초기화 로직이 실행되도록 함
-        cancel_keywords = ["작성 취소", "취소", "중단", "그만", "cancel", "stop"]
-        if email_compose_context and any(k in query.lower() for k in cancel_keywords):
-            print("✅ 이메일 작성 취소 감지 → compose로 라우팅(상태 초기화 실행)")
-            return {"intent": "compose"}
+        # NOTE: 채팅 입력으로 취소/발송/수정(HITL)을 처리하지 않습니다.
+        # - 취소/수정/발송은 프론트의 API 버튼(/api/email/compose/*)으로만 처리합니다.
         
         # 수신자 정보가 있거나 동명이인 선택 중이면 compose로 라우팅
         if to_emails or (to_names and not pending_selection) or pending_selection:
@@ -617,152 +614,35 @@ class EmailMasterGraph(BaseMasterGraph):
         query = state.get("query", "")
         session_id = state.get("session_id")
 
-        # ✅ 작성 취소: 이메일 작성 state 초기화
-        # - 초안/수신자 선택/피드백 등 email_compose_context가 존재할 때만 초기화
-        cancel_keywords = ["작성 취소", "취소", "중단", "그만", "cancel", "stop"]
-        is_cancel = any(k in query.lower() for k in cancel_keywords)
-        email_compose_context_now = state.get("email_compose_context") or {}
-        if is_cancel and email_compose_context_now:
-            cancel_msg = "이메일 작성이 취소되었습니다. (이메일 상태를 초기화했습니다)"
-            return {
-                "final_response": cancel_msg,
-                "messages": [cancel_msg],
-                "email_compose_context": {},  # ✅ 컨텍스트 초기화
-                "requires_input": False,
-            }
+        # NOTE: 채팅 입력으로 취소(HITL)를 처리하지 않습니다.
+        # - 취소는 프론트의 API 버튼(/api/email/compose/cancel)로만 처리합니다.
         
         # 워크플로우 모드 확인
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
         
-        # 워크플로우 모드인 경우 (business_trip 또는 recruitment)
-        if workflow_in_progress and workflow_type in ["business_trip", "recruitment"]:
-            # 저장된 초안 컨텍스트 확인 (발송/수정 명령 처리용)
+        # 워크플로우 모드이고 business_trip 워크플로우인 경우
+        if workflow_in_progress and workflow_type == "business_trip":
+            # 저장된 초안 컨텍스트 확인
             email_compose_context = state.get("email_compose_context") or {}
             stored_draft_subject = email_compose_context.get("email_draft_subject")
             stored_draft_body = email_compose_context.get("email_draft_body")
             stored_to_email = email_compose_context.get("to_email", "")
-            
-            # "발송" 또는 "수정" 명령 확인
-            is_send_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
-            is_revision_command = any(k in query.lower() for k in ["수정", "다시", "revision", "추가", "변경"])
-            
-            # "발송" 명령이 있고 초안이 있으면 발송 처리
-            if is_send_command and stored_draft_subject and stored_draft_body and stored_to_email:
-                # ✅ 워크플로우 모드: 이메일 발송
-                try:
-                    result = await compose_and_send_email(
-                        to_email=stored_to_email,
-                        user_message=query,
-                        cc=None,
-                        bcc=None,
-                        original_subject=None,
-                        original_sender=None,
-                        original_body=None,
-                        approval_status="approved",  # 발송 명령이므로 "approved"로 설정
-                        email_draft_subject=stored_draft_subject,
-                        email_draft_body=stored_draft_body,
-                    )
-                    
-                    if result.get("ok"):
-                        # ✅ 발송 완료 - 워크플로우 단계 업데이트
-                        current_step_index = state.get("current_workflow_step_index", 0)
-                        workflow_steps = state.get("workflow_steps", [])
-                        
-                        # recruitment 워크플로우인 경우 다음 도메인(document)으로 라우팅
-                        if workflow_type == "recruitment":
-                            workflow_temp_data["email_sent_status"] = "success"
-                            msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
-                            msg += "\n\n**[워크플로우]** 이제 마지막 단계로 면접 평가표를 생성합니다."
-                            
-                            return {
-                                "final_response": msg,
-                                "messages": [msg],
-                                "email_compose_context": {}, 
-                                "workflow_temp_data": workflow_temp_data,
-                                "workflow_in_progress": True,
-                                "workflow_type": workflow_type,
-                                "current_workflow_step_index": 3, # Document 단계로
-                                "next_domain": "document",
-                                "requires_input": False
-                            }
-                        
-                        # 기존 business_trip 처리 (마지막 단계)
-                        if workflow_type == "business_trip" and current_step_index >= len(workflow_steps) - 1:
-                            # 워크플로우 완료
-                            from agents.orchestrator_v3 import load_workflows_config
-                            workflows = load_workflows_config()
-                            workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
-                            completion_message = workflow_config.get("completion_message", "워크플로우가 완료되었습니다.")
-                            
-                            # ✅ 이메일 발송 완료 및 워크플로우 종료 안내 메시지 (요청 형식)
-                            raw_send_msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
-                            # 예: "이메일이 성공적으로 발송되었습니다! (수신자: ...)" -> 줄바꿈 형태로 정리
-                            send_msg = raw_send_msg.replace("! (수신자:", "!\n(수신자:").replace(") ---", ")")
-                            if " (수신자:" in send_msg and "\n(수신자:" not in send_msg:
-                                send_msg = send_msg.replace(" (수신자:", "\n(수신자:")
 
-                            email_sent_msg = (
-                                f"{send_msg}\n\n"
-                                f"완료된 작업:\n\n"
-                                f"{completion_message}\n\n"
-                                f"출장 신청 워크플로우가 종료되었습니다."
-                            )
-                            
-                            return {
-                                "final_response": email_sent_msg,
-                                "messages": [email_sent_msg],
-                                "email_compose_context": {},  # 컨텍스트 초기화
-                                "workflow_temp_data": {},  # 초기화
-                                "workflow_type": None,
-                                "workflow_steps": None,
-                                "current_workflow_step_index": None,
-                                "workflow_completed_steps": None,
-                                "workflow_in_progress": False,
-                                "next_domain": None,
-                                "requires_input": False,
-                            }
-                        else:
-                            # 다음 단계로 진행 (이미 마지막 단계이므로 여기 도달하지 않음)
-                            raw_send_msg = result.get("message", "이메일이 성공적으로 발송되었습니다!")
-                            send_msg = raw_send_msg.replace("! (수신자:", "!\n(수신자:").replace(") ---", ")")
-                            if " (수신자:" in send_msg and "\n(수신자:" not in send_msg:
-                                send_msg = send_msg.replace(" (수신자:", "\n(수신자:")
-                            email_sent_msg = send_msg
-                            
-                            return {
-                                "final_response": email_sent_msg,
-                                "messages": [email_sent_msg],
-                                "email_compose_context": {},  # 컨텍스트 초기화
-                                "workflow_temp_data": workflow_temp_data,
-                                "requires_input": False,
-                            }
-                    else:
-                        return {
-                            "final_response": result.get("message", "이메일 발송에 실패했습니다."),
-                            "messages": [result.get("message", "")],
-                            "email_compose_context": email_compose_context,
-                            "workflow_temp_data": workflow_temp_data,
-                            "requires_input": True,
-                        }
-                except Exception as e:
-                    print(f"⚠️ 이메일 발송 실패: {e}")
-                    return {
-                        "final_response": f"이메일 발송 중 오류가 발생했습니다: {str(e)}",
-                        "messages": [f"오류: {str(e)}"],
-                        "email_compose_context": email_compose_context,
-                        "workflow_temp_data": workflow_temp_data,
-                        "requires_input": True,
-                    }
-            
-            # "수정" 명령이면 사용자에게 수정 요청
-            if is_revision_command:
-                message = "초안을 수정하시겠습니까? 수정할 내용을 알려주세요.\n\n예: '제목을 변경해줘', '본문에 연락처 추가해줘' 등"
+            # ✅ 워크플로우에서도 채팅 입력(발송/수정/취소)로 동작하지 않음
+            # - 전송/수정/취소는 프론트의 API 버튼만 사용
+            if stored_draft_subject and stored_draft_body and stored_to_email:
+                msg = (
+                    "📧 **이메일 초안이 준비되어 있습니다.**\n\n"
+                    "이제 채팅으로 '발송/수정/취소'는 처리하지 않습니다.\n"
+                    "초안 카드의 **전송/수정/취소** 버튼을 사용해주세요."
+                )
                 return {
-                    "final_response": message,
-                    "messages": [message],
+                    "final_response": msg,
+                    "messages": [msg],
                     "email_compose_context": email_compose_context,
+                    "email_draft": {"to": stored_to_email, "subject": stored_draft_subject, "body": stored_draft_body},
                     "workflow_temp_data": workflow_temp_data,
                     "requires_input": True,
                 }
@@ -773,12 +653,16 @@ class EmailMasterGraph(BaseMasterGraph):
                 message += f"**제목:** {stored_draft_subject}\n\n"
                 message += f"**수신자:** {stored_to_email}\n\n"
                 message += f"**본문:**\n{stored_draft_body}\n\n"
-                message += "이 초안을 사용하시겠습니까?\n\n[발송] 또는 [수정]을 선택해주세요."
+                message += (
+                    "이제 채팅으로 '발송/수정/취소'는 처리하지 않습니다.\n"
+                    "초안 카드의 **전송/수정/취소** 버튼을 사용해주세요."
+                )
                 
                 return {
                     "final_response": message,
                     "messages": [message],
                     "email_compose_context": email_compose_context,
+                    "email_draft": {"to": stored_to_email, "subject": stored_draft_subject, "body": stored_draft_body},
                     "workflow_temp_data": workflow_temp_data,
                     "requires_input": True,
                 }
@@ -826,7 +710,7 @@ class EmailMasterGraph(BaseMasterGraph):
             # 현재 단계 번호 계산
             current_step_index = state.get("current_workflow_step_index", 0)
             current_step_number = current_step_index + 1
-            
+
             # 워크플로우별 메시지 최적화
             if workflow_type == "recruitment":
                 step_complete_msg = f"✅ [Step {current_step_number} 완료] 면접 안내 이메일 초안이 생성되었습니다.\n\n"
@@ -835,23 +719,15 @@ class EmailMasterGraph(BaseMasterGraph):
                 step_complete_msg = f"✅ [Step {current_step_number} 완료] 팀원 알림 이메일 초안이 생성되었습니다.\n\n"
                 title_msg = "📧 **팀원 알림 이메일 초안**"
             
-            # 초안 컨펌 요청
-            buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('발송')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
-        📧 발송
-    </button>
-    <button onclick="sendMessageFromButton('수정')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
-        ✏️ 수정
-    </button>
-</div>
-"""
-            message = f"{title_msg}\n\n"
-            message += f"**제목:** {draft_subject}\n\n"
-            message += f"**수신자:** {to_email}\n\n"
-            message += f"**본문:**\n{draft_body}\n\n"
-            message += "이 초안을 사용하시겠습니까?" + buttons_html
-            message = step_complete_msg + message
+            # 초안 안내 (버튼은 프론트의 API 기반 초안 카드에서 제공)
+            message = (
+                step_complete_msg
+                + "📧 **팀원 알림 이메일 초안**\n\n"
+                + f"**제목:** {draft_subject}\n\n"
+                + f"**수신자:** {to_email}\n\n"
+                + "이제 채팅으로 '발송/수정/취소'는 처리하지 않습니다.\n"
+                + "초안 카드의 **전송/수정/취소** 버튼을 사용해주세요."
+            )
             
             # email_compose_context에 초안 저장
             email_compose_context["email_draft_subject"] = draft_subject
@@ -863,6 +739,7 @@ class EmailMasterGraph(BaseMasterGraph):
                 "final_response": message,
                 "messages": [message],
                 "email_compose_context": email_compose_context,
+                "email_draft": {"to": to_email, "subject": draft_subject, "body": draft_body},
                 "workflow_temp_data": workflow_temp_data,
                 "requires_input": True,
             }
@@ -1115,7 +992,33 @@ class EmailMasterGraph(BaseMasterGraph):
         stored_draft_subject = email_compose_context.get("email_draft_subject")
         stored_draft_body = email_compose_context.get("email_draft_body")
         stored_to_email = email_compose_context.get("to_email")
-        
+
+        # ✅ 채팅 입력으로 발송/수정/취소(HITL) 동작을 제거합니다.
+        # - 전송/수정/취소는 프론트의 API 버튼(/api/email/compose/send|modify|cancel)로만 처리합니다.
+        # - 초안이 있는데 채팅으로 "발송/수정/취소"를 입력하면 실행하지 않고 안내만 반환합니다.
+        _chat_hitl_keywords = [
+            "발송", "보내", "전송", "send",
+            "수정", "다시", "변경", "추가", "revision", "modify",
+            "취소", "작성 취소", "cancel", "stop",
+        ]
+        if (stored_draft_subject and stored_draft_body) and any(k in query.lower() for k in _chat_hitl_keywords):
+            msg = (
+                "📧 **초안이 이미 있습니다.**\n\n"
+                "이제 채팅으로 '발송/수정/취소'는 처리하지 않습니다.\n"
+                "초안 카드의 **전송/수정/취소** 버튼을 사용해주세요."
+            )
+            return {
+                "final_response": msg,
+                "messages": [msg],
+                "email_compose_context": email_compose_context,
+                "email_draft": {
+                    "to": stored_to_email or (to_email or ""),
+                    "subject": stored_draft_subject,
+                    "body": stored_draft_body,
+                },
+                "requires_input": True,
+            }
+
         # 디버그: 저장된 초안 컨텍스트 확인
         print(f"[EMAIL COMPOSE DEBUG] 저장된 초안 컨텍스트 확인:")
         print(f"  - email_compose_context 존재: {bool(email_compose_context)}")
@@ -1124,65 +1027,11 @@ class EmailMasterGraph(BaseMasterGraph):
         print(f"  - stored_to_email: {stored_to_email}")
         print(f"  - 전체 email_compose_context 키: {list(email_compose_context.keys())}")
         
-        # 사용자 쿼리에서 승인/거부/피드백 감지
-        # 저장된 초안이 있을 때만 "보내"를 발송 명령으로 인식
-        has_stored_draft = bool(stored_draft_subject and stored_draft_body)
-        
-        if has_stored_draft:
-            # 저장된 초안이 있으면 "보내"도 발송 명령으로 인식
-            is_approval_command = any(k in query.lower() for k in ["발송", "보내", "전송", "send", "승인", "ok", "좋아"])
-        else:
-            # 저장된 초안이 없으면 "보내"는 새 작성 요청으로 처리 (제외)
-            is_approval_command = any(k in query.lower() for k in ["발송", "전송", "send", "승인", "ok", "좋아"])
-        
-        is_reject_command = any(k in query.lower() for k in ["거부", "안 보내", "취소", "reject", "cancel"])
-        is_revision_command = any(k in query.lower() for k in ["수정", "다시", "revision", "추가", "변경"])
-        
-        # 디버그: 명령 감지
-        print(f"[EMAIL COMPOSE DEBUG] 명령 감지:")
-        print(f"  - query: {query}")
-        print(f"  - is_approval_command: {is_approval_command}")
-        print(f"  - is_reject_command: {is_reject_command}")
-        print(f"  - is_revision_command: {is_revision_command}")
-        
-        # 저장된 초안이 있고 "발송" 명령이면 approval_status를 "approved"로 설정
+        # NOTE: 채팅 입력으로 승인/수정/취소를 처리하지 않으므로,
+        # approval_status/user_feedback는 여기서 자동으로 설정하지 않습니다.
         approval_status = None
         user_feedback = None
-        
-        if is_approval_command and stored_draft_subject and stored_draft_body:
-            approval_status = "approved"
-            to_email = stored_to_email or to_email
-            print(f"[EMAIL COMPOSE DEBUG] ✅ 발송 명령 감지! approval_status='approved' 설정")
-            # 저장된 초안 정보를 사용하여 발송
-            print(f"--- [Email Master] Using stored draft for approval: subject={stored_draft_subject[:50]}...")
-        elif is_revision_command:
-            approval_status = "rejected"
-            # 피드백 추출 (저장된 피드백보다 새로운 쿼리에서 추출한 피드백 우선)
-            feedback_keywords = ["수정", "다시", "추가", "변경", "더"]
-            new_feedback = None
-            for keyword in feedback_keywords:
-                if keyword in query.lower():
-                    idx = query.lower().find(keyword.lower())
-                    new_feedback = query[idx + len(keyword):].strip()
-                    if new_feedback.startswith(":"):
-                        new_feedback = new_feedback[1:].strip()
-                    break
-            # 새로운 피드백이 있으면 사용, 없으면 이전 피드백 유지
-            if new_feedback:
-                user_feedback = new_feedback
-                print(f"[EMAIL COMPOSE DEBUG] 새로운 피드백 추출: {user_feedback}")
-            elif not user_feedback:
-                # 피드백이 없으면 저장된 초안이 있다는 것을 알림
-                user_feedback = email_compose_context.get("user_feedback")
-        elif is_reject_command:
-            approval_status = "rejected"
-        
-        # 디버그: 최종 설정
-        print(f"[EMAIL COMPOSE DEBUG] 최종 설정:")
-        print(f"  - approval_status: {approval_status}")
-        print(f"  - to_email: {to_email}")
-        print(f"  - user_feedback: {user_feedback}")
-        
+
         # 사용자 메시지 추출 (이메일 주소 제외)
         user_message = query
         if to_email:
@@ -1208,8 +1057,8 @@ class EmailMasterGraph(BaseMasterGraph):
             print(f"[EMAIL COMPOSE DEBUG] compose_and_send_email 호출 파라미터:")
             print(f"  - to_email: {final_to_email}")
             print(f"  - approval_status: {approval_status}")
-            print(f"  - email_draft_subject 전달: {stored_draft_subject[:50] if (stored_draft_subject if (is_approval_command or is_revision_command) else None) else None}...")
-            print(f"  - email_draft_body 전달: {'있음' if (stored_draft_body if (is_approval_command or is_revision_command) else None) else '없음'}")
+            print(f"  - email_draft_subject 전달: None (채팅 HITL 제거)")
+            print(f"  - email_draft_body 전달: 없음 (채팅 HITL 제거)")
             
             result = await compose_and_send_email(
                 to_email=final_to_email,
@@ -1221,9 +1070,9 @@ class EmailMasterGraph(BaseMasterGraph):
                 bcc=bcc,
                 session_id=session_id,
                 approval_status=approval_status,
-                user_feedback=user_feedback if user_feedback is not None else email_compose_context.get("user_feedback"),
-                email_draft_subject=stored_draft_subject if (is_approval_command or is_revision_command) else None,  # 저장된 초안 전달 (발송/수정 명령 시)
-                email_draft_body=stored_draft_body if (is_approval_command or is_revision_command) else None,  # 저장된 초안 전달 (발송/수정 명령 시)
+                user_feedback=None,
+                email_draft_subject=None,
+                email_draft_body=None,
                 employee_id=employee_id,
             )
             
@@ -1233,16 +1082,8 @@ class EmailMasterGraph(BaseMasterGraph):
             print(f"  - message: {result.get('message', '')[:100]}...")
             print(f"  - draft 존재: {bool(result.get('draft'))}")
             
-            # 발송 완료되면 email_compose_context 초기화
-            if result.get("ok") and is_approval_command:
-                print(f"[EMAIL COMPOSE DEBUG] ✅ 발송 완료, 컨텍스트 초기화")
-                return {
-                    "final_response": result.get("message", "이메일 처리가 완료되었습니다."),
-                    "messages": [result.get("message", "")],
-                    "email_draft": result.get("draft"),
-                    "email_compose_context": {},  # 컨텍스트 초기화
-                }
-            elif result.get("ok"):
+            # 초안 생성 완료 시 컨텍스트에 저장
+            if result.get("ok"):
                 # 초안 생성 완료 시 컨텍스트에 저장
                 compose_context = {
                     "to_email": to_email or stored_to_email or state.get("to_email", ""),
@@ -1254,7 +1095,7 @@ class EmailMasterGraph(BaseMasterGraph):
                     "original_subject": original_subject or email_compose_context.get("original_subject"),
                     "original_sender": original_sender or email_compose_context.get("original_sender"),
                     "original_body": original_body or email_compose_context.get("original_body"),
-                    "user_feedback": user_feedback,
+                    "user_feedback": None,
                     "cc": state.get("cc") or email_compose_context.get("cc"),
                     "bcc": state.get("bcc") or email_compose_context.get("bcc"),
                     # 동명이인 선택 관련 정보도 유지
