@@ -836,21 +836,22 @@ class EmailMasterGraph(BaseMasterGraph):
                 title_msg = "📧 **팀원 알림 이메일 초안**"
             
             # 초안 컨펌 요청
-            buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('발송')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
-        📧 발송
-    </button>
-    <button onclick="sendMessageFromButton('수정')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
-        ✏️ 수정
-    </button>
-</div>
-"""
+            # 🔥 프론트엔드 React 버튼으로 대체 (주석처리 - 필요시 복구 가능)
+            # buttons_html = """
+# <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+#     <button onclick="sendMessageFromButton('발송')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
+#         📧 발송
+#     </button>
+#     <button onclick="sendMessageFromButton('수정')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+#         ✏️ 수정
+#     </button>
+# </div>
+# """
             message = f"{title_msg}\n\n"
             message += f"**제목:** {draft_subject}\n\n"
             message += f"**수신자:** {to_email}\n\n"
             message += f"**본문:**\n{draft_body}\n\n"
-            message += "이 초안을 사용하시겠습니까?" + buttons_html
+            message += "이 초안을 사용하시겠습니까?"  # + buttons_html (프론트에서 React 버튼으로 표시)
             message = step_complete_msg + message
             
             # email_compose_context에 초안 저장

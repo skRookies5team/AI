@@ -235,14 +235,15 @@ class DocumentMasterGraph(BaseMasterGraph):
         workflow_in_progress = state.get("workflow_in_progress", False)
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
-        current_step_index = state.get("current_workflow_step_index", 0)
+        current_step_index = state.get("current_workflow_step_index") or 0  # ✅ None 방어
         current_step_number = current_step_index + 1
         
         # 템플릿명 초기화 (State에서 먼저 가져옴)
         template_name = state.get("template_name")
         
-        # 디버깅: Step에서 받은 workflow_temp_data 확인
-        print(f"🔍 [Step {current_step_number}] state에서 받은 workflow_temp_data: {workflow_temp_data}")
+        # 디버깅: Step에서 받은 workflow_temp_data 확인 (워크플로우인 경우에만)
+        if workflow_in_progress:
+            print(f"🔍 [Step {current_step_number}] state에서 받은 workflow_temp_data: {workflow_temp_data}")
         
         # 워크플로우 모드이고 business_trip 워크플로우인 경우
         if workflow_in_progress and workflow_type == "business_trip":
@@ -289,15 +290,16 @@ class DocumentMasterGraph(BaseMasterGraph):
             if not destination or len(destination.strip()) < 1: missing_fields.append("출장지")
             
             if missing_fields:
-                buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
-        ❌ 종료
-    </button>
-</div>
-"""
+                # 🔥 프론트엔드 React 버튼으로 대체 (주석처리 - 필요시 복구 가능)
+                # buttons_html = """
+# <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+#     <button onclick="sendMessageFromButton('종료')" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(220, 53, 69, 0.3);">
+#         ❌ 종료
+#     </button>
+# </div>
+# """
                 missing_list = "\n".join([f"- {field}" for field in missing_fields])
-                question = f"출장 신청서 작성을 위해 다음 정보가 필요합니다:\n{missing_list}\n\n위 정보를 알려주세요." + buttons_html
+                question = f"출장 신청서 작성을 위해 다음 정보가 필요합니다:\n{missing_list}\n\n위 정보를 알려주세요."  # + buttons_html (프론트에서 React 버튼으로 표시)
                 return {
                     "final_response": question,
                     "messages": [question],
@@ -633,16 +635,17 @@ class DocumentMasterGraph(BaseMasterGraph):
             is_approval_required = template_name in ["business_trip_request_form", "vacation_request_form"]
             
             if is_approval_required:
-                buttons_html = """
-<div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-    <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
-        ✅ 결재 진행
-    </button>
-    <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
-        ❌ 취소
-    </button>
-</div>
-"""
+                # 🔥 프론트엔드 React 버튼으로 대체 (주석처리 - 필요시 복구 가능)
+                # buttons_html = """
+# <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+#     <button onclick="sendMessageFromButton('진행')" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);">
+#         ✅ 결재 진행
+#     </button>
+#     <button onclick="sendMessageFromButton('취소')" style="padding: 10px 20px; background: #e0e0e0; color: #333; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+#         ❌ 취소
+#     </button>
+# </div>
+# """
                 doc_type = "출장 신청서" if template_name == "business_trip_request_form" else "휴가 신청서"
                 
                 # 워크플로우 모드: 문서 작성 후 결재 진행 여부 확인
@@ -653,12 +656,12 @@ class DocumentMasterGraph(BaseMasterGraph):
                     # Step 완료 메시지 추가
                     step_complete_msg = f"\n\n✅ [Step {current_step_number} 완료] {doc_type} 생성이 완료되었습니다."
                     # 결재 진행 여부 확인 메시지 추가
-                    approval_message = "\n\n내용을 확인하신 후 결재를 진행하시겠습니까?" + buttons_html
+                    approval_message = "\n\n내용을 확인하신 후 결재를 진행하시겠습니까?"  # + buttons_html (프론트에서 React 버튼으로 표시)
                     final_response = document_content + step_complete_msg + approval_message
                 else:
                     # 일반 요청 모드: 출장/휴가 신청서인 경우 결재 진행 여부 확인
                     complete_msg = f"\n\n✅ {doc_type}가 생성되었습니다."
-                    approval_message = "\n\n결재를 진행하시겠습니까?" + buttons_html
+                    approval_message = "\n\n결재를 진행하시겠습니까?"  # + buttons_html (프론트에서 React 버튼으로 표시)
                     final_response = document_content + complete_msg + approval_message
             
             # conversation_history에 assistant 메시지 추가

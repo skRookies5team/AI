@@ -1,347 +1,46 @@
-# 워크플로우 정의 및 프롬프트 설정 파일
-# 복합 워크플로우(여러 도메인을 순차적으로 실행하는 작업)를 정의합니다.
-
 workflows:
-  business_trip:
-    name: "원스톱 출장/휴가 관리 서비스"
-    description: "출장 또는 휴가 신청 시 일정 확인, 문서 생성, 이메일 설정, 캘린더 등록을 자동으로 처리합니다."
-    
-    # LLM 기반 워크플로우 감지 프롬프트
+  - name: "business_trip"
+    description: "출장 신청 및 관리 워크플로우"
     detection_prompt: |
-      사용자 질의를 분석하여 다음을 판단하세요:
-      
-      1. 이 질의가 "원스톱 출장/휴가 관리 서비스" 워크플로우 실행 요청인지
-      2. 아니면 단순히 출장/휴가 관련 정보를 묻는 질문인지
-      3. 아니면 기존 일정/작업을 취소/삭제/수정하는 요청인지
-      
-      **중요: 워크플로우가 아닌 경우 (반드시 제외해야 할 요청):**
-      - 취소 요청: "취소해줘", "일정 취소", "출장 취소", "휴가 취소", "출장 일정 취소해줘" 등
-      - 삭제 요청: "삭제해줘", "지워줘", "제거해줘" 등
-      - 수정 요청: "수정해줘", "변경해줘", "고쳐줘" 등
-      - 조회 요청: "조회해줘", "보여줘", "알려줘", "확인해줘" 등
-      - 정보 질문: "규정은?", "방법은?", "어떻게 해야 해?" 등
-      
-      **워크플로우 실행 요청의 특징:**
-      - 사용자가 실제로 출장/휴가를 신청하거나 준비하려는 의도
-      - 구체적인 날짜, 목적지, 기간 등이 포함되거나 암시됨
-      - 실행 동사 사용: "다녀올게", "갈게", "신청하고 싶어", "준비해줘", "신청해줘" 등
-      - 명령형이나 의지 표현: "~하고 싶어", "~해줘", "~할게"
-      - **중요**: 취소/삭제/수정 동사가 포함되면 워크플로우가 아님
-      
-      **워크플로우 실행 요청 예시:**
-      - "다음 주 3일간 제주도로 워크샵 다녀올게"
-      - "12월 20일부터 22일까지 부산 출장 갈게"
-      - "내일부터 3일간 휴가 신청하고 싶어"
-      - "출장 신청해줘"
-      - "휴가 다녀올게"
-      
-      **워크플로우가 아닌 예시 (반드시 is_workflow_request = False):**
-      - "출장 일정 취소해줘" → 취소 요청 (워크플로우 아님)
-      - "출장 규정 알려줘" → 정보 질문 (워크플로우 아님)
-      - "휴가 신청 방법은?" → 정보 질문 (워크플로우 아님)
-      - "출장 일정 수정해줘" → 수정 요청 (워크플로우 아님)
-      - "출장 일정 삭제해줘" → 삭제 요청 (워크플로우 아님)
-      - "출장 신청서 양식 보여줘" → 정보 요청 (워크플로우 아님)
-      - "출장 신청 절차 알려줘" → 정보 질문 (워크플로우 아님)
-      - "출장 신청하려면 어떻게 해야 해?" → 정보 질문 (워크플로우 아님)
-      - "휴가 신청하려면 어떻게 하나요?" → 정보 질문 (워크플로우 아님)
-      
-      **판단 기준:**
-      - 취소/삭제/수정 동사 포함 → is_workflow_request = False (워크플로우 아님)
-      - 질문형("알려줘", "방법은?", "규정은?", "어떻게 해야 해?") → is_workflow_request = False
-      - 정보 요청("보여줘", "찾아줘", "조회해줘") → is_workflow_request = False
-      - 실행 의도("다녀올게", "갈게", "신청하고 싶어", "신청해줘", "준비해줘") → is_workflow_request = True
-      - 명령형 또는 의지 표현 → is_workflow_request = True (단, 취소/삭제/수정 동사 제외)
-      
-      사용자 질의: "{query}"
-      
-      위 기준에 따라 판단하여 JSON 형식으로 응답하세요.
-      workflow_type은 "business_trip" 또는 None으로 설정하세요.
-      취소/삭제/수정 요청은 반드시 is_workflow_request = False로 설정하세요.
-    
-    # Fallback용 키워드 (LLM 감지 실패 시 사용, 선택적)
-    detection_keywords:
-      - "출장"
-      - "워크샵"
-      - "다녀올"
-      - "휴가"
-      - "휴가 신청"
-      - "출장 신청"
-      - "출장 가"
-      - "출장 다녀올"
-      - "출장 갈"
-      - "출장 예정"
-      - "출장 일정"
-      - "여행 가"
-      - "여행 다녀올"
-    
-    # 워크플로우 단계 정의
-    steps:
-      - domain: "schedule"
-        step_name: "일정 조회 및 날짜 확인"
-        description: "날짜 정보 확인 → 일정 조회 → 출장 신청서 작성 진행 여부 확인 (휴먼 인 더 루프)"
-        intent: "business_trip"  # schedule 도메인의 intent
-        action: "check_conflicts_and_confirm"
-        required_data:
-          - "start_time"  # ISO 형식
-          - "end_time"  # ISO 형식
-        output_data:
-          - "schedule_conflicts"
-          - "workflow_temp_data"  # 임시 저장 데이터
-        human_in_loop:
-          - "날짜 정보 부족 시 재요청"
-          - "일정 조회 후 출장 신청서 작성 진행 여부 확인 (버튼)"
-        
-      - domain: "document"
-        step_name: "문서 작성"
-        description: "출장 신청서 작성 (사유 확인 - 휴먼 인 더 루프)"
-        intent: "generate"  # document 도메인의 intent
-        action: "generate_document"
-        template_name: "business_trip_request_form"  # 출장 신청서 템플릿
-        required_data:
-          - "workflow_temp_data"  # state에서 가져오기
-        output_data:
-          - "document_path"
-          - "document_content"
-          - "workflow_temp_data"  # description 업데이트
-        human_in_loop:
-          - "출장 사유 부재 시 재요청"
-          - "문서 작성 후 결재 진행 여부 확인 (버튼)"
-        
-      - domain: "schedule"
-        step_name: "캘린더 등록"
-        description: "내 구글 캘린더에 일정 등록 및 RDB schedule 테이블에 저장"
-        intent: "business_trip"  # schedule 도메인의 intent
-        action: "register_calendar"
-        required_data:
-          - "workflow_temp_data"  # state에서 가져오기
-        output_data:
-          - "schedule_id"
-          - "gcal_event_id"
-        
-      - domain: "email"
-        step_name: "이메일 발송"
-        description: "부재중 기간 안내 이메일 초안 생성 및 컨펌 후 발송 (휴먼 인 더 루프)"
-        intent: "compose"  # email 도메인의 intent
-        action: "compose_and_send_email"
-        required_data:
-          - "workflow_temp_data"  # state에서 가져오기
-        output_data:
-          - "email_draft"
-          - "email_compose_context"
-        human_in_loop:
-          - "이메일 초안 컨펌 요청"
-          - "초안 수정 또는 발송 승인"
-    
-    # 워크플로우 실행 시 필요한 데이터 추출 프롬프트
-    data_extraction_prompt: |
-      사용자의 출장/휴가 신청 요청에서 다음 정보를 추출하세요:
-      
-      1. 시작 날짜 (start_date): 출장/휴가 시작일
-      2. 종료 날짜 (end_date): 출장/휴가 종료일
-      3. 목적지 (destination): 출장지 또는 휴가지
-      4. 사유 (reason): 출장/휴가 사유
-      
-      사용자 입력 예시:
-      - "다음 주 3일간 제주도로 워크샵 다녀올게"
-        → start_date: 다음 주 월요일, end_date: 다음 주 수요일, destination: 제주도, reason: 워크샵
-      - "12월 20일부터 22일까지 부산 출장 갈게"
-        → start_date: 12월 20일, end_date: 12월 22일, destination: 부산, reason: 출장
-      
-      날짜 파싱 규칙:
-      - "다음 주" = 현재 날짜 기준 다음 주
-      - "3일간" = 시작일부터 3일
-      - "월요일부터 수요일까지" = 해당 요일 기준 날짜 계산
-      
-      추출한 정보를 JSON 형식으로 반환하세요:
-      {
-        "start_date": "YYYY-MM-DD",
-        "end_date": "YYYY-MM-DD",
-        "destination": "목적지",
-        "reason": "사유"
-      }
-    
-    # 워크플로우 단계별 완료 메시지
-    step_completion_messages:
-      schedule_check: "일정 확인이 완료되었습니다. 중복된 중요 미팅이 있는지 확인했습니다."
-      document_generate: "출장/휴가 신청서가 생성되었습니다."
-      email_compose: "부재중 기간 안내 이메일 초안이 생성되었습니다. 확인 후 발송해주세요."
-      schedule_register: "캘린더에 부재 일정이 등록되었습니다."
-    
-    # 워크플로우 완료 메시지
-    completion_message: |
-      1. 일정 확인 완료
-      2. 출장/휴가 신청서 작성 및 결재 상신 완료
-      3. 캘린더 일정 등록 완료
-      4. 부재중 기간 안내 이메일 초안 생성 및 발송 완료
+      사용자가 "출장", "워크샵", "세미나", "학회" 등을 위해 "신청", "다녀올게", "갈게", "가야해" 등의 의도로
+      일정 등록, 문서 작성, 이메일 발송 등의 일련의 과정을 요청하는 경우입니다.
+      단순한 일정 조회는 제외합니다.
 
-  # 추가 워크플로우 정의
-  
-  recruitment:
-    name: "채용 프로세스 자동화"
-    description: "지원자 검색부터 면접 일정, 안내 메일 발송, 평가표 생성까지 자동으로 처리합니다."
-    
-    detection_prompt: |
-      사용자 질의를 분석하여 다음을 판단하세요:
-      
-      1. 이 질의가 "채용 프로세스 자동화" 워크플로우 실행 요청인지
-      2. 아니면 단순히 채용 관련 정보를 묻는 질문인지
-      
-      **워크플로우 실행 요청의 특징:**
-      - 사용자가 실제로 채용 프로세스를 진행하려는 의도
-      - 이력서 검색, 면접 일정 조정, 합격/불합격 통지 등 실행 동사 사용
-      - 예: "이력서 검색하고 면접 일정 잡아줘", "채용 프로세스 진행해줘"
-      
-      사용자 질의: "{query}"
-      
-      위 기준에 따라 판단하여 JSON 형식으로 응답하세요.
-      workflow_type은 "recruitment" 또는 None으로 설정하세요.
-    
+    # LLM이 판단하기 위한 키워드 (보조용)
+    detection_keywords: ["출장", "워크샵", "세미나", "학회", "교육"]
+
     steps:
-      - domain: "recruitment"
-        step_name: "이력서 검색 및 선택"
-        description: "포지션/경력/기술스택으로 검색 → 후보자 1명 선택 (휴먼 인 더 루프)"
-        intent: "search"
-        action: "search_and_select"
-        required_data:
-          - "position"
-          - "experience"
-          - "tech_stack"
-        output_data:
-          - "selected_candidate" # 후보자 1명의 상세 정보 (이름, 연락처, 이메일 등)
+      - step_name: "schedule_check"
+        domain: "schedule"
+        description: "일정 조회 및 날짜 확인"
+        intent: "check_schedule"
+        action: "check_schedule_conflicts"
+        required_data: ["start_date", "end_date", "location", "purpose"]
         human_in_loop:
-          - "후보자 카드 중 한 명 선택"
-      
-      - domain: "schedule"
-        step_name: "면접 일정 및 면접관 설정"
-        description: "면접관 정보 입력 → 면접 날짜 추천 및 확정 (휴먼 인 더 루프)"
-        intent: "interview"
-        action: "setup_interview"
-        required_data:
-          - "selected_candidate"
-        output_data:
-          - "interviewers" # 면접관 리스트
-          - "interview_date" # 확정된 면접 날짜/시간
+            required: true
+            description: "사용자에게 감지된 날짜와 일정이 맞는지 확인하고, 문서 작성을 진행할지 물어봅니다."
+            actions: ["proceed", "cancel"]
+            
+      - step_name: "document_creation"
+        domain: "document"
+        description: "출장 신청서 문서 작성 및 결재"
+        intent: "create_document"
+        action: "generate_business_trip_form"
+        required_data: ["start_date", "end_date", "location", "purpose", "employee_id"]
+        output_data: ["document_path", "document_content"]
         human_in_loop:
-          - "면접관 정보(이름, 부서, 직급) 입력"
-          - "가능한 날짜 중 하나 선택"
-      
-      - domain: "email"
-        step_name: "면접 안내 메일 발송"
-        description: "지원자에게 면접 일정 및 장소 안내 메일 초안 생성 및 발송 (휴먼 인 더 루프)"
-        intent: "compose"
-        action: "send_interview_guide"
-        required_data:
-          - "selected_candidate"
-          - "interview_date"
-        output_data:
-          - "email_sent_status"
+            required: true
+            description: "생성된 문서를 보여주고 결재를 진행할지 물어봅니다."
+            actions: ["proceed", "cancel"]
+
+      - step_name: "register_and_email"
+        domain: "email" 
+        description: "일정 등록 및 이메일 발송 (완료)"
+        intent: "send_email"
+        action: "register_calendar_and_send_email"
+        required_data: ["start_date", "end_date", "location", "purpose", "document_path"]
+        output_data: ["email_draft", "calendar_event"]
         human_in_loop:
-          - "메일 초안 확인 및 수정/발송"
-      
-      - domain: "document"
-        step_name: "면접 평가표 생성"
-        description: "선택된 후보자 정보와 면접관 정보를 포함한 면접 평가표 생성"
-        intent: "generate"
-        action: "generate_document"
-        template_name: "interview_evaluation_form"
-        required_data:
-          - "selected_candidate"
-          - "interviewers"
-          - "interview_date"
-        output_data:
-          - "document_path"
-    
-    completion_message: |
-      채용 프로세스 자동화 작업이 완료되었습니다!
-      
-      완료된 작업:
-      1. 이력서 검색 및 필터링 완료
-      2. 면접 평가서 생성 완료
-      3. 면접 일정 조정 완료
-      4. 면접 안내 이메일 발송 완료
-  
-  meeting_preparation:
-    name: "회의 준비 자동화 시스템"
-    description: "회의 준비 자동화 - 일정 조정, 관련 기술 자료 검색, 회의 자료 작성을 자동으로 처리합니다."
-    
-    detection_prompt: |
-      사용자 질의를 분석하여 다음을 판단하세요:
-      
-      1. 이 질의가 "회의 준비 자동화 시스템" 워크플로우 실행 요청인지
-      2. 아니면 단순히 회의 관련 정보를 묻는 질문인지
-      
-      **워크플로우 실행 요청의 특징:**
-      - 사용자가 실제로 회의를 준비하려는 의도
-      - 일정 조정, 자료 검색, 문서 작성 등 실행 동사 사용
-      - 예: "회의 준비해줘", "회의 자료 작성하고 일정 잡아줘"
-      
-      **워크플로우가 아닌 예시:**
-      - "회의 일정 알려줘" → 조회 요청
-      - "회의실 예약 방법은?" → 정보 질문
-      
-      사용자 질의: "{query}"
-      
-      위 기준에 따라 판단하여 JSON 형식으로 응답하세요.
-      workflow_type은 "meeting_preparation" 또는 None으로 설정하세요.
-    
-    detection_keywords:
-      - "회의 준비"
-      - "회의 자료"
-      - "회의 일정"
-      - "회의 준비해줘"
-      - "회의 자료 작성"
-    
-    steps:
-      - domain: "schedule"
-        step_name: "회의 일정 조정"
-        description: "회의 일정 조정 및 회의실 예약"
-        intent: "meeting"
-        action: "schedule_meeting"
-        required_data:
-          - "meeting_topic"  # 회의 주제
-          - "participants"  # 참석자
-          - "preferred_date"  # 희망 일정
-        output_data:
-          - "meeting_schedule"
-          - "workflow_temp_data"
-        human_in_loop:
-          - "회의 일정 확인 및 승인"
-      
-      - domain: "tech"
-        step_name: "관련 기술 자료 검색"
-        description: "회의 주제와 관련된 기술 자료(특허, 논문) 검색"
-        intent: "search"
-        action: "search_tech_materials"
-        required_data:
-          - "workflow_temp_data"
-        output_data:
-          - "search_results"
-          - "workflow_temp_data"
-        human_in_loop:
-          - "검색 결과 확인 및 선택"
-      
-      - domain: "document"
-        step_name: "회의 자료 작성"
-        description: "검색된 자료를 기반으로 회의 자료 작성"
-        intent: "generate"
-        action: "generate_document"
-        template_name: "meeting_materials"
-        required_data:
-          - "workflow_temp_data"
-        output_data:
-          - "document_path"
-          - "document_content"
-    
-    step_completion_messages:
-      schedule_schedule: "회의 일정이 조정되었습니다."
-      tech_search: "관련 기술 자료 검색이 완료되었습니다."
-      document_generate: "회의 자료가 작성되었습니다."
-    
-    completion_message: |
-      회의 준비 자동화 작업이 완료되었습니다!
-      
-      완료된 작업:
-      1. 회의 일정 조정 완료
-      2. 관련 기술 자료 검색 완료
-      3. 회의 자료 작성 완료
+            required: true
+            description: "최종 처리 결과를 보여주고 확인을 받습니다."
+            actions: ["confirm"]

@@ -836,9 +836,19 @@ async def chat_stream_endpoint(
                     final_msg = "요청하신 작업을 완료했습니다."
                 
                 current_domain = final_state.get("domain")
+                workflow_in_progress = final_state.get("workflow_in_progress", False)
+                
+                # document_path 추출
                 document_path = None
-                if current_domain == "document":
+                if workflow_in_progress:
+                    # 워크플로우 진행 중이면 document_path 유지 (도메인 전환 후에도 문서 미리보기 유지)
                     document_path = final_state.get("document_path")
+                elif current_domain == "document":
+                    # 일반 문서 요청인 경우에만 document_path 사용
+                    document_path = final_state.get("document_path")
+                else:
+                    # 다른 도메인으로 전환된 경우 (워크플로우가 아닌 경우에만) 이전 document_path 제거
+                    document_path = None
                 
                 requires_input = final_state.get("requires_input", False)
                 
@@ -1293,13 +1303,18 @@ async def chat_endpoint(
         # 현재 도메인 확인
         current_domain = final_state.get("domain")
         
-        # document_path 추출 (문서 도메인에서만 의미가 있음)
+        # document_path 추출 (워크플로우 진행 중이면 도메인 상관없이 반환)
         document_path = None
-        if current_domain == "document":
-            # 문서 도메인에서만 document_path 사용
+        workflow_in_progress = final_state.get("workflow_in_progress", False)
+        
+        if workflow_in_progress:
+            # 워크플로우 진행 중이면 document_path 유지 (도메인 전환 후에도 문서 미리보기 유지)
+            document_path = final_state.get("document_path")
+        elif current_domain == "document":
+            # 일반 문서 요청인 경우에만 document_path 사용
             document_path = final_state.get("document_path")
         else:
-            # 다른 도메인으로 전환된 경우 이전 document_path 제거
+            # 다른 도메인으로 전환된 경우 (워크플로우가 아닌 경우에만) 이전 document_path 제거
             document_path = None
         
         # requires_input 플래그 추출 (예시문 표시 시)
