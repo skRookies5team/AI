@@ -1062,7 +1062,7 @@ class RetrievalNode(RunnableLambda):
             )
 
         # 검색 결과 로깅 (더 상세히)
-        logger.info(f"[Manual Search] 검색 완료: {len(results)}개 문서 발견")
+        print(f"[QA Manual] 검색 완료: {len(results)}개 문서 발견")
         if results:
             for i, doc in enumerate(results[:5], 1):  # 상위 5개 로깅
                 doc_text = doc.get("document", "") or ""
@@ -1070,15 +1070,15 @@ class RetrievalNode(RunnableLambda):
                 preview_text = doc_text[:300] if len(doc_text) > 300 else doc_text
                 score = doc.get('score', 0)
                 distance = doc.get('distance', 0)
-                logger.info(f"  [{i}] Score: {score:.4f}, Distance: {distance:.4f}")
-                logger.info(f"      Content: {preview_text}{'...' if len(doc_text) > 300 else ''}")
+                print(f"  [{i}] Score: {score:.4f}, Distance: {distance:.4f}")
+                print(f"      Content: {preview_text}{'...' if len(doc_text) > 300 else ''}")
             
             # 검색 결과 요약
             top_score = results[0].get('score', 0) if results else 0
             top_distance = results[0].get('distance', 0) if results else 0
-            logger.info(f"[Manual Search] 최상위 결과 - Score: {top_score:.4f}, Distance: {top_distance:.4f}")
+            print(f"[QA Manual] 최상위 결과 - Score: {top_score:.4f}, Distance: {top_distance:.4f}")
         else:
-            logger.warning(f"[Manual Search] ⚠️ 검색 결과가 없습니다! 쿼리: '{query_text}'")
+            print(f"[QA Manual] ⚠️ 검색 결과가 없습니다! 쿼리: '{query_text}'")
 
         state.documents = [
             RetrievedDocument(

@@ -415,6 +415,12 @@ def hybrid_merge(state: BenefitState) -> BenefitState:
 	top_results = final_results[:top_results_count]
 	retrieved_contexts = [r["content"] for r in top_results]
 	
+	# 검색된 청크를 터미널에 출력
+	print(f"\n[QA Benefit] 검색 완료: {len(retrieved_contexts)}개 청크 발견")
+	for i, ctx in enumerate(retrieved_contexts[:3], 1):  # 상위 3개만
+		preview = ctx[:200] if len(ctx) > 200 else ctx
+		print(f"  [{i}] {preview}{'...' if len(ctx) > 200 else ''}")
+	
 	elapsed_time = time.time() - start_time
 	timings = state.get("timings", {})
 	timings["hybrid_merge"] = elapsed_time
