@@ -16,6 +16,14 @@ def get_workflow_handler(workflow_type: str) -> Optional[BaseWorkflowHandler]:
     Returns:
         워크플로우 핸들러 인스턴스 또는 None
     """
+    if workflow_type == "recruitment":
+        from agents.workflows.recruitment_handler import RecruitmentWorkflowHandler
+        return RecruitmentWorkflowHandler()
+        
+    if workflow_type == "business_trip":
+        from agents.workflows.business_trip_handler import BusinessTripWorkflowHandler
+        return BusinessTripWorkflowHandler()
+        
     handler = GenericWorkflowHandler(workflow_type)
     # 설정이 로드된 경우만 핸들러 반환
     if handler._config:

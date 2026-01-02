@@ -998,6 +998,42 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
             # ⚠️ 중요: "진행" 시 Redis에서 최신 workflow_temp_data를 다시 로드
             print(f"🔍 [route_to_domain] '진행' 키워드 감지 - session_id: {session_id}, workflow_temp_data (현재): {list(workflow_temp_data.keys()) if workflow_temp_data else '비어있음'}")
 
+            if session_id:
+                try:
+                    from agents.session_manager import get_session_manager
+                    session_manager = await get_session_manager()
+                    if session_manager:
+                        employee_id = state.get("employee_id")
+                        if employee_id:
+                            session_data = await session_manager.load_session_data(session_id, employee_id)
+                            if session_data:
+                                redis_workflow_temp_data = session_data.get("workflow_temp_data", {})
+                                print(f"🔍 [route_to_domain] Redis에서 로드한 workflow_temp_data: {list(redis_workflow_temp_data.keys()) if redis_workflow_temp_data else '비어있음'}")
+                                if redis_workflow_temp_data:
+                                    workflow_temp_data = redis_workflow_temp_data
+                                    state["workflow_temp_data"] = redis_workflow_temp_data
+                                    print(f"🔍 [route_to_domain] '진행' 입력 시 Redis에서 최신 workflow_temp_data 로드: {list(workflow_temp_data.keys())}")
+                                else:
+                                    print(f"⚠️ [route_to_domain] Redis에 workflow_temp_data가 없습니다. Step 1에서 저장되지 않았을 수 있습니다.")
+                except Exception as e:
+                    print(f"⚠️ Redis에서 workflow_temp_data 로드 실패: {e}")
+            else:
+                print(f"⚠️ [route_to_domain] session_id가 없어 Redis에서 workflow_temp_data를 로드할 수 없습니다.")
+
+            # ✅ [API 감지] 이메일 전송 완료 플래그 확인 -> 자동 진행 처리
+            if workflow_temp_data.get("email_just_sent"):
+                sent_step = workflow_temp_data.get("email_sent_step_index")
+                # 현재 단계에서 보낸 것이 맞으면
+                if sent_step is not None and int(sent_step) == int(current_step_index):
+                    print(f"🚀 [Orchestrator] 이메일 전송 완료 플래그 감지 - 다음 단계로 자동 진행")
+                    is_pure_proceed = True
+                    # 플래그 소비 (재실행 방지)
+                    workflow_temp_data.pop("email_just_sent", None)
+                    workflow_temp_data.pop("email_sent_step_index", None)
+                    # 상태 업데이트 (Redis 저장은 반환 시 처리됨)
+                else:
+                    print(f"⚠️ [Orchestrator] 이메일 전송 플래그가 있지만 단계 불일치 (sent: {sent_step}, current: {current_step_index})")
+
             # 결재 진행 요청인 경우 document 도메인으로 라우팅 (결재 처리는 document 도메인에서 담당)
             last_domain = state.get("last_domain")
             document_context = state.get("document_context", {})
@@ -1021,28 +1057,6 @@ async def route_to_domain(state: OrchestratorState) -> Dict[str, Any]:
                     "conversation_history": [user_message],
                     **current_date_info
                 }
-
-            if session_id:
-                try:
-                    from agents.session_manager import get_session_manager
-                    session_manager = await get_session_manager()
-                    if session_manager:
-                        employee_id = state.get("employee_id")
-                        if employee_id:
-                            session_data = await session_manager.load_session_data(session_id, employee_id)
-                            if session_data:
-                                redis_workflow_temp_data = session_data.get("workflow_temp_data", {})
-                                print(f"🔍 [route_to_domain] Redis에서 로드한 workflow_temp_data: {list(redis_workflow_temp_data.keys()) if redis_workflow_temp_data else '비어있음'}")
-                                if redis_workflow_temp_data:
-                                    workflow_temp_data = redis_workflow_temp_data
-                                    state["workflow_temp_data"] = redis_workflow_temp_data
-                                    print(f"🔍 [route_to_domain] '진행' 입력 시 Redis에서 최신 workflow_temp_data 로드: {list(workflow_temp_data.keys())}")
-                                else:
-                                    print(f"⚠️ [route_to_domain] Redis에 workflow_temp_data가 없습니다. Step 1에서 저장되지 않았을 수 있습니다.")
-                except Exception as e:
-                    print(f"⚠️ Redis에서 workflow_temp_data 로드 실패: {e}")
-            else:
-                print(f"⚠️ [route_to_domain] session_id가 없어 Redis에서 workflow_temp_data를 로드할 수 없습니다.")
 
             workflow_handler = get_workflow_handler(workflow_type)
             next_step_index = current_step_index + 1

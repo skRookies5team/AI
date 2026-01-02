@@ -195,6 +195,61 @@ class DocumentMasterGraph(BaseMasterGraph):
         intent = state.get("intent", "generate")
         return intent
     
+    @staticmethod
+    def _save_html_document(
+        html_content: str,
+        document_title: str,
+        base_path: Optional[str] = None
+    ) -> Optional[str]:
+        """HTML 문서를 파일로 저장하는 헬퍼 메서드.
+        
+        Args:
+            html_content: 저장할 HTML 내용
+            document_title: 문서 제목 (파일명 생성에 사용)
+            base_path: 기본 경로 (테스트용, None이면 자동 계산)
+        
+        Returns:
+            저장된 파일 경로 (문자열) 또는 None (실패 시)
+        """
+        import re
+        from pathlib import Path
+        
+        try:
+            # output/documents 디렉토리 경로 생성
+            if base_path:
+                output_dir = Path(base_path) / "output" / "documents"
+            else:
+                current_dir = Path(__file__).parent
+                project_root = current_dir.parent.parent.parent.parent
+                output_dir = project_root / "output" / "documents"
+            
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 파일명 생성 (제목 기반, 특수문자 제거)
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', document_title)
+            safe_title = re.sub(r'\s+', '_', safe_title)
+            
+            # 타임스탬프 추가하여 파일명 중복 방지
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{safe_title}_{timestamp}.html"
+            
+            # 파일 경로
+            file_path = output_dir / filename
+            
+            # HTML 파일 저장
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            
+            document_path = str(file_path)
+            print(f"💾 HTML 파일 저장 완료: {document_path}")
+            return document_path
+            
+        except Exception as e:
+            print(f"⚠️ HTML 파일 저장 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
     async def generate_document(self, state: OrchestratorState) -> Dict[str, Any]:
         """AI-012: 문서 자동 작성 - 템플릿 로드 → DB 데이터 매핑(Data Binding) → 초안 생성.
         
@@ -317,22 +372,43 @@ class DocumentMasterGraph(BaseMasterGraph):
             # recruitment 워크플로우: 면접 평가표 생성 (전용 서비스 사용)
             print(f"🚀 [워크플로우 모드] 면접 평가표 전용 서비스 호출")
             try:
+                # 면접 평가표 HTML 생성
                 final_html = await RecruitmentDocService.generate_interview_evaluation(state)
+                
+                # workflow_temp_data에서 후보자 정보 추출 (파일명 생성용)
+                selected_candidate = workflow_temp_data.get("selected_candidate", {})
+                candidate_name = selected_candidate.get("name", "")
+                document_title = f"면접_평가표_{candidate_name}" if candidate_name else "면접_평가표"
+                
+                # HTML 파일 저장 (헬퍼 메서드 사용)
+                document_path = self._save_html_document(
+                    html_content=final_html,
+                    document_title=document_title
+                )
+                
+                if not document_path:
+                    print(f"⚠️ [RecruitmentDocService] HTML 파일 저장 실패했지만 계속 진행합니다.")
+                
+                # 워크플로우 완료 메시지 구성
+                from agents.orchestrator_v3 import load_workflows_config
+                workflows = load_workflows_config()
+                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
+                completion_message = workflow_config.get(
+                    "completion_message",
+                    "채용 워크플로우가 모두 완료되었습니다."
+                )
+                
+                completion_text = (
+                    f"**[워크플로우 완료]**\n{completion_message}\n\n"
+                    f"✅ **채용 프로세스 모든 단계가 완료되었습니다.** 임시 데이터가 초기화됩니다."
+                )
+                
+                # HTML과 텍스트 사이에 구분자 삽입 (프론트엔드에서 분리 처리용)
+                response_content = final_html + "<!-- WORKFLOW_COMPLETION_SEPARATOR -->" + completion_text
                 
                 # 대화 히스토리 업데이트
                 from agents.state import Message
                 from datetime import datetime as dt_now
-                
-                # 완성 메시지 구성
-                from agents.orchestrator_v3 import load_workflows_config
-                workflows = load_workflows_config()
-                workflow_config = workflows.get("workflows", {}).get(workflow_type, {})
-                completion_message = workflow_config.get("completion_message", "채용 워크플로우가 모두 완료되었습니다.")
-                
-                completion_text = f"**[워크플로우 완료]**\n{completion_message}\n\n✅ **채용 프로세스 모든 단계가 완료되었습니다.** 임시 데이터가 초기화됩니다."
-                
-                # HTML과 텍스트 사이에 구분자 삽입
-                response_content = final_html + "<!-- WORKFLOW_COMPLETION_SEPARATOR -->" + completion_text
                 
                 assistant_message: Message = {
                     "role": "assistant",
@@ -342,18 +418,27 @@ class DocumentMasterGraph(BaseMasterGraph):
                 conversation_history = state.get("conversation_history", [])
                 conversation_history.append(assistant_message)
                 
+                print(f"✅ [RecruitmentDocService] 면접 평가표 생성 및 저장 완료")
+                print(f"   - 후보자: {candidate_name}")
+                print(f"   - 문서 경로: {document_path}")
+                print(f"   - HTML 길이: {len(final_html):,} 문자")
+                
                 return {
                     "final_response": response_content,
                     "document_content": final_html,
+                    "document_path": document_path,  # ✅ 파일 경로 반환 (프론트엔드 표시용)
+                    "document_title": document_title,  # ✅ 문서 제목 반환
                     "messages": ["면접 평가표가 생성되었습니다."],
                     "workflow_in_progress": False,  # 워크플로우 종료
                     "workflow_type": None,
                     "workflow_steps": None,
                     "current_workflow_step_index": None,
-                    "workflow_temp_data": {}, # 초기화
+                    "workflow_temp_data": {},  # 초기화
                     "document_context": {
                         "last_generated_html": final_html,
-                        "last_template_type": "interview_evaluation_form"
+                        "last_template_type": "interview_evaluation_form",
+                        "last_file_path": document_path,  # ✅ 파일 경로 저장
+                        "last_document_title": document_title  # ✅ 문서 제목 저장
                     },
                     "conversation_history": conversation_history,
                     "requires_input": False,

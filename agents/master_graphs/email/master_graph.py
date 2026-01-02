@@ -622,8 +622,8 @@ class EmailMasterGraph(BaseMasterGraph):
         workflow_type = state.get("workflow_type")
         workflow_temp_data = state.get("workflow_temp_data") or {}
         
-        # 워크플로우 모드이고 business_trip 워크플로우인 경우
-        if workflow_in_progress and workflow_type == "business_trip":
+        # 워크플로우 모드이고 business_trip 또는 recruitment 워크플로우인 경우
+        if workflow_in_progress and (workflow_type == "business_trip" or workflow_type == "recruitment"):
             # 저장된 초안 컨텍스트 확인
             email_compose_context = state.get("email_compose_context") or {}
             stored_draft_subject = email_compose_context.get("email_draft_subject")

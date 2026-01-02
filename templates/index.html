@@ -2453,6 +2453,11 @@
                     <div style="font-weight:700; color:#111827;">📧 새 메일 ${count}개</div>
                     ${top}
                 `;
+            } else if (type === 'workflow_step_complete') {
+                html = `<div style="font-weight:700; color:#111827;">✅ 워크플로우 단계 완료</div>`;
+                if (item.message) {
+                    html += `<div style="font-size:12px; color:#374151; margin-top:4px;">${escapeHTML(item.message.substring(0, 100))}${item.message.length > 100 ? '...' : ''}</div>`;
+                }
             } else {
                 html = `<div style="font-weight:700; color:#111827;">${escapeHTML(type || '알림')}</div>`;
             }
@@ -2616,6 +2621,20 @@
                             if (!raw || raw === '{}') continue;
                             try {
                                 const payload = JSON.parse(raw);
+                                
+                                // ✅ workflow_step_complete 타입 알림 처리
+                                if (payload.type === 'workflow_step_complete') {
+                                    const notificationSessionId = payload.session_id;
+                                    // 현재 세션과 일치하면 채팅 메시지 다시 로드
+                                    if (notificationSessionId && notificationSessionId === currentSessionId) {
+                                        console.log('✅ 워크플로우 단계 완료 알림 수신 - 세션 메시지 다시 로드');
+                                        // 약간의 지연 후 메시지 로드 (세션 상태 저장 완료 대기)
+                                        setTimeout(async () => {
+                                            await loadSessionMessages(currentSessionId);
+                                        }, 500);
+                                    }
+                                }
+                                
                                 // chat에 찍지 않고, 사이드 알림 패널로만 렌더
                                 renderNotificationItem(payload);
                             } catch (e) {

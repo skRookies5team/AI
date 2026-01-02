@@ -25,6 +25,7 @@ def cleanup_previous_domain_info(
     """도메인 전환 시 이전 도메인 관련 정보를 정리합니다.
     
     document_path는 문서 도메인에서만 사용되므로, 다른 도메인으로 전환 시 제거해야 합니다.
+    하지만 현재 도메인이 "document"인 경우에는 document_path를 유지해야 합니다.
     
     Args:
         state: 오케스트레이터 상태
@@ -32,13 +33,17 @@ def cleanup_previous_domain_info(
         current_domain: 현재 도메인 이름
     """
     last_domain = state.get("last_domain")
-    if last_domain and last_domain != current_domain:
-        # 도메인이 변경된 경우 이전 도메인 관련 정보 정리
+    # ✅ document 도메인으로 전환될 때는 document_path를 제거하지 않음
+    if last_domain and last_domain != current_domain and current_domain != "document":
+        # 도메인이 변경되고 현재 도메인이 document가 아닌 경우에만 이전 도메인 관련 정보 정리
         result.pop("document_path", None)
         result.pop("document_content", None)
         state.pop("document_path", None)
         state.pop("document_content", None)
         print(f"🧹 [도메인 전환] {last_domain} → {current_domain}: 이전 도메인의 document_path 제거 완료")
+    elif last_domain and last_domain != current_domain and current_domain == "document":
+        # document 도메인으로 전환되는 경우 document_path 유지
+        print(f"✅ [도메인 전환] {last_domain} → {current_domain}: document 도메인으로 전환 - document_path 유지")
 
 
 
