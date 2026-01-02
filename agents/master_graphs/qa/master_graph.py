@@ -164,11 +164,27 @@ class QAMasterGraph(BaseMasterGraph):
                 print("⚠️ Manual 검색 실패, benefit으로 재라우팅")
                 return await self.query_benefit(state)
         
+        # rows를 search_results 형식으로 변환
+        rows = result.get("rows", [])
+        search_results = []
+        for row in rows:
+            search_results.append({
+                "index": row.get("index", ""),
+                "content": row.get("content", ""),
+                "preview": row.get("preview", ""),
+                "score": row.get("score", 0.0),
+                "distance": row.get("distance", 0.0),
+                "id": row.get("id"),
+                "domain": "qa",
+                "sub_agent": "manual"
+            })
+        
         # manual 관련 키워드가 있거나 성공한 경우, 결과 반환
         return {
             "final_response": message if message else "검색 결과를 찾을 수 없습니다.",
             "messages": [message] if message else ["검색 결과를 찾을 수 없습니다."],
             "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
+            "search_results": search_results,
         }
     
     async def query_benefit(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -187,10 +203,26 @@ class QAMasterGraph(BaseMasterGraph):
             # 실패 시 error 메시지 사용, 없으면 기본 메시지
             response_message = result.get("error", "복리후생 정보를 찾을 수 없습니다.")
         
+        # rows를 search_results 형식으로 변환
+        rows = result.get("rows", [])
+        search_results = []
+        for row in rows:
+            search_results.append({
+                "index": row.get("index", ""),
+                "content": row.get("content", ""),
+                "preview": row.get("preview", ""),
+                "hybrid_score": row.get("hybrid_score", 0.0),
+                "vector_score": row.get("vector_score", 0.0),
+                "keyword_score": row.get("keyword_score", 0.0),
+                "domain": "qa",
+                "sub_agent": "benefit"
+            })
+
         return {
             "final_response": response_message,
             "messages": [response_message],
             "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
+            "search_results": search_results,
         }
     
     async def query_menu(self, state: OrchestratorState) -> Dict[str, Any]:
@@ -201,10 +233,26 @@ class QAMasterGraph(BaseMasterGraph):
         # 기존 qa_cafeteria_agent 사용 (비동기 호출, state 전달)
         result = await cafeteria_menu(query, orchestrator_state=state)
         
+        # rows를 search_results 형식으로 변환
+        rows = result.get("rows", [])
+        search_results = []
+        for row in rows:
+            search_results.append({
+                "index": row.get("index", ""),
+                "content": row.get("content", ""),
+                "preview": row.get("preview", ""),
+                "hybrid_score": row.get("hybrid_score", 0.0),
+                "vector_score": row.get("vector_score", 0.0),
+                "keyword_score": row.get("keyword_score", 0.0),
+                "domain": "qa",
+                "sub_agent": "menu"
+            })
+        
         return {
             "final_response": result.get("message", "식단 정보를 찾을 수 없습니다."),
             "messages": [result.get("message", "")],
             "qa_search_context": state.get("qa_search_context", {}),  # Redis에 저장된 컨텍스트 반환
+            "search_results": search_results,
         }
     
     async def recommend_menu(self, state: OrchestratorState) -> Dict[str, Any]:
