@@ -165,6 +165,7 @@ class GraphState(TypedDict):
     current_datetime: Optional[str]  # ISO 형식 (예: "2024-12-10T14:30:00") - orchestrator에서 설정됨
     current_weekday: Optional[str]  # 현재 요일 (예: "월요일") - orchestrator에서 설정됨
     calculated_date: Optional[str]  # 계산된 상대적 날짜 (예: "2025년 12월 15일") - analyze_query에서 설정됨
+    rows: Optional[List[Dict[str, Any]]]  # 검색된 청크 정보 리스트
 
 
 # =========================
@@ -471,12 +472,29 @@ def hybrid_merge(state: GraphState) -> GraphState:
     top_results = final_results[:top_results_count]
     retrieved_contexts = [r["content"] for r in top_results]
 
+    # 검색된 청크를 rows에 담기
+    rows = []
+    print(f"\n[QA Cafeteria] 검색 완료: {len(retrieved_contexts)}개 청크 발견")
+    for i, ctx in enumerate(retrieved_contexts, 1):  # 모든 결과 포함
+        preview = ctx[:200] if len(ctx) > 200 else ctx
+        if i <= 3:  # 상위 3개만 출력
+            print(f"  [{i}] {preview}{'...' if len(ctx) > 200 else ''}")
+        rows.append({
+            "index": str(i),
+            "content": ctx,
+            "preview": preview,
+            "hybrid_score": top_results[i-1]["hybrid_score"] if i-1 < len(top_results) else 0.0,
+            "vector_score": top_results[i-1].get("vector_score", 0.0) if i-1 < len(top_results) else 0.0,
+            "keyword_score": top_results[i-1].get("keyword_score", 0.0) if i-1 < len(top_results) else 0.0,
+        })
+
     elapsed_time = time.time() - start_time
     timings = state.get("timings", {})
     timings["hybrid_merge"] = elapsed_time
 
     return {
         "retrieved_contexts": retrieved_contexts,
+        "rows": rows,
         "timings": timings
     }
 
@@ -759,8 +777,11 @@ def generate_answer(state: GraphState) -> GraphState:
     timings = state.get("timings", {})
     timings["generate_answer"] = elapsed_time
 
+    rows_from_state = state.get("rows", [])
+
     return {
         "answer": answer,
+        "rows": rows_from_state,
         "timings": timings
     }
 
@@ -934,6 +955,7 @@ async def cafeteria_menu(
             "ok": True,
             "message": answer_text,
             "retrieved_contexts": result.get("retrieved_contexts", [])[:retrieved_contexts_max],
+            "rows": result.get("rows", []),
             "timings": result.get("timings", {}),
             "echo": user_text
         }

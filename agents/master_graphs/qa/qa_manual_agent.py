@@ -933,6 +933,10 @@ class ManualSearchOutput(BaseModel):
         default_factory=list,
         description="검색된 원본 문서 목록",
     )
+    rows: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="검색된 청크 정보 리스트",
+    )
 
 
 class ManualSearchState(BaseModel):
@@ -957,6 +961,10 @@ class ManualSearchState(BaseModel):
     conversation_history: Optional[List[Dict[str, str]]] = Field(
         default=None,
         description="이전 대화 히스토리 (Redis 숏텀 메모리)",
+    )
+    rows: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="검색된 청크 정보 리스트 (print용)",
     )
 
     model_config = {
@@ -1061,8 +1069,9 @@ class RetrievalNode(RunnableLambda):
                 top_k=self._top_k,
             )
 
-        # 검색 결과 로깅 (더 상세히)
-        logger.info(f"[Manual Search] 검색 완료: {len(results)}개 문서 발견")
+        # 검색 결과를 rows에 담기
+        rows = []
+        print(f"[QA Manual] 검색 완료: {len(results)}개 문서 발견")
         if results:
             for i, doc in enumerate(results[:5], 1):  # 상위 5개 로깅
                 doc_text = doc.get("document", "") or ""
@@ -1070,15 +1079,23 @@ class RetrievalNode(RunnableLambda):
                 preview_text = doc_text[:300] if len(doc_text) > 300 else doc_text
                 score = doc.get('score', 0)
                 distance = doc.get('distance', 0)
-                logger.info(f"  [{i}] Score: {score:.4f}, Distance: {distance:.4f}")
-                logger.info(f"      Content: {preview_text}{'...' if len(doc_text) > 300 else ''}")
+                print(f"  [{i}] Score: {score:.4f}, Distance: {distance:.4f}")
+                print(f"      Content: {preview_text}{'...' if len(doc_text) > 300 else ''}")
+                rows.append({
+                    "index": str(i),
+                    "content": doc_text,
+                    "preview": preview_text,
+                    "score": float(score),
+                    "distance": float(distance),
+                    "id": str(doc.get("id")) if doc.get("id") is not None else None,
+                })
             
             # 검색 결과 요약
             top_score = results[0].get('score', 0) if results else 0
             top_distance = results[0].get('distance', 0) if results else 0
-            logger.info(f"[Manual Search] 최상위 결과 - Score: {top_score:.4f}, Distance: {top_distance:.4f}")
+            print(f"[QA Manual] 최상위 결과 - Score: {top_score:.4f}, Distance: {top_distance:.4f}")
         else:
-            logger.warning(f"[Manual Search] ⚠️ 검색 결과가 없습니다! 쿼리: '{query_text}'")
+            print(f"[QA Manual] ⚠️ 검색 결과가 없습니다! 쿼리: '{query_text}'")
 
         state.documents = [
             RetrievedDocument(
@@ -1090,6 +1107,9 @@ class RetrievalNode(RunnableLambda):
             )
             for doc in results
         ]
+        
+        state.rows = rows
+        
         return state
 
 
@@ -1150,6 +1170,7 @@ class FormatOutputNode(RunnableLambda):
             answer=state.answer,
             sources=state.documents,
             raw_documents=state.documents,
+            rows=state.rows,
         )
         return state
 
@@ -1306,6 +1327,23 @@ async def manual_search(
         # 답변 텍스트 추출
         answer_text = result.answer.text if result.answer and result.answer.text else "답변을 생성할 수 없습니다."
         
+        # rows 추출 (result에서 직접 가져오기)
+        rows = result.rows if result.rows else []
+        
+        # rows가 없으면 sources를 기반으로 생성 (fallback)
+        if not rows and result.sources:
+            for i, doc in enumerate(result.sources[:5], 1):
+                doc_text = doc.document or ""
+                preview_text = doc_text[:300] if len(doc_text) > 300 else doc_text
+                rows.append({
+                    "index": str(i),
+                    "content": doc_text,
+                    "preview": preview_text,
+                    "score": float(doc.score) if doc.score is not None else 0.0,
+                    "distance": float(doc.distance) if doc.distance is not None else 0.0,
+                    "id": doc.id,
+                })
+        
         # Redis에 검색 컨텍스트 및 답변 저장
         if orchestrator_state is not None:
             # qa_search_context 초기화 (None 체크 포함)
@@ -1349,6 +1387,7 @@ async def manual_search(
             "ok": True,
             "message": answer_text,
             "retrieved_contexts": [doc.document for doc in result.sources][:3],  # 상위 3개 문서 내용만
+            "rows": rows,
             "echo": user_text
         }
     except Exception as e:

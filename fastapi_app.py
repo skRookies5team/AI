@@ -885,6 +885,10 @@ async def chat_stream_endpoint(
                                 email_draft.setdefault("cc", ctx.get("cc"))
                             if ctx.get("bcc"):
                                 email_draft.setdefault("bcc", ctx.get("bcc"))
+                elif last_domain == "qa":
+                    search_results = final_state.get("search_results", [])
+                    if search_results:
+                        rows = search_results
 
                 # 문서 업데이트 UI 표시 플래그 확인
                 show_document_update_ui = final_state.get("show_document_update_ui", False)
@@ -1355,6 +1359,10 @@ async def chat_endpoint(
                         email_draft.setdefault("bcc", ctx.get("bcc"))
         elif last_domain == "tech":
             # Tech 도메인(논문/특허)인 경우 검색 결과를 rows에 포함
+            search_results = final_state.get("search_results", [])
+            if search_results:
+                rows = search_results
+        elif last_domain == "qa":
             search_results = final_state.get("search_results", [])
             if search_results:
                 rows = search_results
