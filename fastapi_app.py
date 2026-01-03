@@ -55,6 +55,140 @@ def get_cached_orchestrator_graph():
     return _orchestrator_graph
 
 
+async def trigger_workflow_step_background(session_id: str, employee_id: int):
+    """이메일 전송 후 워크플로우 다음 단계를 백그라운드에서 실행."""
+    print(f"🔄 [Background] 워크플로우 자동 진행 시작 (session_id={session_id})")
+    try:
+        from agents.state import OrchestratorState
+        from datetime import datetime
+        
+        session_manager = await get_session_manager()
+        if not session_manager:
+            print("⚠️ [Background] 세션 매니저 초기화 실패")
+            return
+
+        session_data = await session_manager.load_session_data(session_id, employee_id)
+        
+        # 캐시된 Orchestrator 그래프 가져오기
+        graph = get_cached_orchestrator_graph()
+        
+        # 입력 state 구성
+        input_state = {
+            "query": "진행",  # 명시적인 '진행' 명령
+            "user_id": employee_id,
+            "session_id": session_id,
+            "employee_id": employee_id,
+            "conversation_history": session_data.get("conversation_history", []),
+            "email_search_context": session_data.get("email_search_context", {}),
+            "email_compose_context": session_data.get("email_compose_context") or {},
+            "qa_search_context": session_data.get("qa_search_context", {}),
+            "tech_search_context": session_data.get("tech_search_context", {}),
+            "schedule_context": session_data.get("schedule_context", {}),
+            "document_context": session_data.get("document_context", {}),
+            "recruitment_context": session_data.get("recruitment_context", {}),
+            "workflow_temp_data": session_data.get("workflow_temp_data", {}),
+            "workflow_type": session_data.get("workflow_type"),
+            "workflow_steps": session_data.get("workflow_steps", []),
+            "current_workflow_step_index": session_data.get("current_workflow_step_index", 0),
+            "workflow_completed_steps": session_data.get("workflow_completed_steps", []),
+            "workflow_in_progress": session_data.get("workflow_in_progress", False),
+            "next_domain": session_data.get("next_domain"),
+            "last_domain": session_data.get("last_domain"),
+        }
+        
+        config = {"configurable": {"thread_id": session_id}}
+        
+        # 그래프 실행
+        final_state = await graph.ainvoke(input_state, config=config)
+        
+        # conversation_history 업데이트
+        existing_history = session_data.get("conversation_history", [])
+        new_history = list(final_state.get("conversation_history", []))
+        conversation_history = existing_history.copy()
+        existing_content_set = {(msg.get("role"), msg.get("content", "")[:100]) for msg in existing_history}
+        for msg in new_history:
+            msg_key = (msg.get("role"), msg.get("content", "")[:100])
+            if msg_key not in existing_content_set:
+                conversation_history.append(msg)
+                existing_content_set.add(msg_key)
+        
+        # Assistant 메시지 추가
+        if not conversation_history or conversation_history[-1].get("role") != "assistant":
+             final_msg = final_state.get("final_response")
+             if final_msg:
+                 conversation_history.append({
+                     "role": "assistant",
+                     "content": final_msg,
+                     "timestamp": datetime.now().isoformat()
+                 })
+
+        session_state = {
+            "conversation_history": conversation_history,
+            "email_search_context": final_state.get("email_search_context", {}),
+            "email_compose_context": final_state.get("email_compose_context") or {},
+            "qa_search_context": final_state.get("qa_search_context", {}),
+            "tech_search_context": final_state.get("tech_search_context", {}),
+            "schedule_context": final_state.get("schedule_context", {}),
+            "document_context": final_state.get("document_context", {}),
+            "recruitment_context": final_state.get("recruitment_context", {}),
+            "last_domain": final_state.get("last_domain"),
+            "employee_id": employee_id,
+            "workflow_temp_data": final_state.get("workflow_temp_data", {}),
+            "workflow_type": final_state.get("workflow_type"),
+            "workflow_steps": final_state.get("workflow_steps", []),
+            "current_workflow_step_index": final_state.get("current_workflow_step_index", 0),
+            "workflow_completed_steps": final_state.get("workflow_completed_steps", []),
+            "workflow_in_progress": final_state.get("workflow_in_progress", False),
+            "next_domain": final_state.get("next_domain"),
+            "title": final_state.get("title"),
+        }
+        
+        await session_manager.save_session_state(session_id, session_state)
+        print(f"✅ [Background] 워크플로우 자동 진행 완료 및 저장 (session_id={session_id})")
+        
+        # ✅ 알림 발행: 프론트엔드에 세션 업데이트 알림 전송
+        try:
+            from agents.notifications import publish_employee_notification
+            
+            # document_path 추출 (문서 도메인인 경우)
+            current_domain = final_state.get("domain")
+            document_path = None
+            if current_domain == "document":
+                document_path = final_state.get("document_path")
+            
+            # final_response 추출
+            final_msg = final_state.get("final_response")
+            if not final_msg and conversation_history:
+                recent_assistant_msgs = [
+                    msg for msg in conversation_history 
+                    if msg.get("role") == "assistant"
+                ]
+                if recent_assistant_msgs:
+                    final_msg = recent_assistant_msgs[-1].get("content", None)
+            
+            # 알림 페이로드 구성
+            notification_payload = {
+                "type": "workflow_step_complete",
+                "session_id": session_id,
+                "message": final_msg or "워크플로우 단계가 완료되었습니다.",
+                "document_path": document_path,  # 문서가 생성된 경우 경로 포함
+                "last_domain": final_state.get("last_domain"),
+                "workflow_in_progress": final_state.get("workflow_in_progress", False),
+            }
+            
+            await publish_employee_notification(employee_id, notification_payload)
+            print(f"✅ [Background] 알림 발행 완료 (employee_id={employee_id}, session_id={session_id}, document_path={document_path})")
+        except Exception as e:
+            print(f"⚠️ [Background] 알림 발행 실패: {e}")
+            import traceback
+            traceback.print_exc()
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"⚠️ [Background] 워크플로우 자동 진행 실패: {e}")
+
+
 def _get_app_base_url() -> str:
     """애플리케이션 기본 URL을 반환."""
     return os.environ.get("APP_BASE_URL", "http://localhost:8000").rstrip("/")
