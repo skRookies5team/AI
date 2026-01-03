@@ -286,6 +286,11 @@ class ChatResponse(BaseModel):
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
     requires_input: Optional[bool] = Field(default=False, description="사용자 입력 필요 여부 (예시문 표시 시)")
     last_domain: Optional[str] = Field(default=None, description="LLM 라우팅 시 결정된 도메인 (schedule, document, qa, email, tech)")
+    workflow_type: Optional[str] = Field(default=None, description="현재 진행 중인 워크플로우 타입")
+    requires_interviewer_selection: Optional[bool] = Field(default=False, description="면접관 선택 UI 필요 여부")
+    requires_duration_selection: Optional[bool] = Field(default=False, description="면접 소요 시간 선택 UI 필요 여부")
+    requires_slot_selection: Optional[bool] = Field(default=False, description="면접 시간대 선택 UI 필요 여부")
+    available_slots: Optional[List[Dict[str, Any]]] = Field(default=None, description="선택 가능한 면접 시간대 목록")
 
 
 class EmailReplyRequest(BaseModel):
@@ -1323,6 +1328,12 @@ async def chat_endpoint(
         # 도메인 정보 추출 (LLM 라우팅 시 결정된 도메인)
         # domain이 없으면 last_domain을 fallback으로 사용
         last_domain = final_state.get("domain") or final_state.get("last_domain")
+        workflow_type = final_state.get("workflow_type")
+        
+        # 워크플로우 진행 중인데 type이 누락된 경우 도메인 기반으로 복구
+        workflow_in_progress = final_state.get("workflow_in_progress", False)
+        if not workflow_type and workflow_in_progress and last_domain == "recruitment":
+            workflow_type = "recruitment"
         
         # 도메인별 rows/email_ids 추출
         rows: list[dict[str, Any]] = []
@@ -1367,6 +1378,8 @@ async def chat_endpoint(
             if search_results:
                 rows = search_results
 
+        print(f"🔍 [FastAPI] UI 플래그 확인: Duration={final_state.get('requires_duration_selection')}, Slot={final_state.get('requires_slot_selection')}")
+
         return ChatResponse(
             ok=True,
             message=final_msg,
@@ -1377,6 +1390,11 @@ async def chat_endpoint(
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
             last_domain=last_domain,  # LLM 라우팅 시 결정된 도메인
+            workflow_type=workflow_type,  # 워크플로우 타입
+            requires_interviewer_selection=final_state.get("requires_interviewer_selection", False),
+            requires_duration_selection=final_state.get("requires_duration_selection", False),
+            requires_slot_selection=final_state.get("requires_slot_selection", False),
+            available_slots=final_state.get("available_slots"),
         )
 
     except Exception as exc:  # pragma: no cover
