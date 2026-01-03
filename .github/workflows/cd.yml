@@ -60,6 +60,7 @@ jobs:
               \"sudo sh -c 'echo IMAGE=$IMAGE >  $SERVICE_DIR/.env'\",
               \"sudo sh -c 'echo TAG=$TAG   >> $SERVICE_DIR/.env'\",
               \"aws ecr get-login-password --region $AWS_REGION | sudo docker login --username AWS --password-stdin $(echo $IMAGE | cut -d/ -f1)\",
+              \"docker compose -f $SERVICE_DIR/docker-compose.yml down\",
               \"docker compose -f $SERVICE_DIR/docker-compose.yml pull\",
               \"docker compose -f $SERVICE_DIR/docker-compose.yml up -d --remove-orphans\",
               \"sudo docker image prune -f\"
