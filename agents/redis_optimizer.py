@@ -36,70 +36,21 @@ def optimize_conversation_history(history: List[Message]) -> List[Message]:
 
 
 def optimize_email_search_context(context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """이메일 검색 컨텍스트를 최적화합니다.
+    """이메일 검색 컨텍스트는 최적화하지 않고 원본 그대로 반환합니다.
     
-    성능 최적화: 필요한 경우에만 복사하고 최적화.
-
     NOTE:
-    - email_search_context의 items[*].content/body/text는 프론트에서 원문 표시/후속 처리에
-      사용될 수 있어, 길이 제한으로 잘라내면 기능 품질이 떨어질 수 있습니다.
-    - 따라서 email_search_context에서는 텍스트 길이 제한(기존 400자)을 적용하지 않고,
-      리스트 개수 제한(items/ids)만 적용합니다.
+    - email_search_context의 items는 프론트엔드 페이지네이션에서 사용되므로
+      어떤 제한도 적용하지 않습니다.
+    - 프론트엔드에서 8개씩 페이지 처리하므로 전체 데이터가 필요합니다.
     
     Args:
         context: 이메일 검색 컨텍스트
         
     Returns:
-        최적화된 컨텍스트
+        원본 컨텍스트 (제한 없음)
     """
-    if not context:
-        return None
-    
-    # 변경이 필요한지 먼저 확인 (불필요한 복사 방지)
-    needs_optimization = False
-    
-    # items 리스트 크기 확인 (개수 제한만)
-    if "items" in context and isinstance(context["items"], list):
-        if len(context["items"]) > MAX_CONTEXT_ITEMS:
-            needs_optimization = True
-    
-    # ids 리스트 크기 확인
-    if "ids" in context and isinstance(context["ids"], list):
-        if len(context["ids"]) > MAX_CONTEXT_ITEMS * 2:
-            needs_optimization = True
-    
-    # 최적화가 필요 없으면 원본 반환
-    if not needs_optimization:
-        return context
-    
-    # 최적화가 필요한 경우에만 복사 및 최적화
-    optimized = {}
-    
-    # items 리스트 크기 제한
-    if "items" in context and isinstance(context["items"], list):
-        if len(context["items"]) > MAX_CONTEXT_ITEMS:
-            optimized["items"] = context["items"][:MAX_CONTEXT_ITEMS]
-        else:
-            optimized["items"] = context["items"].copy()
-    else:
-        if "items" in context:
-            optimized["items"] = context["items"]
-    
-    # ids 리스트 크기 제한
-    if "ids" in context and isinstance(context["ids"], list):
-        if len(context["ids"]) > MAX_CONTEXT_ITEMS * 2:
-            optimized["ids"] = context["ids"][:MAX_CONTEXT_ITEMS * 2]
-        else:
-            optimized["ids"] = context["ids"]
-    elif "ids" in context:
-        optimized["ids"] = context["ids"]
-    
-    # 나머지 키 복사
-    for key in context:
-        if key not in optimized:
-            optimized[key] = context[key]
-    
-    return optimized
+    # 이메일 검색 컨텍스트는 최적화하지 않고 원본 그대로 반환
+    return context
 
 
 def optimize_qa_search_context(context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -448,12 +399,9 @@ def optimize_state_before_save(state: OrchestratorState) -> OrchestratorState:
     if "document_path" in state:
         optimized["document_path"] = state["document_path"]
     
-    # search_results 크기 제한 (간단한 슬라이싱만)
-    if "search_results" in state and isinstance(state["search_results"], list):
-        if len(state["search_results"]) > MAX_CONTEXT_ITEMS:
-            optimized["search_results"] = state["search_results"][:MAX_CONTEXT_ITEMS]
-        else:
-            optimized["search_results"] = state["search_results"]
+    # search_results는 제한 없이 그대로 복사 (이메일 검색 결과 용도)
+    if "search_results" in state:
+        optimized["search_results"] = state["search_results"]
     
     # 나머지 필드 복사 (최적화하지 않고 그대로)
     for key in state:
