@@ -507,13 +507,13 @@ class RecruitmentMasterGraph(BaseMasterGraph):
                 is_hitl_in_progress = True
                 print(f"✅ 휴먼인더루프 진행 중 감지: collection_step={collection_step}")
         
-        # 휴먼인더루프 진행 중이면 무조건 워크플로우 차단
+        # 휴먼인더루프 진행 중이면 기존 상태 유지하면서 intent 반환
         if is_hitl_in_progress:
             return {
                 "intent": intent,
                 "workflow_in_progress": state.get("workflow_in_progress", False),
-                "workflow_type": None,  # 워크플로우 타입 제거
-                "workflow_steps": None,  # 워크플로우 단계 제거
+                "workflow_type": state.get("workflow_type"),  # 상태 유지
+                "workflow_steps": state.get("workflow_steps"),  # 상태 유지
             }
         
         # 워크플로우 요청인지 확인 (LLM 기반으로 더 정확하게)
@@ -536,10 +536,13 @@ class RecruitmentMasterGraph(BaseMasterGraph):
         has_simple_search_keyword = any(kw in query for kw in simple_search_keywords)
         
         # 워크플로우 키워드가 없거나, 단순 검색 키워드만 있으면 워크플로우 아님
-        if not has_workflow_keyword or (has_simple_search_keyword and not has_workflow_keyword):
+        # 단, 이미 워크플로우가 진행 중이라면 상태를 유지해야 함 (사용자가 답변만 하는 경우)
+        workflow_in_progress = state.get("workflow_in_progress", False)
+        
+        if (not has_workflow_keyword or (has_simple_search_keyword and not has_workflow_keyword)) and not workflow_in_progress:
             return {
                 "intent": intent,
-                "workflow_in_progress": state.get("workflow_in_progress", False),
+                "workflow_in_progress": False,
                 "workflow_type": None,  # 워크플로우 타입 제거
                 "workflow_steps": None,  # 워크플로우 단계 제거
             }
