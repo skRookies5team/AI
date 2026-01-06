@@ -286,6 +286,13 @@ class ChatResponse(BaseModel):
     document_path: Optional[str] = Field(default=None, description="생성된 문서 파일 경로 (있는 경우)")
     requires_input: Optional[bool] = Field(default=False, description="사용자 입력 필요 여부 (예시문 표시 시)")
     last_domain: Optional[str] = Field(default=None, description="LLM 라우팅 시 결정된 도메인 (schedule, document, qa, email, tech)")
+    # 워크플로우2 관련 필드
+    workflow_type: Optional[str] = Field(default=None, description="워크플로우 타입 (business_trip, recruitment 등)")
+    show_document_update_ui: Optional[bool] = Field(default=False, description="문서 업데이트 UI 표시 플래그")
+    requires_interviewer_selection: Optional[bool] = Field(default=False, description="면접관 선택 필요 여부")
+    requires_duration_selection: Optional[bool] = Field(default=False, description="면접 소요 시간 선택 필요 여부")
+    requires_slot_selection: Optional[bool] = Field(default=False, description="면접 시간대 선택 필요 여부")
+    available_slots: Optional[list[dict[str, Any]]] = Field(default=None, description="선택 가능한 면접 시간대 목록")
 
 
 class EmailReplyRequest(BaseModel):
@@ -1379,6 +1386,26 @@ async def chat_endpoint(
             if search_results:
                 rows = search_results
 
+        # ✅ 워크플로우2 관련 플래그 추출 (스트리밍 엔드포인트와 동일한 로직)
+        schedule_context = final_state.get("schedule_context") or {}
+        interview_context = schedule_context.get("interview", {}) if schedule_context else {}
+        
+        # workflow_type 추출
+        workflow_type = final_state.get("workflow_type")
+        
+        # 문서 업데이트 UI 플래그
+        show_document_update_ui = bool(final_state.get("show_document_update_ui", False))
+        
+        # 면접 일정 관련 플래그 (최상위 레벨 우선, 없으면 interview_context에서 읽기)
+        requires_interviewer_selection = final_state.get("requires_interviewer_selection",
+                                                         interview_context.get("requires_interviewer_selection", False))
+        requires_duration_selection = final_state.get("requires_duration_selection",
+                                                       interview_context.get("requires_duration_selection", False))
+        requires_slot_selection = final_state.get("requires_slot_selection",
+                                                  interview_context.get("requires_slot_selection", False))
+        available_slots = final_state.get("available_slots",
+                                          interview_context.get("available_slots")) or []
+
         return ChatResponse(
             ok=True,
             message=final_msg,
@@ -1389,6 +1416,13 @@ async def chat_endpoint(
             document_path=document_path,  # 생성된 문서 파일 경로 (문서 도메인에서만)
             requires_input=requires_input,  # 사용자 입력 필요 여부
             last_domain=last_domain,  # LLM 라우팅 시 결정된 도메인
+            # ✅ 워크플로우2 관련 필드
+            workflow_type=workflow_type,
+            show_document_update_ui=show_document_update_ui,
+            requires_interviewer_selection=requires_interviewer_selection,
+            requires_duration_selection=requires_duration_selection,
+            requires_slot_selection=requires_slot_selection,
+            available_slots=available_slots if available_slots else None,
         )
 
     except Exception as exc:  # pragma: no cover
